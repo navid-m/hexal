@@ -119,7 +119,9 @@ internal static class Program
               arrows           Move (Home/End/PageUp/PageDown supported)
               gg / ge          Go to first / last line
               gp               Go to the previous location
-              x                Delete the character at the cursor
+              x / X            Select line; repeat to extend by one line
+              v / V            Enter SELECT mode
+              d / D, Delete    Delete the character or selection
               u / Ctrl+R       Undo / redo
               :                Enter command mode
               Space            Open the space menu

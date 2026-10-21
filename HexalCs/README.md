@@ -12,7 +12,8 @@ the same architecture and observable behaviour as the C++ MVP:
 - Viewport-only rendering with a front/back cell-grid diff renderer
 - Raw ANSI terminal output, POSIX `termios` input and Windows Console input
 - UTF-8, BOM preservation, LF/CRLF preservation
-- NORMAL and INSERT modes, undo/redo, Ex commands and unsaved-change prompts
+- NORMAL, INSERT and SELECT modes, undo/redo, Ex commands and
+  unsaved-change prompts
 - **Background saves from an immutable piece snapshot** so large files can be
   saved without freezing input or scrolling
 
@@ -112,13 +113,15 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `i`, `I` | Enter INSERT mode |
 | `a` / `A` | Append after cursor / at end of line, then INSERT |
 | `o` / `O` | Open a line below / above, then INSERT |
-| `Esc` | Return to NORMAL mode or cancel a prompt |
+| `Esc` | Return to NORMAL mode, cancel SELECT mode or cancel a prompt |
 | `h` `j` `k` `l`, arrows | Move |
 | `Home` / `End` | Start / end of line |
 | `Ctrl+Home` / `Ctrl+End` | Start / end of document |
 | `PageUp` / `PageDown` | Move by one screen |
 | `gg` / `ge` / `gp` | First line / last line / previous location |
-| `x` | Delete the character under the cursor |
+| `x` / `X` | Select the current line; repeat to extend by one line |
+| `v` / `V` | Enter SELECT mode at the cursor |
+| `d` / `D`, `Delete` | Delete the character/selection under the cursor |
 | `u` / `Ctrl+R` | Undo / redo |
 | `:` | Open the Ex command line |
 | `Space` | Open the space menu (bottom-right) |

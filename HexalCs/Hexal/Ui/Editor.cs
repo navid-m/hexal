@@ -16,6 +16,7 @@ public sealed class Editor
     {
         Normal,
         Insert,
+        Select,
         Command
     }
 
@@ -69,6 +70,8 @@ public sealed class Editor
     private long _pickerGeneration;
 
     private long _cursor;
+    private long _selectionAnchor;
+    private bool _selectionLinewise;
     private long _topLine;
     private long _leftColumn;
     private long _preferredColumn;
@@ -240,6 +243,10 @@ public sealed class Editor
             else if (_mode == Mode.Insert)
             {
                 HandleInsert(inputEvent);
+            }
+            else if (_mode == Mode.Select)
+            {
+                HandleSelect(inputEvent);
             }
             else
             {
@@ -418,7 +425,8 @@ public sealed class Editor
             case 'k':
                 MoveVertical(-1);
                 return;
-            case 'x':
+            case 'd':
+            case 'D':
                 DeleteAtCursor();
                 return;
             case 'u':
@@ -428,16 +436,149 @@ public sealed class Editor
             case 'G':
                 _pendingG = true;
                 return;
+            case 'v':
             case 'V':
-                SetMessage("SELECT MODE is planned for Phase 2 and is not in this MVP.");
+                StartCharacterSelection();
                 return;
+            case 'x':
             case 'X':
-                SetMessage("Line selection is planned for Phase 2 and is not in this MVP.");
+                StartLineSelection();
                 return;
             case 'C':
                 SetMessage("Line commenting is planned for Phase 4 and is not in this MVP.");
                 return;
             default:
+                return;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SELECT MODE
+    // -----------------------------------------------------------------------
+
+    private void HandleSelect(InputEvent inputEvent)
+    {
+        if (inputEvent.Key == Key.Character && inputEvent.Ctrl)
+        {
+            _pendingG = false;
+            if (inputEvent.Character.Value == 'r')
+            {
+                CancelSelection();
+                Redo();
+            }
+            return;
+        }
+
+        if (inputEvent.Key == Key.Character && inputEvent.Alt)
+        {
+            _pendingG = false;
+            return;
+        }
+
+        if (_pendingG)
+        {
+            _pendingG = false;
+            if (inputEvent.Key == Key.Character)
+            {
+                uint character = (uint)inputEvent.Character.Value;
+                if (character is 'g' or 'G')
+                {
+                    MoveToDocumentStart(recordJump: true);
+                }
+                else if (character is 'e' or 'E')
+                {
+                    MoveToDocumentEnd(recordJump: true);
+                }
+                else if (character is 'p' or 'P')
+                {
+                    MoveToPreviousLocation();
+                }
+            }
+            return;
+        }
+
+        switch (inputEvent.Key)
+        {
+            case Key.Left:
+                MoveLeft();
+                return;
+            case Key.Right:
+                MoveRight();
+                return;
+            case Key.Up:
+                MoveVertical(-1);
+                return;
+            case Key.Down:
+                MoveVertical(1);
+                return;
+            case Key.PageUp:
+                MovePage(-1);
+                return;
+            case Key.PageDown:
+                MovePage(1);
+                return;
+            case Key.Home:
+                if (inputEvent.Ctrl)
+                {
+                    MoveToDocumentStart(recordJump: true);
+                }
+                else
+                {
+                    MoveTo(LineStartOfCursor(), recordJump: false);
+                }
+                return;
+            case Key.End:
+                if (inputEvent.Ctrl)
+                {
+                    MoveToDocumentEnd(recordJump: true);
+                }
+                else
+                {
+                    MoveTo(LineEndOfCursor(), recordJump: false);
+                }
+                return;
+            case Key.Escape:
+                CancelSelection();
+                return;
+            case Key.Delete:
+                DeleteSelection();
+                return;
+        }
+
+        if (inputEvent.Key != Key.Character)
+        {
+            return;
+        }
+
+        switch (inputEvent.Character.Value)
+        {
+            case 'x':
+            case 'X':
+                ExtendLineSelection();
+                return;
+            case 'd':
+            case 'D':
+                DeleteSelection();
+                return;
+            case 'h':
+                MoveLeft();
+                return;
+            case 'l':
+                MoveRight();
+                return;
+            case 'j':
+                MoveVertical(1);
+                return;
+            case 'k':
+                MoveVertical(-1);
+                return;
+            case 'g':
+            case 'G':
+                _pendingG = true;
+                return;
+            case 'u':
+                CancelSelection();
+                Undo();
                 return;
         }
     }
@@ -1909,6 +2050,134 @@ public sealed class Editor
         SnapCursor();
     }
 
+    private void StartCharacterSelection()
+    {
+        _mode = Mode.Select;
+        _selectionLinewise = false;
+        _selectionAnchor = _cursor;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private void StartLineSelection()
+    {
+        _mode = Mode.Select;
+        _selectionLinewise = true;
+        _selectionAnchor = _document.LineStart(CursorLine());
+        _cursor = _selectionAnchor;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private void ExtendLineSelection()
+    {
+        if (!_selectionLinewise)
+        {
+            long line = CursorLine();
+            _selectionAnchor = _document.LineStart(line);
+            _cursor = _selectionAnchor;
+            _selectionLinewise = true;
+        }
+        else
+        {
+            long line = CursorLine();
+            if (line + 1 < _document.LineCount)
+            {
+                _cursor = _document.LineStart(line + 1);
+            }
+            else
+            {
+                SetMessage("Already at the last line.");
+            }
+        }
+
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+    }
+
+    private void CancelSelection()
+    {
+        _mode = Mode.Normal;
+        _selectionLinewise = false;
+        _selectionAnchor = _cursor;
+        _pendingG = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private void DeleteSelection()
+    {
+        if (_mode != Mode.Select)
+        {
+            return;
+        }
+
+        (long start, long end) = SelectionRange();
+        _document.BreakUndoGroup();
+        if (end > start)
+        {
+            _document.Erase(start, end - start);
+        }
+
+        _cursor = Math.Clamp(start, 0, _document.Size);
+        _mode = Mode.Normal;
+        _selectionLinewise = false;
+        _selectionAnchor = _cursor;
+        _preferredColumnValid = false;
+        SnapCursor();
+        ClearMessage();
+    }
+
+    /// <summary>
+    /// Returns the selected byte range as a half-open interval. Character
+    /// selections include the scalar under the cursor; line selections include
+    /// the final line's terminator when one exists.
+    /// </summary>
+    private (long Start, long End) SelectionRange()
+    {
+        if (_selectionLinewise)
+        {
+            long anchorLine = _document.LineOfOffset(_selectionAnchor);
+            long cursorLine = CursorLine();
+            long firstLine = Math.Min(anchorLine, cursorLine);
+            long lastLine = Math.Max(anchorLine, cursorLine);
+            long start = _document.LineStart(firstLine);
+            long end = lastLine + 1 < _document.LineCount
+                ? _document.LineStart(lastLine + 1)
+                : _document.Size;
+            return (start, end);
+        }
+
+        long rangeStart = Math.Min(_selectionAnchor, _cursor);
+        long rangeEnd = Math.Max(_selectionAnchor, _cursor);
+
+        if (rangeEnd < _document.Size)
+        {
+            long line = _document.LineOfOffset(rangeEnd);
+            long lineStart = _document.LineStart(line);
+            long lineEnd = _document.LineEnd(line);
+
+            if (rangeEnd < lineEnd)
+            {
+                int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+                int local = (int)(rangeEnd - lineStart);
+                rangeEnd = lineStart +
+                           UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
+            }
+            else if (rangeEnd == lineEnd && line + 1 < _document.LineCount)
+            {
+                // The cursor sits just past the last scalar; include the
+                // line's terminator so selecting to end-of-line deletes the
+                // line break as expected.
+                rangeEnd = _document.LineStart(line + 1);
+            }
+        }
+
+        return (rangeStart, rangeEnd);
+    }
+
     private void EnsureCursorVisible()
     {
         long line = CursorLine();
@@ -1994,6 +2263,7 @@ public sealed class Editor
         return _mode switch
         {
             Mode.Insert => "INSERT",
+            Mode.Select => "SELECT",
             Mode.Command => "COMMAND",
             _ => "NORMAL"
         };
@@ -2178,6 +2448,84 @@ public sealed class Editor
         }
     }
 
+    private void RenderSelection(long firstLine, int rows, int gutter)
+    {
+        if (_mode != Mode.Select || rows <= 0 || _columns <= gutter)
+        {
+            return;
+        }
+
+        (long selectionStart, long selectionEnd) = SelectionRange();
+        if (selectionEnd <= selectionStart)
+        {
+            return;
+        }
+
+        var style = new Style { Fg = 15, Bg = 4 };
+        long total = _document.LineCount;
+
+        for (int row = 0; row < rows; ++row)
+        {
+            long line = firstLine + row;
+            if (line >= total)
+            {
+                break;
+            }
+
+            long lineStart = _document.LineStart(line);
+            long lineEnd = _document.LineEnd(line);
+            long nextLineStart = line + 1 < total
+                ? _document.LineStart(line + 1)
+                : _document.Size;
+
+            if (_selectionLinewise)
+            {
+                if (selectionStart < nextLineStart && selectionEnd > lineStart)
+                {
+                    for (int x = gutter; x < _columns; ++x)
+                    {
+                        _screen.ApplyStyle(x, row, style);
+                    }
+                }
+                continue;
+            }
+
+            long from = Math.Max(selectionStart, lineStart);
+            long to = Math.Min(selectionEnd, lineEnd);
+            if (to <= from)
+            {
+                // A selection that ends exactly on a line break still needs a
+                // visible cell when the line itself is empty.
+                if (selectionStart == lineStart && selectionEnd > lineStart &&
+                    lineEnd == lineStart)
+                {
+                    if (gutter < _columns)
+                    {
+                        _screen.ApplyStyle(gutter, row, style);
+                    }
+                }
+                continue;
+            }
+
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            int localFrom = (int)Math.Clamp(from - lineStart, 0, length);
+            int localTo = (int)Math.Clamp(to - lineStart, 0, length);
+
+            long visualFrom = UnicodeUtil.VisualColumn(
+                _lineBuffer.AsSpan(0, length), localFrom, TabWidth);
+            long visualTo = UnicodeUtil.VisualColumn(
+                _lineBuffer.AsSpan(0, length), localTo, TabWidth);
+
+            long firstX = Math.Max(gutter, gutter + visualFrom - _leftColumn);
+            long lastX = Math.Min(_columns, gutter + visualTo - _leftColumn);
+
+            for (long x = firstX; x < lastX; ++x)
+            {
+                _screen.ApplyStyle((int)x, row, style);
+            }
+        }
+    }
+
     private void RenderCursor(long firstLine, int rows, int gutter)
     {
         long line = CursorLine();
@@ -2223,6 +2571,12 @@ public sealed class Editor
         {
             style.Fg = 0;
             style.Bg = 2;
+            style.Bold = true;
+        }
+        else if (_mode == Mode.Select)
+        {
+            style.Fg = 0;
+            style.Bg = 3;
             style.Bold = true;
         }
         else if (_mode == Mode.Command)
@@ -2529,6 +2883,7 @@ public sealed class Editor
         {
             RenderLineNumbers(_topLine, rows, gutter);
             RenderTextLines(_topLine, rows, gutter);
+            RenderSelection(_topLine, rows, gutter);
             RenderCursor(_topLine, rows, gutter);
         }
 
