@@ -85,6 +85,7 @@ It covers:
 - atomic save failure preservation
 - save-snapshot isolation while the live document keeps changing
 - revision-based dirty tracking for edits made during a background save
+- project file enumeration, ignored directories and content search offsets
 
 ## Usage
 
@@ -120,7 +121,19 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `x` | Delete the character under the cursor |
 | `u` / `Ctrl+R` | Undo / redo |
 | `:` | Open the Ex command line |
+| `Space` | Open the space menu (bottom-right) |
+| `Space` `/` | Search across project files |
+| `Space` `f` | Open the file picker |
 | `Tab` | Insert a tab in INSERT mode |
+
+### Space menu
+
+Pressing `Space` in NORMAL mode opens a small menu in the bottom-right corner,
+modelled on Helix's which-key menu. Press `Esc` to dismiss it, `/` to search
+across files, or `f` to open the file picker. Both pickers filter as you type;
+use Up/Down (or PageUp/PageDown) to select and Enter to open the result. File
+pickers start from the current working directory and skip common build and VCS
+directories. Search results open the file at the matching line.
 
 ### Commands
 
@@ -175,6 +188,7 @@ HexalCs/Hexal/
     ByteBuffer.cs            reusable growable byte buffer
     UnicodeUtil.cs           UTF-8, boundaries, display widths
     FileSystemUtil.cs        binary read and atomic replacement
+    FileSearch.cs            project file enumeration and text search
 ```
 
 `Core` has no terminal or UI dependency and is what the test project exercises.

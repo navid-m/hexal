@@ -24,6 +24,7 @@ internal static class Program
         TestUndoRedo();
         TestSaveFailureLeavesOriginal();
         TestFilesystemReadWrite();
+        TestFileSearch();
 
         Console.Out.WriteLine($"{s_checks - s_failures} of {s_checks} checks passed");
         if (s_failures != 0)
@@ -599,6 +600,42 @@ internal static class Program
 
         Check(FileSystemUtil.ReadFile(path, out byte[] contents, out error), "read file");
         CheckEqual(Text(contents), "new", "read contents", "new");
+    }
+
+    private static void TestFileSearch()
+    {
+        using var directory = new TempDir();
+        string source = directory.Path("src");
+        string ignored = directory.Path("build");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(ignored);
+
+        Check(WriteBytes(directory.Path("root.txt"), "first line\nsecond line\n"u8),
+            "write search root file");
+        Check(WriteBytes(System.IO.Path.Combine(source, "code.cs"),
+            "alpha\n  beta needle gamma\n"u8), "write search nested file");
+        Check(WriteBytes(System.IO.Path.Combine(ignored, "skip.cs"),
+            "needle in ignored directory\n"u8), "write ignored file");
+
+        List<string> files = FileSearch.EnumerateFiles(directory.Path("."),
+            FileSearch.DefaultMaxFiles, CancellationToken.None);
+
+        Check(files.Contains(System.IO.Path.Combine("src", "code.cs")),
+            "nested file is enumerated");
+        Check(files.Contains("root.txt"), "root file is enumerated");
+        Check(!files.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
+            "ignored directory is skipped");
+
+        List<FileSearchMatch> matches = FileSearch.Search(directory.Path("."), files,
+            "needle", FileSearch.DefaultMaxResults, CancellationToken.None);
+
+        CheckEqual(matches.Count, 1, "matches.Count", "1");
+        CheckEqual(matches[0].Path, System.IO.Path.Combine("src", "code.cs"),
+            "match.Path", "nested code.cs");
+        CheckEqual(matches[0].Line, 1L, "match.Line", "1");
+        CheckEqual(matches[0].Column, 7L, "match.Column", "7");
+        Check(matches[0].Preview.Contains("beta needle", StringComparison.Ordinal),
+            "match preview");
     }
 
     private static long ExpectedLineStart(byte[] text, long line)

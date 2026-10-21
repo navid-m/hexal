@@ -122,6 +122,9 @@ internal static class Program
               x                Delete the character at the cursor
               u / Ctrl+R       Undo / redo
               :                Enter command mode
+              Space            Open the space menu
+              Space /          Search across files
+              Space f          Open the file picker
 
             Relative file names are resolved from the current working directory.
 

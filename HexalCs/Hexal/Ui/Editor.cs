@@ -26,6 +26,19 @@ public sealed class Editor
         Open
     }
 
+    private enum PickerKind
+    {
+        None,
+        Files,
+        Search
+    }
+
+    private static readonly (char Key, string Label)[] SpaceMenuItems =
+    {
+        ('/', "Search across files"),
+        ('f', "Open file picker")
+    };
+
     private readonly ITerminal _terminal;
     private readonly Renderer _renderer = new();
     private readonly Screen _screen = new();
@@ -35,6 +48,25 @@ public sealed class Editor
     private Mode _mode = Mode.Normal;
     private PromptKind _prompt = PromptKind.None;
     private string _pendingOpen = string.Empty;
+    private long _pendingOpenLine = -1;
+    private long _pendingOpenColumn = -1;
+
+    private bool _spaceMenuOpen;
+
+    private PickerKind _pickerKind = PickerKind.None;
+    private readonly StringBuilder _pickerQuery = new();
+    private int _pickerQueryCursor;
+    private readonly List<PickerItem> _pickerItems = new();
+    private int _pickerSelected;
+    private int _pickerTop;
+    private bool _pickerLoading;
+    private string _pickerStatus = string.Empty;
+    private string _pickerRoot = string.Empty;
+    private List<string> _pickerFiles = new();
+    private bool _pickerFilesLoaded;
+    private CancellationTokenSource? _pickerCancellation;
+    private Task<PickerScanResult>? _pickerTask;
+    private long _pickerGeneration;
 
     private long _cursor;
     private long _topLine;
@@ -59,6 +91,23 @@ public sealed class Editor
     private bool _pendingG;
 
     private byte[] _lineBuffer = Array.Empty<byte>();
+
+    private sealed class PickerItem
+    {
+        public string Display = string.Empty;
+        public string Path = string.Empty;
+        public long Line = -1;
+        public long Column;
+    }
+
+    private sealed class PickerScanResult
+    {
+        public long Generation;
+        public bool FileList;
+        public List<string> Files = new();
+        public List<FileSearchMatch> Matches = new();
+        public string Error = string.Empty;
+    }
 
     private sealed class SaveOperation
     {
@@ -97,7 +146,7 @@ public sealed class Editor
 
         while (_running)
         {
-            if (PollSave())
+            if (PollBackgroundWork())
             {
                 Render();
             }
@@ -106,10 +155,11 @@ public sealed class Editor
                 break;
             }
 
-            // A pending save needs a periodic wake-up so the UI can report
-            // completion and :wq can finish. Idle with no save uses a blocking
-            // read and consumes no CPU.
-            int timeout = _saveOperation is null ? -1 : 50;
+            // Pending background work needs a periodic wake-up so the UI can
+            // report completion. Idle with no work uses a blocking read and
+            // consumes no CPU.
+            bool busy = _saveOperation is not null || _pickerTask is not null;
+            int timeout = busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
                 break;
@@ -117,7 +167,7 @@ public sealed class Editor
 
             if (inputEvent.Key == Key.None)
             {
-                if (PollSave())
+                if (PollBackgroundWork())
                 {
                     Render();
                 }
@@ -171,7 +221,15 @@ public sealed class Editor
 
         try
         {
-            if (_prompt != PromptKind.None)
+            if (_pickerKind != PickerKind.None)
+            {
+                HandlePicker(inputEvent);
+            }
+            else if (_spaceMenuOpen)
+            {
+                HandleSpaceMenu(inputEvent);
+            }
+            else if (_prompt != PromptKind.None)
             {
                 HandlePrompt(inputEvent);
             }
@@ -307,6 +365,9 @@ public sealed class Editor
 
         switch (inputEvent.Character.Value)
         {
+            case ' ':
+                OpenSpaceMenu();
+                return;
             case ':':
                 _mode = Mode.Command;
                 _commandLine.Clear();
@@ -608,7 +669,7 @@ public sealed class Editor
         if (inputEvent.Key == Key.Escape)
         {
             _prompt = PromptKind.None;
-            _pendingOpen = string.Empty;
+            ClearPendingOpen();
             SetMessage("Cancelled.");
             return;
         }
@@ -631,8 +692,10 @@ public sealed class Editor
             else if (kind == PromptKind.Open)
             {
                 string path = _pendingOpen;
-                _pendingOpen = string.Empty;
-                OpenPath(path);
+                long line = _pendingOpenLine;
+                long column = _pendingOpenColumn;
+                ClearPendingOpen();
+                OpenPathAt(path, line, column);
             }
             return;
         }
@@ -640,9 +703,523 @@ public sealed class Editor
         if (character is 'n' or 'N')
         {
             _prompt = PromptKind.None;
-            _pendingOpen = string.Empty;
+            ClearPendingOpen();
             SetMessage("Cancelled.");
         }
+    }
+
+    private void ClearPendingOpen()
+    {
+        _pendingOpen = string.Empty;
+        _pendingOpenLine = -1;
+        _pendingOpenColumn = -1;
+    }
+
+    // -----------------------------------------------------------------------
+    // SPACE MENU AND PICKERS
+    // -----------------------------------------------------------------------
+
+    private void OpenSpaceMenu()
+    {
+        _spaceMenuOpen = true;
+        _pendingG = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private void HandleSpaceMenu(InputEvent inputEvent)
+    {
+        if (inputEvent.Key == Key.Escape)
+        {
+            _spaceMenuOpen = false;
+            return;
+        }
+
+        if (inputEvent.Key != Key.Character || inputEvent.Ctrl || inputEvent.Alt)
+        {
+            return;
+        }
+
+        _spaceMenuOpen = false;
+        switch (inputEvent.Character.Value)
+        {
+            case '/':
+                OpenPicker(PickerKind.Search);
+                return;
+            case 'f':
+                OpenPicker(PickerKind.Files);
+                return;
+            default:
+                // Helix closes the which-key menu when an unbound key is
+                // pressed; the key does not fall through to NORMAL mode.
+                return;
+        }
+    }
+
+    private void OpenPicker(PickerKind kind)
+    {
+        _pickerKind = kind;
+        _pickerQuery.Clear();
+        _pickerQueryCursor = 0;
+        _pickerItems.Clear();
+        _pickerSelected = 0;
+        _pickerTop = 0;
+        _pickerStatus = string.Empty;
+        _pickerLoading = true;
+        _pickerRoot = ProjectRoot();
+        _pendingG = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+
+        if (!_pickerFilesLoaded)
+        {
+            StartPickerFileScan();
+        }
+        else
+        {
+            BeginPickerQuery();
+        }
+    }
+
+    private void ClosePicker()
+    {
+        CancelPickerWork();
+        _pickerKind = PickerKind.None;
+        _pickerQuery.Clear();
+        _pickerQueryCursor = 0;
+        _pickerItems.Clear();
+        _pickerSelected = 0;
+        _pickerTop = 0;
+        _pickerLoading = false;
+        _pickerStatus = string.Empty;
+    }
+
+    private void StartPickerFileScan()
+    {
+        CancelPickerWork();
+
+        long generation = ++_pickerGeneration;
+        var cancellation = new CancellationTokenSource();
+        _pickerCancellation = cancellation;
+        string root = _pickerRoot;
+
+        _pickerTask = Task.Run(() =>
+        {
+            var result = new PickerScanResult
+            {
+                Generation = generation,
+                FileList = true
+            };
+
+            try
+            {
+                result.Files = FileSearch.EnumerateFiles(root, FileSearch.DefaultMaxFiles,
+                    cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded by a newer picker operation.
+            }
+            catch (Exception ex)
+            {
+                result.Error = ex.Message;
+            }
+
+            return result;
+        }, cancellation.Token);
+    }
+
+    private void BeginPickerQuery()
+    {
+        switch (_pickerKind)
+        {
+            case PickerKind.Files:
+                PopulateFileItems();
+                return;
+            case PickerKind.Search:
+                if (_pickerQuery.Length == 0)
+                {
+                    _pickerItems.Clear();
+                    _pickerSelected = 0;
+                    _pickerTop = 0;
+                    _pickerLoading = false;
+                    _pickerStatus = "Type to search";
+                    return;
+                }
+
+                StartPickerSearch();
+                return;
+        }
+    }
+
+    private void PopulateFileItems()
+    {
+        _pickerItems.Clear();
+        string query = _pickerQuery.ToString();
+
+        if (query.Length == 0)
+        {
+            foreach (string path in _pickerFiles)
+            {
+                _pickerItems.Add(new PickerItem
+                {
+                    Display = path,
+                    Path = Path.GetFullPath(Path.Combine(_pickerRoot, path))
+                });
+            }
+        }
+        else
+        {
+            var scored = new List<(int Score, PickerItem Item)>();
+            foreach (string path in _pickerFiles)
+            {
+                int score = FuzzyScore(path, query);
+                if (score < int.MaxValue)
+                {
+                    scored.Add((score, new PickerItem
+                    {
+                        Display = path,
+                        Path = Path.GetFullPath(Path.Combine(_pickerRoot, path))
+                    }));
+                }
+            }
+
+            scored.Sort((left, right) =>
+            {
+                int comparison = left.Score.CompareTo(right.Score);
+                return comparison != 0
+                    ? comparison
+                    : string.Compare(left.Item.Display, right.Item.Display,
+                        StringComparison.OrdinalIgnoreCase);
+            });
+
+            foreach ((int _, PickerItem item) in scored)
+            {
+                _pickerItems.Add(item);
+            }
+        }
+
+        _pickerSelected = 0;
+        _pickerTop = 0;
+        _pickerLoading = false;
+        _pickerStatus = _pickerItems.Count == 0
+            ? "No matching files"
+            : $"{_pickerItems.Count} file{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+    }
+
+    private void StartPickerSearch()
+    {
+        CancelPickerWork();
+
+        long generation = ++_pickerGeneration;
+        var cancellation = new CancellationTokenSource();
+        _pickerCancellation = cancellation;
+        string root = _pickerRoot;
+        string query = _pickerQuery.ToString();
+        List<string> files = _pickerFiles;
+
+        _pickerLoading = true;
+        _pickerStatus = "Searching...";
+
+        _pickerTask = Task.Run(() =>
+        {
+            var result = new PickerScanResult
+            {
+                Generation = generation
+            };
+
+            try
+            {
+                result.Matches = FileSearch.Search(root, files, query,
+                    FileSearch.DefaultMaxResults, cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded by a newer query.
+            }
+            catch (Exception ex)
+            {
+                result.Error = ex.Message;
+            }
+
+            return result;
+        }, cancellation.Token);
+    }
+
+    private bool PollPicker()
+    {
+        Task<PickerScanResult>? task = _pickerTask;
+        if (task is null || !task.IsCompleted)
+        {
+            return false;
+        }
+
+        _pickerTask = null;
+        _pickerCancellation?.Dispose();
+        _pickerCancellation = null;
+
+        PickerScanResult result;
+        try
+        {
+            result = task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _pickerLoading = false;
+            _pickerStatus = $"E: {ex.Message}";
+            return true;
+        }
+
+        if (result.Generation != _pickerGeneration)
+        {
+            return false;
+        }
+
+        if (result.FileList)
+        {
+            if (result.Error.Length > 0)
+            {
+                _pickerFilesLoaded = false;
+                _pickerLoading = false;
+                _pickerStatus = $"E: {result.Error}";
+                return true;
+            }
+
+            _pickerFiles = result.Files;
+            _pickerFilesLoaded = true;
+            if (_pickerKind != PickerKind.None)
+            {
+                BeginPickerQuery();
+            }
+            return true;
+        }
+
+        if (_pickerKind != PickerKind.Search)
+        {
+            return false;
+        }
+
+        _pickerItems.Clear();
+        if (result.Error.Length > 0)
+        {
+            _pickerStatus = $"E: {result.Error}";
+        }
+        else
+        {
+            foreach (FileSearchMatch match in result.Matches)
+            {
+                _pickerItems.Add(new PickerItem
+                {
+                    Display = $"{match.Path}:{match.Line + 1}  {match.Preview}",
+                    Path = Path.GetFullPath(Path.Combine(_pickerRoot, match.Path)),
+                    Line = match.Line,
+                    Column = match.Column
+                });
+            }
+
+            _pickerStatus = _pickerItems.Count == 0
+                ? "No matches"
+                : $"{_pickerItems.Count} match{(_pickerItems.Count == 1 ? string.Empty : "es")}";
+        }
+
+        _pickerSelected = 0;
+        _pickerTop = 0;
+        _pickerLoading = false;
+        return true;
+    }
+
+    private static string ProjectRoot()
+    {
+        try
+        {
+            return Directory.GetCurrentDirectory();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            return ".";
+        }
+    }
+
+    private void HandlePicker(InputEvent inputEvent)
+    {
+        if (inputEvent.Key == Key.Escape)
+        {
+            ClosePicker();
+            SetMessage("Cancelled.");
+            return;
+        }
+
+        if (inputEvent.Key == Key.Character && inputEvent.Ctrl)
+        {
+            return;
+        }
+
+        switch (inputEvent.Key)
+        {
+            case Key.Enter:
+                ActivatePickerItem();
+                return;
+            case Key.Up:
+                MovePickerSelection(-1);
+                return;
+            case Key.Down:
+                MovePickerSelection(1);
+                return;
+            case Key.PageUp:
+                MovePickerSelection(-PickerListRows());
+                return;
+            case Key.PageDown:
+                MovePickerSelection(PickerListRows());
+                return;
+            case Key.Backspace:
+                if (_pickerQueryCursor > 0)
+                {
+                    string text = _pickerQuery.ToString();
+                    int previous = UnicodeUtil.PreviousBoundary(text, _pickerQueryCursor);
+                    _pickerQuery.Remove(previous, _pickerQueryCursor - previous);
+                    _pickerQueryCursor = previous;
+                    BeginPickerQuery();
+                }
+                return;
+            case Key.Delete:
+                if (_pickerQueryCursor < _pickerQuery.Length)
+                {
+                    string text = _pickerQuery.ToString();
+                    int next = UnicodeUtil.NextBoundary(text, _pickerQueryCursor);
+                    _pickerQuery.Remove(_pickerQueryCursor, next - _pickerQueryCursor);
+                    BeginPickerQuery();
+                }
+                return;
+            case Key.Left:
+                _pickerQueryCursor = UnicodeUtil.PreviousBoundary(_pickerQuery.ToString(),
+                    _pickerQueryCursor);
+                return;
+            case Key.Right:
+                _pickerQueryCursor = UnicodeUtil.NextBoundary(_pickerQuery.ToString(),
+                    _pickerQueryCursor);
+                return;
+            case Key.Home:
+                _pickerQueryCursor = 0;
+                return;
+            case Key.End:
+                _pickerQueryCursor = _pickerQuery.Length;
+                return;
+        }
+
+        if (inputEvent.Key == Key.Character && !inputEvent.Alt)
+        {
+            uint codePoint = (uint)inputEvent.Character.Value;
+            if (codePoint < 0x20 || codePoint == 0x7F)
+            {
+                return;
+            }
+
+            string inserted = inputEvent.Character.ToString();
+            _pickerQuery.Insert(_pickerQueryCursor, inserted);
+            _pickerQueryCursor += inserted.Length;
+            BeginPickerQuery();
+        }
+    }
+
+    private void MovePickerSelection(int delta)
+    {
+        if (_pickerItems.Count == 0)
+        {
+            return;
+        }
+
+        _pickerSelected = Math.Clamp(_pickerSelected + delta, 0, _pickerItems.Count - 1);
+        int rows = PickerListRows();
+        if (_pickerSelected < _pickerTop)
+        {
+            _pickerTop = _pickerSelected;
+        }
+        else if (_pickerSelected >= _pickerTop + rows)
+        {
+            _pickerTop = _pickerSelected - rows + 1;
+        }
+
+        int maxTop = Math.Max(0, _pickerItems.Count - rows);
+        _pickerTop = Math.Clamp(_pickerTop, 0, maxTop);
+    }
+
+    private void ActivatePickerItem()
+    {
+        if (_pickerLoading || _pickerSelected < 0 || _pickerSelected >= _pickerItems.Count)
+        {
+            return;
+        }
+
+        PickerItem item = _pickerItems[_pickerSelected];
+        string path = item.Path;
+        long line = item.Line;
+        long column = item.Column;
+
+        ClosePicker();
+        RequestOpen(path, force: false, line, column);
+    }
+
+    private void CancelPickerWork()
+    {
+        _pickerCancellation?.Cancel();
+        _pickerCancellation?.Dispose();
+        _pickerCancellation = null;
+        _pickerTask = null;
+    }
+
+    /// <summary>
+    /// Returns a lower score for better matches, or int.MaxValue when the
+    /// query does not match. Contiguous matches rank ahead of subsequences.
+    /// </summary>
+    private static int FuzzyScore(string text, string query)
+    {
+        if (query.Length == 0)
+        {
+            return 0;
+        }
+
+        int contiguous = text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        if (contiguous >= 0)
+        {
+            return contiguous;
+        }
+
+        int textIndex = 0;
+        int gapScore = 0;
+        int lastMatch = -2;
+
+        foreach (char queryChar in query)
+        {
+            char wanted = char.ToLowerInvariant(queryChar);
+            bool found = false;
+
+            while (textIndex < text.Length)
+            {
+                char candidate = char.ToLowerInvariant(text[textIndex]);
+                if (candidate == wanted)
+                {
+                    gapScore += textIndex - lastMatch - 1;
+                    lastMatch = textIndex;
+                    ++textIndex;
+                    found = true;
+                    break;
+                }
+
+                ++textIndex;
+            }
+
+            if (!found)
+            {
+                return int.MaxValue;
+            }
+        }
+
+        return 10_000 + gapScore + Math.Min(text.Length, 1_000);
     }
 
     // -----------------------------------------------------------------------
@@ -771,6 +1348,19 @@ public sealed class Editor
     }
 
     /// <summary>
+    /// Polls every background task that can change what is on screen.
+    /// </summary>
+    private bool PollBackgroundWork()
+    {
+        bool redraw = PollSave();
+        if (PollPicker())
+        {
+            redraw = true;
+        }
+        return redraw;
+    }
+
+    /// <summary>
     /// Called from the UI loop. Returns true when the save state changed and a
     /// redraw is warranted.
     /// </summary>
@@ -896,19 +1486,21 @@ public sealed class Editor
         _running = false;
     }
 
-    private void RequestOpen(string path, bool force)
+    private void RequestOpen(string path, bool force, long line = -1, long column = -1)
     {
         if (!force && _document.IsDirty)
         {
             _pendingOpen = path;
+            _pendingOpenLine = line;
+            _pendingOpenColumn = column;
             _prompt = PromptKind.Open;
             return;
         }
 
-        OpenPath(path);
+        OpenPathAt(path, line, column);
     }
 
-    private void OpenPath(string path)
+    private void OpenPathAt(string path, long line, long column)
     {
         Document? loaded = Document.Open(path, out string error);
         if (loaded is null)
@@ -927,8 +1519,32 @@ public sealed class Editor
         _mode = Mode.Normal;
         _commandLine.Clear();
         _commandCursor = 0;
+
+        if (line >= 0 && _document.LineCount > 0)
+        {
+            long targetLine = Math.Clamp(line, 0, _document.LineCount - 1);
+            long start = _document.LineStart(targetLine);
+            long end = _document.LineEnd(targetLine);
+            int length = _document.CopyLineText(targetLine, ref _lineBuffer, out _);
+
+            int local = (int)Math.Clamp(column, 0, length);
+            // A search match comes from decoded text, so its byte offset can
+            // land inside a scalar in a file containing invalid UTF-8. Move
+            // forward to the next scalar boundary before placing the cursor.
+            while (local < length && (_lineBuffer[local] & 0xC0) == 0x80)
+            {
+                ++local;
+            }
+
+            _cursor = Math.Clamp(start + local, start, end);
+            int rows = TextRows();
+            _topLine = Math.Max(0, targetLine - Math.Max(0, rows / 2));
+        }
+
         SnapCursor();
-        SetMessage($"Opened {path}");
+        SetMessage(line >= 0
+            ? $"Opened {path}:{line + 1}"
+            : $"Opened {path}");
     }
 
     private void Undo()
@@ -1708,6 +2324,183 @@ public sealed class Editor
         }
     }
 
+    private int PickerHeight()
+    {
+        int available = (int)Math.Max(0, StatusRow());
+        return Math.Max(0, Math.Min(18, available - 1));
+    }
+
+    private int PickerListRows()
+    {
+        return Math.Max(1, PickerHeight() - 3);
+    }
+
+    private void DrawBox(int x, int y, int width, int height, string title)
+    {
+        if (width < 2 || height < 2)
+        {
+            return;
+        }
+
+        var fillStyle = new Style();
+        var borderStyle = new Style { Fg = 8 };
+        var titleStyle = new Style { Fg = 14, Bold = true };
+
+        _screen.Fill(x, y, width, height, ' ', fillStyle);
+
+        for (int column = 1; column < width - 1; ++column)
+        {
+            _screen.Put(x + column, y, (uint)'─', borderStyle);
+            _screen.Put(x + column, y + height - 1, (uint)'─', borderStyle);
+        }
+
+        for (int row = 1; row < height - 1; ++row)
+        {
+            _screen.Put(x, y + row, (uint)'│', borderStyle);
+            _screen.Put(x + width - 1, y + row, (uint)'│', borderStyle);
+        }
+
+        _screen.Put(x, y, (uint)'┌', borderStyle);
+        _screen.Put(x + width - 1, y, (uint)'┐', borderStyle);
+        _screen.Put(x, y + height - 1, (uint)'└', borderStyle);
+        _screen.Put(x + width - 1, y + height - 1, (uint)'┘', borderStyle);
+
+        if (title.Length > 0 && width > 6)
+        {
+            _screen.PutString(x + 2, y, $" {title} ", titleStyle, width - 4);
+        }
+    }
+
+    private void RenderSpaceMenu()
+    {
+        if (!_spaceMenuOpen)
+        {
+            return;
+        }
+
+        int contentWidth = 0;
+        foreach ((char _, string label) in SpaceMenuItems)
+        {
+            contentWidth = Math.Max(contentWidth, label.Length + 4);
+        }
+
+        int width = Math.Max(14, contentWidth + 2);
+        int height = SpaceMenuItems.Length + 2;
+        int statusRow = (int)StatusRow();
+        if (_columns < 10 || statusRow < height + 1)
+        {
+            return;
+        }
+
+        if (width > _columns - 2)
+        {
+            width = _columns - 2;
+        }
+
+        int x = _columns - width - 1;
+        int y = statusRow - height;
+        if (x < 0)
+        {
+            x = 0;
+        }
+        if (y < 0)
+        {
+            y = 0;
+        }
+
+        DrawBox(x, y, width, height, "SPACE");
+
+        var keyStyle = new Style { Fg = 14, Bold = true };
+        var labelStyle = new Style { Fg = 15 };
+
+        for (int i = 0; i < SpaceMenuItems.Length; ++i)
+        {
+            (char key, string label) = SpaceMenuItems[i];
+            int row = y + 1 + i;
+            _screen.PutString(x + 2, row, key.ToString(), keyStyle, width - 3);
+            _screen.PutString(x + 4, row, label, labelStyle, width - 5);
+        }
+    }
+
+    private void RenderPicker()
+    {
+        if (_pickerKind == PickerKind.None)
+        {
+            return;
+        }
+
+        int height = PickerHeight();
+        if (height < 4 || _columns < 20)
+        {
+            return;
+        }
+
+        int width = Math.Min(_columns - 2, 88);
+        if (width < 20)
+        {
+            return;
+        }
+
+        int x = (_columns - width) / 2;
+        int y = Math.Max(0, ((int)StatusRow() - height) / 2);
+        string title = _pickerKind == PickerKind.Files
+            ? "Open file"
+            : "Search across files";
+
+        DrawBox(x, y, width, height, title);
+
+        var promptStyle = new Style { Fg = 14, Bold = true };
+        var queryStyle = new Style { Fg = 15 };
+        var selectedStyle = new Style { Fg = 15, Bold = true, Reverse = true };
+
+        _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
+
+        string query = _pickerQuery.ToString();
+        int queryWidth = Math.Max(0, width - 5);
+        _screen.PutString(x + 4, y + 1, query, queryStyle, queryWidth);
+
+        long queryColumn = UnicodeUtil.VisualColumn(query, _pickerQueryCursor, 1);
+        if (queryColumn < queryWidth)
+        {
+            int cursorX = x + 4 + (int)queryColumn;
+            if (cursorX < x + width - 1)
+            {
+                Style cursorStyle = _screen.At(cursorX, y + 1).Style;
+                cursorStyle.Reverse = true;
+                _screen.ApplyStyle(cursorX, y + 1, cursorStyle);
+            }
+        }
+
+        int listRows = height - 3;
+        for (int row = 0; row < listRows; ++row)
+        {
+            int index = _pickerTop + row;
+            if (index >= _pickerItems.Count)
+            {
+                break;
+            }
+
+            int screenRow = y + 2 + row;
+            Style style = index == _pickerSelected ? selectedStyle : new Style();
+            _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
+            _screen.PutString(x + 2, screenRow, _pickerItems[index].Display, style,
+                width - 4);
+        }
+
+        string status = _pickerLoading
+            ? (_pickerKind == PickerKind.Files ? "Loading files..." : "Searching...")
+            : _pickerStatus;
+        if (status.Length == 0)
+        {
+            status = _pickerItems.Count == 0
+                ? "No items"
+                : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        }
+
+        var statusStyle = new Style { Fg = 14 };
+        _screen.PutString(x + 2, y + height - 1, $" {status} ", statusStyle, width - 4);
+    }
+
     private void Render()
     {
         _screen.Resize(_columns, _rows);
@@ -1741,6 +2534,8 @@ public sealed class Editor
 
         RenderStatusLine();
         RenderBottomLine();
+        RenderSpaceMenu();
+        RenderPicker();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)
