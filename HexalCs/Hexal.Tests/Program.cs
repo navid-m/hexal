@@ -29,6 +29,7 @@ internal static class Program
         TestFileSearch();
         TestLanguageGrammars();
         TestPluginConfigStore();
+        TestHexalPaths();
 
         Console.Out.WriteLine($"{s_checks - s_failures} of {s_checks} checks passed");
         if (s_failures != 0)
@@ -746,6 +747,26 @@ internal static class Program
             "nested config value", "hexal");
         CheckEqual(loaded.Get("missing", "fallback") as string, "fallback",
             "config fallback", "fallback");
+    }
+
+    private static void TestHexalPaths()
+    {
+        using var binary = new TempDir();
+        using var home = new TempDir();
+
+        string fallback = HexalPaths.ResolveDataDirectory(
+            binary.Path("."), home.Path("."), "grammars");
+        CheckEqual(fallback,
+            System.IO.Path.Combine(home.Path("."), ".hexal", "data", "grammars"),
+            "fallback grammar path", "home data path");
+
+        string portableDirectory = System.IO.Path.Combine(binary.Path("."), "data",
+            "grammars");
+        Directory.CreateDirectory(portableDirectory);
+        string portable = HexalPaths.ResolveDataDirectory(
+            binary.Path("."), home.Path("."), "grammars");
+        CheckEqual(portable, portableDirectory, "portable grammar path",
+            "binary data path");
     }
 
     private static long ExpectedLineStart(byte[] text, long line)

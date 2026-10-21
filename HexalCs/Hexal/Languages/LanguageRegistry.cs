@@ -1,3 +1,5 @@
+using Hexal.Util;
+
 namespace Hexal.Languages;
 
 /// <summary>
@@ -17,18 +19,7 @@ public sealed class LanguageRegistry
 
     public IReadOnlyCollection<LanguageDefinition> Languages => _byId.Values;
 
-    public static string DefaultGrammarDirectory
-    {
-        get
-        {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-            {
-                home = Environment.GetEnvironmentVariable("HOME") ?? ".";
-            }
-            return Path.Combine(home, ".hexal", "grammars");
-        }
-    }
+    public static string DefaultGrammarDirectory => HexalPaths.GrammarDirectory;
 
     public static LanguageRegistry LoadUserGrammars()
     {
@@ -47,6 +38,8 @@ public sealed class LanguageRegistry
         }
 
         registry.LoadDirectory(directory);
+        HexalPaths.Log(
+            $"Grammars: {directory} ({registry._byId.Count} loaded, {registry._errors.Count} error(s))");
         return registry;
     }
 

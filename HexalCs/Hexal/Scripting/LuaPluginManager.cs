@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Hexal.Platform;
+using Hexal.Util;
 using NLua;
 using NLua.Exceptions;
 
@@ -77,18 +78,7 @@ public sealed class LuaPluginManager : IDisposable
 
     public int PluginCount => _plugins.Count;
 
-    public static string DefaultPluginDirectory
-    {
-        get
-        {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-            {
-                home = Environment.GetEnvironmentVariable("HOME") ?? ".";
-            }
-            return Path.Combine(home, ".hexal", "plugins");
-        }
-    }
+    public static string DefaultPluginDirectory => HexalPaths.PluginDirectory;
 
     public void LoadAll()
     {
@@ -120,6 +110,9 @@ public sealed class LuaPluginManager : IDisposable
         {
             LoadPlugin(directory);
         }
+
+        HexalPaths.Log(
+            $"Plugins: {_pluginsDirectory} ({_plugins.Count} loaded, {_errors.Count} error(s))");
     }
 
     public bool HasCommand(string name) => _commands.ContainsKey(name);
@@ -877,18 +870,8 @@ public sealed class LuaPluginManager : IDisposable
         }
     }
 
-    private static string DefaultPluginConfigDirectory
-    {
-        get
-        {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-            {
-                home = Environment.GetEnvironmentVariable("HOME") ?? ".";
-            }
-            return Path.Combine(home, ".hexal", "plugin-config");
-        }
-    }
+    private static string DefaultPluginConfigDirectory =>
+        Path.Combine(HexalPaths.HexalHomeDirectory, "plugin-config");
 
     private static string SanitizeFileName(string id)
     {

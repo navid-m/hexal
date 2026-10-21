@@ -19,8 +19,8 @@ architecture and observable behaviour as the C++ MVP:
   saved without freezing input or scrolling
 - **Automatic external reload on terminal focus**: one metadata stat in the
   common case, and a full read only when the file actually changed
-- **Data-driven `.hexdef` language grammars** loaded from
-  `~/.hexal/grammars/`, with viewport-only incremental syntax highlighting
+- **Data-driven `.hexdef` language grammars** loaded from `data/grammars/`
+  beside the executable, with viewport-only incremental syntax highlighting
 - **Lua plugins** through an isolated NLua state and the documented
   `hexal.*` API modules
 
@@ -187,12 +187,39 @@ reports the reload and notes when unsaved edits were discarded.
 Focus reporting requires terminal support (`\e[?1004h`); when unavailable,
 external changes are picked up only after reopening the file.
 
+## Data locations
+
+Hexal prefers a portable layout beside the executable:
+
+```text
+~/Applications/Hexal/hexal
+~/Applications/Hexal/data/grammars/
+~/Applications/Hexal/data/plugins/
+```
+
+If `data/grammars` or `data/plugins` does not exist there, that category falls
+back independently to:
+
+```text
+~/.hexal/data/grammars/
+~/.hexal/data/plugins/
+```
+
+Path resolution and load results are appended to `~/.hexal/hexal.log`. When
+neither portable directory exists the log contains:
+
+```text
+Could not find grammars and plugins relative to binary path, falling back to ~/.hexal directory
+```
+
 ## Language grammars
 
 Language definitions are human-readable `.hexdef` JSON files placed in
-`~/.hexal/grammars/`. The directory is created on startup. Files are loaded
-once, sorted by name, and matched to buffers by extension. Invalid definitions
-are reported in the status bar and skipped without stopping the editor.
+`<binary>/data/grammars/`, or `~/.hexal/data/grammars/` when the portable
+directory is absent. The fallback directory is created on startup. Files are
+loaded once, sorted by name, and matched to buffers by extension. Invalid
+definitions are reported in the status bar and skipped without stopping the
+editor.
 
 Canonical schema:
 
@@ -234,10 +261,11 @@ window.
 
 ## Lua plugins
 
-Plugins live under `~/.hexal/plugins/<plugin-id>/`:
+Plugins live under `<binary>/data/plugins/<plugin-id>/`, or
+`~/.hexal/data/plugins/<plugin-id>/` when the portable directory is absent:
 
 ```text
-~/.hexal/plugins/example/
+<binary>/data/plugins/example/
     plugin.toml
     init.lua
 ```
@@ -313,7 +341,7 @@ HexalCs/Hexal/
     WindowsTerminal.cs       Console API, ReadConsoleInputW, VT output
   Languages/
     LanguageDefinition.cs    validated .hexdef schema and token categories
-    LanguageRegistry.cs      ~/.hexal/grammars loading and extension detection
+    LanguageRegistry.cs      data/grammars loading and extension detection
     SyntaxHighlighter.cs     visible-line lexer with cached block states
   Scripting/
     IEditorApi.cs            narrow Lua-to-editor host contract
@@ -330,6 +358,7 @@ HexalCs/Hexal/
     UnicodeUtil.cs           UTF-8, boundaries, display widths
     FileSystemUtil.cs        binary read and atomic replacement
     FileSearch.cs            project file enumeration and text search
+    HexalPaths.cs            portable/fallback data paths and hexal.log
 ```
 
 `Core` has no terminal or UI dependency and is what the test project exercises.
