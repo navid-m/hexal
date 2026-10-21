@@ -15,6 +15,7 @@ internal static class Program
         TestPieceTableBasics();
         TestPieceTableRandomized();
         TestPieceTableLargeInsertAcrossChunks();
+        TestSnapshotIsolation();
         TestLargeLineIndex();
         TestUnicode();
         TestCommandParsing();
@@ -181,6 +182,94 @@ internal static class Program
         long start = table.LineStart(middleLine);
         Check(start <= 1_000_000 && (start == 1_000_000 || table.ByteAt(start - 1) == '\n'),
             "offset maps to a valid line start");
+    }
+
+    private static void TestSnapshotIsolation()
+    {
+        var table = new PieceTable();
+        table.SetOriginal("hello\n"u8);
+        table.Insert(0, "A"u8);
+
+        PieceTable.Snapshot snapshot = table.CreateSnapshot();
+        table.Insert(0, "B"u8);
+        table.Insert(table.Size, "tail"u8);
+
+        using var stream = new MemoryStream();
+        snapshot.WriteTo(stream);
+        CheckEqual(Encoding.UTF8.GetString(stream.ToArray()), "Ahello\n",
+            "snapshot text", "Ahello");
+        CheckEqual(Text(table.ToArray()), "BAhello\ntail",
+            "live text after snapshot", "BAhello\ntail");
+
+        // Appending to the add buffer after a snapshot must not change the
+        // snapshot, even when the append crosses a storage chunk boundary.
+        PieceTable.Snapshot beforeLargeAppend = table.CreateSnapshot();
+        byte[] payload = new byte[1_500_000];
+        Array.Fill(payload, (byte)'z');
+        table.Insert(table.Size, payload);
+
+        using var largeStream = new MemoryStream();
+        beforeLargeAppend.WriteTo(largeStream);
+        CheckEqual(largeStream.Length, 12L, "snapshot length after large append", "12");
+        CheckEqual(Encoding.UTF8.GetString(largeStream.ToArray()), "BAhello\ntail",
+            "snapshot unaffected by later append", "BAhello\ntail");
+
+        using var directory = new TempDir();
+        string path = directory.Path("snapshot-doc.txt");
+        Check(WriteBytes(path, "base\n"u8), "write snapshot document");
+        Document? document = Document.Open(path, out string error);
+        Check(document is not null, "open snapshot document");
+        if (document is null)
+        {
+            return;
+        }
+
+        document.Insert(0, "x"u8);
+        Document.SaveSnapshot? docSnapshot = document.CreateSaveSnapshot(
+            directory.Path("saved-snapshot.txt"), out error);
+        Check(docSnapshot is not null, "create document save snapshot");
+        if (docSnapshot is null)
+        {
+            return;
+        }
+
+        document.Insert(0, "y"u8);
+        Check(docSnapshot.WriteTo(out error), "write document snapshot");
+        CheckEqual(Text(ReadBytes(directory.Path("saved-snapshot.txt"))), "xbase\n",
+            "document snapshot contents", "xbase");
+
+        document.MarkSaved(directory.Path("saved-snapshot.txt"), docSnapshot.Pose,
+            docSnapshot.Revision);
+        Check(document.IsDirty, "edits after snapshot keep document dirty");
+        CheckEqual(document.Path ?? "", directory.Path("saved-snapshot.txt"),
+            "mark saved updates path", "snapshot path");
+
+        // Undo plus a new edit can return the undo stack to the same depth with
+        // different contents. The revision check must keep the document dirty.
+        using var branchDirectory = new TempDir();
+        string branchPath = branchDirectory.Path("branch.txt");
+        Check(WriteBytes(branchPath, "base\n"u8), "write branch snapshot document");
+        Document? branch = Document.Open(branchPath, out error);
+        Check(branch is not null, "open branch snapshot document");
+        if (branch is null)
+        {
+            return;
+        }
+
+        branch.Insert(0, "x"u8);
+        Document.SaveSnapshot? branchSnapshot = branch.CreateSaveSnapshot(
+            branchDirectory.Path("branch-saved.txt"), out error);
+        Check(branchSnapshot is not null, "create branch snapshot");
+        if (branchSnapshot is null)
+        {
+            return;
+        }
+
+        Check(branch.Undo() is not null, "undo branch snapshot edit");
+        branch.Insert(0, "y"u8);
+        branch.MarkSaved(branchDirectory.Path("branch-saved.txt"),
+            branchSnapshot.Pose, branchSnapshot.Revision);
+        Check(branch.IsDirty, "same-depth redo branch stays dirty");
     }
 
     private static void TestLargeLineIndex()

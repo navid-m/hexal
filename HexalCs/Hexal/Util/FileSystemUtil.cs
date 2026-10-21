@@ -111,7 +111,9 @@ public static class FileSystemUtil
             using (stream)
             {
                 writer(stream);
-                stream.Flush(flushToDisk: true);
+                // Match the C++ MVP: flush to the OS, then rename atomically.
+                // A power-loss fsync is intentionally not part of the MVP.
+                stream.Flush();
             }
         }
         catch (Exception ex)

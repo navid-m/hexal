@@ -54,6 +54,10 @@ public struct Cell : IEquatable<Cell>
 
     public readonly override int GetHashCode()
         => HashCode.Combine(Ch, Style, WideContinuation);
+
+    public static bool operator ==(Cell left, Cell right) => left.Equals(right);
+
+    public static bool operator !=(Cell left, Cell right) => !left.Equals(right);
 }
 
 /// <summary>

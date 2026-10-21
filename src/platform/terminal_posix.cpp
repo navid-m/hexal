@@ -35,7 +35,7 @@ int readByte(int timeoutMilliseconds) {
         return -1;
     }
     if (ready == 0) {
-        return -1; // timeout
+        return -3; // timed out (a caller that wants to block loops)
     }
 
     unsigned char byte = 0;
@@ -123,38 +123,39 @@ public:
         initialized_ = false;
     }
 
-    bool readEvent(InputEvent& event) override {
+    bool readEvent(InputEvent& event, int timeoutMilliseconds) override {
         event = InputEvent{};
 
-        if (gResizeRequested != 0) {
-            gResizeRequested = 0;
-            event.key = Key::Resize;
-            return true;
-        }
+        while (true) {
+            if (gResizeRequested != 0) {
+                gResizeRequested = 0;
+                event.key = Key::Resize;
+                return true;
+            }
 
-        int byte = pendingByte_;
-        if (byte >= 0) {
-            pendingByte_ = -1;
-        } else {
-            byte = readByte(-1);
-            if (byte == -2) {
-                if (gResizeRequested != 0) {
-                    gResizeRequested = 0;
-                    event.key = Key::Resize;
+            int byte = pendingByte_;
+            if (byte >= 0) {
+                pendingByte_ = -1;
+            } else {
+                byte = readByte(timeoutMilliseconds < 0 ? -1 : timeoutMilliseconds);
+                if (byte == -2) {
+                    continue;
+                }
+                if (byte == -3) {
+                    event.key = Key::None;
                     return true;
                 }
-                return readEvent(event);
+                if (byte < 0) {
+                    return false;
+                }
             }
-            if (byte < 0) {
-                return false;
+
+            if (byte == 0x1B) {
+                return readEscape(event);
             }
-        }
 
-        if (byte == 0x1B) {
-            return readEscape(event);
+            return decodeInputByte(byte, event);
         }
-
-        return decodeInputByte(byte, event);
     }
 
     void write(std::string_view text) override {

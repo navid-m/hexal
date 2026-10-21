@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 
 namespace Hexal.Platform;
 
+[UnsupportedOSPlatform("windows")]
 internal sealed unsafe partial class PosixTerminal : ITerminal
 {
     private const int StdinFd = 0;
@@ -242,7 +244,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         _initialized = false;
     }
 
-    public bool ReadEvent(out InputEvent inputEvent)
+    public bool ReadEvent(out InputEvent inputEvent, int timeoutMilliseconds)
     {
         inputEvent = default;
 
@@ -263,10 +265,15 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             }
             else
             {
-                value = ReadByte(-1);
+                value = ReadByte(timeoutMilliseconds);
                 if (value == -2)
                 {
                     continue;
+                }
+                if (value == -3)
+                {
+                    inputEvent.Key = Key.None;
+                    return true;
                 }
                 if (value < 0)
                 {
@@ -349,7 +356,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
                 {
                     continue;
                 }
-                return -1;
+                return -3;
             }
 
             if ((descriptor.Revents & PollIn) != 0)

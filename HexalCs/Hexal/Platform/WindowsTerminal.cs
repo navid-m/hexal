@@ -28,6 +28,9 @@ internal sealed partial class WindowsTerminal : ITerminal
     private const ushort KeyEventType = 0x0001;
     private const ushort WindowBufferSizeEventType = 0x0004;
 
+    private const uint WaitTimeout = 0x00000102;
+    private const uint WaitFailed = 0xFFFFFFFF;
+
     private const ushort VkBack = 0x08;
     private const ushort VkTab = 0x09;
     private const ushort VkReturn = 0x0D;
@@ -82,6 +85,9 @@ internal sealed partial class WindowsTerminal : ITerminal
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial int ReadConsoleInputW(IntPtr consoleHandle,
         ref InputRecord inputRecord, uint length, out uint numberOfEventsRead);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial uint GetConsoleCP();
@@ -204,7 +210,7 @@ internal sealed partial class WindowsTerminal : ITerminal
         _initialized = false;
     }
 
-    public bool ReadEvent(out InputEvent inputEvent)
+    public bool ReadEvent(out InputEvent inputEvent, int timeoutMilliseconds)
     {
         inputEvent = default;
 
@@ -225,7 +231,7 @@ internal sealed partial class WindowsTerminal : ITerminal
             }
             else
             {
-                if (!ReadKeyEvent(out Key? special, out key))
+                if (!ReadKeyEvent(out Key? special, out key, timeoutMilliseconds))
                 {
                     return false;
                 }
@@ -322,13 +328,28 @@ internal sealed partial class WindowsTerminal : ITerminal
 
     public void Dispose() => Shutdown();
 
-    private bool ReadKeyEvent(out Key? special, out KeyEventRecord key)
+    private bool ReadKeyEvent(out Key? special, out KeyEventRecord key,
+        int timeoutMilliseconds)
     {
         special = null;
         key = default;
 
         while (true)
         {
+            if (timeoutMilliseconds >= 0)
+            {
+                uint wait = WaitForSingleObject(_inputHandle, (uint)timeoutMilliseconds);
+                if (wait == WaitTimeout)
+                {
+                    special = Key.None;
+                    return true;
+                }
+                if (wait == WaitFailed)
+                {
+                    return false;
+                }
+            }
+
             InputRecord record = default;
             if (ReadConsoleInputW(_inputHandle, ref record, 1,
                     out uint read) == 0 || read == 0)

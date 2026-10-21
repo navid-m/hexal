@@ -252,6 +252,7 @@ void Document::insert(std::size_t offset, std::string_view text) {
     offset = std::min(offset, size());
     prepareForEdit();
     table_.insert(offset, text);
+    ++revision_;
 
     if (insertRunOpen_ && !undo_.empty() && !containsLineBreak(text)) {
         Group& group = undo_.back();
@@ -289,6 +290,7 @@ void Document::erase(std::size_t offset, std::size_t length) {
 
     const std::string removed = table_.range(offset, length);
     table_.erase(offset, length);
+    ++revision_;
 
     if (restoring_) {
         return;
@@ -345,6 +347,7 @@ void Document::replace(std::size_t offset, std::size_t length, std::string_view 
     if (!text.empty()) {
         table_.insert(offset, text);
     }
+    ++revision_;
 
     if (restoring_) {
         return;
@@ -404,6 +407,7 @@ std::optional<std::size_t> Document::undo() {
         applyChangeBackward(*it);
     }
     restoring_ = false;
+    ++revision_;
 
     std::size_t hint = group.changes.front().offset;
     if (group.changes.front().inserted.empty()) {
@@ -429,6 +433,7 @@ std::optional<std::size_t> Document::redo() {
         applyChangeForward(change);
     }
     restoring_ = false;
+    ++revision_;
 
     const Change& last = group.changes.back();
     const std::size_t hint =
@@ -447,43 +452,81 @@ bool Document::canRedo() const noexcept {
     return !redo_.empty();
 }
 
-bool Document::writeToPath(const std::filesystem::path& path, std::string& error) {
-    error.clear();
+std::optional<Document::SaveSnapshot> Document::createSaveSnapshot(
+    std::string& error) const {
+    if (!path_) {
+        error = "no file name assigned (use :w <file>)";
+        return std::nullopt;
+    }
+    return createSaveSnapshot(*path_, error);
+}
 
-    const bool ok = fsutil::atomicWrite(
-        path,
-        [this](std::ostream& out) {
-            if (bom_) {
-                out.write("\xEF\xBB\xBF", 3);
-            }
-            return table_.writeTo(out);
-        },
-        error);
-
-    if (!ok) {
-        return false;
+std::optional<Document::SaveSnapshot> Document::createSaveSnapshot(
+    const std::filesystem::path& path, std::string& error) const {
+    if (path.empty()) {
+        error = "empty file name";
+        return std::nullopt;
     }
 
+    error.clear();
+    SaveSnapshot snapshot;
+    snapshot.path = path;
+    snapshot.bom = bom_;
+    snapshot.pose = undo_.size();
+    snapshot.revision = revision_;
+    snapshot.table = table_.snapshot();
+    return snapshot;
+}
+
+bool Document::writeSnapshot(const SaveSnapshot& snapshot, std::string& error) {
+    error.clear();
+
+    return fsutil::atomicWrite(
+        snapshot.path,
+        [&snapshot](std::ostream& out) {
+            if (snapshot.bom) {
+                out.write("\xEF\xBB\xBF", 3);
+            }
+            return snapshot.table.writeTo(out);
+        },
+        error);
+}
+
+void Document::markSaved(const std::filesystem::path& path, std::size_t pose,
+                         std::uint64_t revision) {
     path_ = path;
-    savedPose_ = static_cast<long long>(undo_.size());
+    if (revision_ == revision) {
+        savedPose_ = static_cast<long long>(pose);
+    }
     breakUndoGroup();
-    return true;
 }
 
 bool Document::save(std::string& error) {
-    if (!path_) {
-        error = "no file name assigned (use :w <file>)";
+    const auto snapshot = createSaveSnapshot(error);
+    if (!snapshot) {
         return false;
     }
-    return writeToPath(*path_, error);
+
+    if (!writeSnapshot(*snapshot, error)) {
+        return false;
+    }
+
+    markSaved(snapshot->path, snapshot->pose, snapshot->revision);
+    return true;
 }
 
 bool Document::saveAs(const std::filesystem::path& path, std::string& error) {
-    if (path.empty()) {
-        error = "empty file name";
+    const auto snapshot = createSaveSnapshot(path, error);
+    if (!snapshot) {
         return false;
     }
-    return writeToPath(path, error);
+
+    if (!writeSnapshot(*snapshot, error)) {
+        return false;
+    }
+
+    markSaved(snapshot->path, snapshot->pose, snapshot->revision);
+    return true;
 }
 
 } // namespace hexal

@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <random>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -190,6 +191,84 @@ void testPieceTableRandomized() {
                                                 '\n'));
         CHECK_EQ(table.lineOfOffset(offset), expected);
     }
+}
+
+void testSnapshotIsolation() {
+    hexal::PieceTable table;
+    table.setOriginal("hello\n");
+    table.insert(0, "A");
+
+    const hexal::PieceTable::Snapshot snapshot = table.snapshot();
+    table.insert(0, "B");
+    table.insert(table.size(), "tail");
+
+    std::ostringstream out;
+    CHECK(snapshot.writeTo(out));
+    CHECK_EQ(out.str(), std::string("Ahello\n"));
+    CHECK_EQ(table.toString(), std::string("BAhello\ntail"));
+
+    // Appending after a snapshot must not affect the snapshot, even when the
+    // add buffer grows well beyond its previous size.
+    const hexal::PieceTable::Snapshot beforeLargeAppend = table.snapshot();
+    std::string payload(1500000, 'z');
+    table.insert(table.size(), payload);
+
+    std::ostringstream largeOut;
+    CHECK(beforeLargeAppend.writeTo(largeOut));
+    CHECK_EQ(largeOut.str(), std::string("BAhello\ntail"));
+
+    TempDir directory;
+    const auto path = directory.path("snapshot-doc.txt");
+    CHECK(writeBytes(path, "base\n"));
+
+    std::string error;
+    auto document = hexal::Document::open(path, error);
+    CHECK(document.has_value());
+    if (!document) {
+        return;
+    }
+
+    document->insert(0, "x");
+    const auto savePath = directory.path("saved-snapshot.txt");
+    auto documentSnapshot = document->createSaveSnapshot(savePath, error);
+    CHECK(documentSnapshot.has_value());
+    if (!documentSnapshot) {
+        return;
+    }
+
+    document->insert(0, "y");
+    CHECK(hexal::Document::writeSnapshot(*documentSnapshot, error));
+    CHECK_EQ(readBytes(savePath), std::string("xbase\n"));
+
+    document->markSaved(documentSnapshot->path, documentSnapshot->pose,
+                        documentSnapshot->revision);
+    CHECK(document->isDirty());
+    CHECK_EQ(hexal::fsutil::pathToUtf8(*document->path()),
+             hexal::fsutil::pathToUtf8(savePath));
+
+    // Undo plus a new edit can return the undo stack to the same depth with
+    // different contents. The revision check must keep the document dirty.
+    const auto branchPath = directory.path("branch.txt");
+    CHECK(writeBytes(branchPath, "base\n"));
+    auto branch = hexal::Document::open(branchPath, error);
+    CHECK(branch.has_value());
+    if (!branch) {
+        return;
+    }
+
+    branch->insert(0, "x");
+    const auto branchSavePath = directory.path("branch-saved.txt");
+    auto branchSnapshot = branch->createSaveSnapshot(branchSavePath, error);
+    CHECK(branchSnapshot.has_value());
+    if (!branchSnapshot) {
+        return;
+    }
+
+    CHECK(branch->undo().has_value());
+    branch->insert(0, "y");
+    branch->markSaved(branchSavePath, branchSnapshot->pose,
+                      branchSnapshot->revision);
+    CHECK(branch->isDirty());
 }
 
 void testLargeLineIndex() {
@@ -517,6 +596,7 @@ void testFilesystemReadWrite() {
 int main() {
     testPieceTableBasics();
     testPieceTableRandomized();
+    testSnapshotIsolation();
     testLargeLineIndex();
     testUnicode();
     testCommandParsing();

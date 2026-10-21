@@ -238,6 +238,73 @@ public sealed class PieceTable
 
     public void WriteTo(Stream output) => WriteNode(_root, output);
 
+    /// <summary>
+    /// Captures the current piece sequence and the immutable storage chunks it
+    /// references. The returned snapshot can be written from another thread
+    /// while the live table continues to be edited: existing bytes are never
+    /// modified, only appended after the ranges in the snapshot.
+    /// </summary>
+    public Snapshot CreateSnapshot()
+    {
+        var pieces = new List<PieceRef>();
+        CollectPieceRefs(_root, pieces);
+
+        var original = new byte[_original.Count][];
+        for (int i = 0; i < _original.Count; ++i)
+        {
+            original[i] = _original[i].Data;
+        }
+
+        var added = new byte[_added.Count][];
+        for (int i = 0; i < _added.Count; ++i)
+        {
+            added[i] = _added[i].Data;
+        }
+
+        return new Snapshot(original, added, pieces.ToArray());
+    }
+
+    public readonly struct PieceRef
+    {
+        public readonly bool FromAdd;
+        public readonly int ChunkIndex;
+        public readonly int Offset;
+        public readonly int Length;
+
+        public PieceRef(bool fromAdd, int chunkIndex, int offset, int length)
+        {
+            FromAdd = fromAdd;
+            ChunkIndex = chunkIndex;
+            Offset = offset;
+            Length = length;
+        }
+    }
+
+    public sealed class Snapshot
+    {
+        private readonly byte[][] _original;
+        private readonly byte[][] _added;
+        private readonly PieceRef[] _pieces;
+
+        internal Snapshot(byte[][] original, byte[][] added, PieceRef[] pieces)
+        {
+            _original = original;
+            _added = added;
+            _pieces = pieces;
+        }
+
+        public void WriteTo(Stream output)
+        {
+            foreach (PieceRef piece in _pieces)
+            {
+                byte[] source = piece.FromAdd
+                    ? _added[piece.ChunkIndex]
+                    : _original[piece.ChunkIndex];
+                output.Write(source.AsSpan(piece.Offset, piece.Length));
+            }
+        }
+    }
+
     public long LineStart(long line)
     {
         if (line <= 0 || _root < 0)
@@ -656,6 +723,20 @@ public sealed class PieceTable
             CollectRange(current.Right, nodeEnd, Math.Max(begin, nodeEnd), end,
                 destination, ref written);
         }
+    }
+
+    private void CollectPieceRefs(int node, List<PieceRef> pieces)
+    {
+        if (node < 0)
+        {
+            return;
+        }
+
+        Node current = _nodes[node];
+        CollectPieceRefs(current.Left, pieces);
+        pieces.Add(new PieceRef(current.FromAdd, current.ChunkIndex,
+            current.Offset, current.Length));
+        CollectPieceRefs(current.Right, pieces);
     }
 
     private void WriteNode(int node, Stream output)

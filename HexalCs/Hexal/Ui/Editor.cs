@@ -60,6 +60,28 @@ public sealed class Editor
 
     private byte[] _lineBuffer = Array.Empty<byte>();
 
+    private sealed class SaveOperation
+    {
+        public Task<SaveResult> Task = null!;
+        public Document Document = null!;
+        public Document.SaveSnapshot Snapshot = null!;
+    }
+
+    private sealed class SaveResult
+    {
+        public bool Ok;
+        public string Error = string.Empty;
+        public string Path = string.Empty;
+        public long Pose;
+        public long Revision;
+    }
+
+    private SaveOperation? _saveOperation;
+    private bool _quitAfterSave;
+    private bool _resaveRequested;
+    private bool _waitThenQuit;
+    private bool _waitThenQuitForce;
+
     public Editor(ITerminal terminal, Document document)
     {
         _terminal = terminal;
@@ -75,9 +97,31 @@ public sealed class Editor
 
         while (_running)
         {
-            if (!_terminal.ReadEvent(out InputEvent inputEvent))
+            if (PollSave())
+            {
+                Render();
+            }
+            if (!_running)
             {
                 break;
+            }
+
+            // A pending save needs a periodic wake-up so the UI can report
+            // completion and :wq can finish. Idle with no save uses a blocking
+            // read and consumes no CPU.
+            int timeout = _saveOperation is null ? -1 : 50;
+            if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
+            {
+                break;
+            }
+
+            if (inputEvent.Key == Key.None)
+            {
+                if (PollSave())
+                {
+                    Render();
+                }
+                continue;
             }
 
             if (!HandleEvent(inputEvent))
@@ -87,6 +131,22 @@ public sealed class Editor
 
             EnsureCursorVisible();
             Render();
+        }
+
+        if (_saveOperation is not null)
+        {
+            _quitAfterSave = false;
+            _resaveRequested = false;
+            _waitThenQuit = false;
+            _waitThenQuitForce = false;
+            SetMessage("Waiting for save to finish...");
+            Render();
+
+            while (_saveOperation is not null)
+            {
+                Thread.Sleep(20);
+                PollSave();
+            }
         }
 
         return 0;
@@ -608,14 +668,7 @@ public sealed class Editor
                     SetError("usage: :w [file]");
                     return;
                 }
-                if (arguments.Count == 0)
-                {
-                    SaveCurrent();
-                }
-                else
-                {
-                    SaveCurrentAs(arguments[0]);
-                }
+                StartSave(arguments.Count == 0 ? null : arguments[0], quitAfter: false);
                 return;
 
             case "wq":
@@ -624,10 +677,7 @@ public sealed class Editor
                     SetError("usage: :wq");
                     return;
                 }
-                if (SaveCurrent())
-                {
-                    _running = false;
-                }
+                StartSave(path: null, quitAfter: true);
                 return;
 
             case "q":
@@ -667,32 +717,176 @@ public sealed class Editor
         => name is "fmt" or "cfg" or "rcfg" or "lang" or "sf" or "g" or "sv" or "sh" or
             "setup";
 
-    private bool SaveCurrent()
+    private void StartSave(string? path, bool quitAfter)
     {
-        if (!_document.Save(out string error))
+        if (_saveOperation is not null)
         {
-            SetError(error);
-            return false;
+            if (quitAfter)
+            {
+                _quitAfterSave = true;
+            }
+            _resaveRequested = true;
+            SetMessage("Save already in progress; queued another save.");
+            return;
         }
 
-        SetMessage($"Wrote {_document.Path} ({_document.LineCount} lines)");
-        return true;
+        Document.SaveSnapshot? snapshot = _document.CreateSaveSnapshot(path, out string error);
+        if (snapshot is null)
+        {
+            SetError(error);
+            if (quitAfter)
+            {
+                _quitAfterSave = false;
+            }
+            return;
+        }
+
+        Document document = _document;
+        Task<SaveResult> task = Task.Factory.StartNew(() =>
+        {
+            bool ok = snapshot.WriteTo(out string writeError);
+            return new SaveResult
+            {
+                Ok = ok,
+                Error = writeError,
+                Path = snapshot.Path,
+                Pose = snapshot.Pose,
+                Revision = snapshot.Revision
+            };
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        _saveOperation = new SaveOperation
+        {
+            Task = task,
+            Document = document,
+            Snapshot = snapshot
+        };
+
+        if (quitAfter)
+        {
+            _quitAfterSave = true;
+        }
+
+        SetMessage($"Writing {snapshot.Path} ...");
     }
 
-    private bool SaveCurrentAs(string path)
+    /// <summary>
+    /// Called from the UI loop. Returns true when the save state changed and a
+    /// redraw is warranted.
+    /// </summary>
+    private bool PollSave()
     {
-        if (!_document.SaveAs(path, out string error))
+        if (_saveOperation is null || !_saveOperation.Task.IsCompleted)
         {
-            SetError(error);
             return false;
         }
 
-        SetMessage($"Wrote {path} ({_document.LineCount} lines)");
+        SaveOperation operation = _saveOperation;
+        _saveOperation = null;
+
+        SaveResult result;
+        try
+        {
+            result = operation.Task.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            result = new SaveResult
+            {
+                Ok = false,
+                Error = ex.Message,
+                Path = operation.Snapshot.Path,
+                Pose = operation.Snapshot.Pose,
+                Revision = operation.Snapshot.Revision
+            };
+        }
+
+        bool sameDocument = ReferenceEquals(operation.Document, _document);
+
+        if (result.Ok)
+        {
+            if (sameDocument)
+            {
+                operation.Document.MarkSaved(result.Path, result.Pose, result.Revision);
+                SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
+            }
+            else
+            {
+                SetMessage($"Wrote {result.Path}");
+            }
+
+            if (_waitThenQuit)
+            {
+                _waitThenQuit = false;
+                _quitAfterSave = false;
+                _resaveRequested = false;
+
+                if (!sameDocument)
+                {
+                    SetMessage("Save finished; current buffer was not quit.");
+                }
+                else if (_waitThenQuitForce || !_document.IsDirty)
+                {
+                    _running = false;
+                }
+                else
+                {
+                    SetMessage("Save finished; newer edits remain unsaved.");
+                }
+            }
+            else if (_quitAfterSave)
+            {
+                if (sameDocument && !_document.IsDirty)
+                {
+                    _running = false;
+                }
+                else if (sameDocument)
+                {
+                    // The user edited while the snapshot was being written.
+                    // Save the newer state before quitting.
+                    StartSave(path: null, quitAfter: true);
+                }
+                else
+                {
+                    _quitAfterSave = false;
+                    _resaveRequested = false;
+                    SetMessage("Saved the previous buffer; current buffer was not quit.");
+                }
+            }
+            else if (_resaveRequested)
+            {
+                _resaveRequested = false;
+                StartSave(path: null, quitAfter: false);
+            }
+        }
+        else
+        {
+            SetError(result.Error);
+            _quitAfterSave = false;
+            _resaveRequested = false;
+            _waitThenQuit = false;
+            _waitThenQuitForce = false;
+        }
+
         return true;
     }
 
     private void RequestQuit(bool force)
     {
+        if (_saveOperation is not null)
+        {
+            if (!force && _document.IsDirty)
+            {
+                _prompt = PromptKind.Quit;
+                return;
+            }
+
+            _waitThenQuit = true;
+            _waitThenQuitForce = force;
+            SetMessage("Will quit when the save finishes.");
+            return;
+        }
+
         if (!force && _document.IsDirty)
         {
             _prompt = PromptKind.Quit;
@@ -1197,6 +1391,10 @@ public sealed class Editor
         if (_document.IsDirty)
         {
             text += " [+]";
+        }
+        if (_saveOperation is not null)
+        {
+            text += " [saving]";
         }
         return text;
     }

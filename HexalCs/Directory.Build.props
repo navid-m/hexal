@@ -8,5 +8,11 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <!--
+      Public fields are deliberate in the terminal/cell/piece value types:
+      they keep the hot paths blittable and avoid property-call overhead.
+      "error" is the established parameter name in the terminal abstraction.
+    -->
+    <NoWarn>$(NoWarn);CA1051;CA1716</NoWarn>
   </PropertyGroup>
 </Project>

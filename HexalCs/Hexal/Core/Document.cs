@@ -50,6 +50,7 @@ public sealed class Document
     private bool _insertRunOpen;
     private bool _eraseRunOpen;
     private bool _restoring;
+    private long _revision;
 
     public string? Path => _path;
 
@@ -242,6 +243,7 @@ public sealed class Document
         offset = Math.Clamp(offset, 0, Size);
         PrepareForEdit();
         _table.Insert(offset, text);
+        ++_revision;
 
         if (_insertRunOpen && _undo.Count > 0 && !ContainsLineBreak(text))
         {
@@ -282,6 +284,7 @@ public sealed class Document
 
         byte[] removed = _table.Range(offset, length);
         _table.Erase(offset, length);
+        ++_revision;
 
         if (_restoring)
         {
@@ -345,6 +348,7 @@ public sealed class Document
         {
             _table.Insert(offset, text);
         }
+        ++_revision;
 
         if (_restoring)
         {
@@ -387,6 +391,7 @@ public sealed class Document
             ApplyChangeBackward(group.Changes[i]);
         }
         _restoring = false;
+        ++_revision;
 
         long hint = group.Changes[0].Offset;
         if (group.Changes[0].Inserted.Length == 0)
@@ -416,6 +421,7 @@ public sealed class Document
             ApplyChangeForward(change);
         }
         _restoring = false;
+        ++_revision;
 
         Change last = group.Changes[^1];
         long hint = last.Inserted.Length == 0
@@ -431,47 +437,112 @@ public sealed class Document
 
     public bool CanRedo => _redo.Count > 0;
 
+    /// <summary>
+    /// An immutable view of everything needed to write one version of the
+    /// document. It is safe to consume from a worker thread while the live
+    /// document continues to be edited.
+    /// </summary>
+    public sealed class SaveSnapshot
+    {
+        public string Path { get; }
+        public bool Bom { get; }
+        public long Pose { get; }
+        public long Revision { get; }
+
+        private readonly PieceTable.Snapshot _table;
+
+        internal SaveSnapshot(string path, bool bom, long pose, long revision,
+            PieceTable.Snapshot table)
+        {
+            Path = path;
+            Bom = bom;
+            Pose = pose;
+            Revision = revision;
+            _table = table;
+        }
+
+        public bool WriteTo(out string error)
+        {
+            return FileSystemUtil.AtomicWrite(Path, stream =>
+            {
+                if (Bom)
+                {
+                    stream.Write(BomBytes);
+                }
+                _table.WriteTo(stream);
+            }, out error);
+        }
+    }
+
+    /// <summary>
+    /// Captures a save snapshot. Pass a non-null path for :w &lt;file&gt;;
+    /// otherwise the document's associated path is used.
+    /// </summary>
+    public SaveSnapshot? CreateSaveSnapshot(string? path, out string error)
+    {
+        error = string.Empty;
+
+        string target = path ?? _path ?? string.Empty;
+        if (target.Length == 0)
+        {
+            error = path is null
+                ? "no file name assigned (use :w <file>)"
+                : "empty file name";
+            return null;
+        }
+
+        return new SaveSnapshot(target, _bom, _undo.Count, _revision,
+            _table.CreateSnapshot());
+    }
+
+    /// <summary>
+    /// Applies the result of a completed background save. If the buffer was
+    /// edited after the snapshot was taken, the document stays dirty; edits
+    /// made during the save are never silently marked as persisted. The
+    /// revision check catches the case where an undo plus a new edit returns
+    /// the history to the same group count with different contents.
+    /// </summary>
+    public void MarkSaved(string path, long pose, long revision)
+    {
+        _path = path;
+        if (_revision == revision)
+        {
+            _savedPose = pose;
+        }
+        BreakUndoGroup();
+    }
+
     public bool Save(out string error)
     {
-        if (_path is null)
+        SaveSnapshot? snapshot = CreateSaveSnapshot(null, out error);
+        if (snapshot is null)
         {
-            error = "no file name assigned (use :w <file>)";
             return false;
         }
 
-        return WriteToPath(_path, out error);
+        if (!snapshot.WriteTo(out error))
+        {
+            return false;
+        }
+
+        MarkSaved(snapshot.Path, snapshot.Pose, snapshot.Revision);
+        return true;
     }
 
     public bool SaveAs(string path, out string error)
     {
-        if (string.IsNullOrEmpty(path))
-        {
-            error = "empty file name";
-            return false;
-        }
-
-        return WriteToPath(path, out error);
-    }
-
-    private bool WriteToPath(string path, out string error)
-    {
-        bool ok = FileSystemUtil.AtomicWrite(path, stream =>
-        {
-            if (_bom)
-            {
-                stream.Write(BomBytes);
-            }
-            _table.WriteTo(stream);
-        }, out error);
-
-        if (!ok)
+        SaveSnapshot? snapshot = CreateSaveSnapshot(path, out error);
+        if (snapshot is null)
         {
             return false;
         }
 
-        _path = path;
-        _savedPose = _undo.Count;
-        BreakUndoGroup();
+        if (!snapshot.WriteTo(out error))
+        {
+            return false;
+        }
+
+        MarkSaved(snapshot.Path, snapshot.Pose, snapshot.Revision);
         return true;
     }
 

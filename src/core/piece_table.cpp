@@ -51,7 +51,7 @@ void PieceTable::update(Node* node) noexcept {
 }
 
 const std::string& PieceTable::sourceFor(const Node* node) const noexcept {
-    return node->fromAddBuffer ? added_ : original_;
+    return node->fromAddBuffer ? added_ : *original_;
 }
 
 std::size_t PieceTable::countNewlines(std::string_view text, std::size_t length) noexcept {
@@ -92,7 +92,7 @@ PieceTable::NodePtr PieceTable::makeNode(bool fromAddBuffer, std::size_t start,
     node->length = length;
     node->priority = nextPriority();
 
-    const std::string& source = fromAddBuffer ? added_ : original_;
+    const std::string& source = fromAddBuffer ? added_ : *original_;
     node->pieceNewlines =
         countNewlines(std::string_view(source).substr(start, length), length);
 
@@ -231,15 +231,15 @@ PieceTable::NodePtr PieceTable::makeTreeForAdded(std::size_t start, std::size_t 
 }
 
 void PieceTable::setOriginal(std::string original) {
-    original_ = std::move(original);
+    original_ = std::make_shared<const std::string>(std::move(original));
     added_.clear();
     root_.reset();
 
     std::size_t pos = 0;
-    while (pos < original_.size()) {
-        std::size_t end = chooseChunkEnd(original_, pos, original_.size());
+    while (pos < original_->size()) {
+        std::size_t end = chooseChunkEnd(*original_, pos, original_->size());
         if (end <= pos) {
-            end = original_.size();
+            end = original_->size();
         }
         root_ = merge(std::move(root_), makeNode(false, pos, end - pos));
         pos = end;
@@ -378,6 +378,37 @@ bool PieceTable::writeNode(const Node* node, std::ostream& out) const {
 
 bool PieceTable::writeTo(std::ostream& out) const {
     return writeNode(root_.get(), out);
+}
+
+bool PieceTable::Snapshot::writeTo(std::ostream& out) const {
+    for (const Ref& ref : pieces_) {
+        const std::string& source = ref.fromAddBuffer ? added_ : *original_;
+        out.write(source.data() + static_cast<std::ptrdiff_t>(ref.start),
+                  static_cast<std::streamsize>(ref.length));
+        if (!out) {
+            return false;
+        }
+    }
+    return true;
+}
+
+PieceTable::Snapshot PieceTable::snapshot() const {
+    Snapshot result;
+    result.original_ = original_;
+    result.added_ = added_;
+    collectSnapshot(root_.get(), result.pieces_);
+    return result;
+}
+
+void PieceTable::collectSnapshot(const Node* node,
+                                 std::vector<Snapshot::Ref>& pieces) const {
+    if (!node) {
+        return;
+    }
+
+    collectSnapshot(node->left.get(), pieces);
+    pieces.push_back(Snapshot::Ref{node->fromAddBuffer, node->start, node->length});
+    collectSnapshot(node->right.get(), pieces);
 }
 
 std::size_t PieceTable::lineStart(std::size_t line) const {

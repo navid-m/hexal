@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace hexal {
 
@@ -50,6 +51,32 @@ public:
     // does not require a second full-size copy of the document.
     bool writeTo(std::ostream& out) const;
 
+    // An immutable piece list plus the storage it references. The original
+    // file is shared, not copied; inserted text is copied once. A snapshot can
+    // be written from a worker thread while the live table keeps being edited
+    // because existing storage bytes are never modified, only appended to.
+    class Snapshot {
+    public:
+        Snapshot() = default;
+
+        bool writeTo(std::ostream& out) const;
+
+        struct Ref {
+            bool fromAddBuffer = false;
+            std::size_t start = 0;
+            std::size_t length = 0;
+        };
+
+    private:
+        std::shared_ptr<const std::string> original_;
+        std::string added_;
+        std::vector<Ref> pieces_;
+
+        friend class PieceTable;
+    };
+
+    Snapshot snapshot() const;
+
     // Byte offset of the first character of `line`. `lineCount()` is obtained
     // by adding one to newlineCount(). Out-of-range lines are clamped to size.
     std::size_t lineStart(std::size_t line) const;
@@ -83,10 +110,11 @@ private:
     bool writeNode(const Node* node, std::ostream& out) const;
     void collectRange(const Node* node, std::size_t base, std::size_t begin,
                       std::size_t end, std::string& out) const;
+    void collectSnapshot(const Node* node, std::vector<Snapshot::Ref>& pieces) const;
 
     std::uint64_t nextPriority() noexcept;
 
-    std::string original_;
+    std::shared_ptr<const std::string> original_;
     std::string added_;
     NodePtr root_;
     std::uint64_t randomState_ = 0x9E3779B97F4A7C15ULL;

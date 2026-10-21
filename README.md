@@ -25,6 +25,8 @@ buffer.
 - A piece-table text buffer with an augmented treap index
 - Viewport-only rendering with a cell-grid diff renderer
 - File opening and robust, atomic file saving
+- Background saving from an immutable piece snapshot: the UI keeps accepting
+  input and scrolling while a large file is written
 - LF / CRLF preservation, UTF-8 (with optional BOM preservation)
 - NORMAL and INSERT modes
 - Cursor movement: arrows, `h/j/k/l`, Home/End, PageUp/PageDown, `gg`, `ge`,
@@ -198,9 +200,14 @@ When quitting or opening another file with unsaved changes, Hexal displays a
 
 ## Data safety
 
-- Saving streams the piece table to a temporary file in the target directory,
-  flushes it, then renames it over the original. A failed write or rename
-  leaves the original file untouched.
+- Saving captures an immutable piece snapshot on the UI thread, then streams
+  that snapshot to a temporary file in the target directory on a background
+  worker, flushes it, and renames it over the original. A failed write or
+  rename leaves the original file untouched. The status bar shows `[saving]`
+  while the worker runs, and the editor remains scrollable and editable.
+- If the buffer is edited while a snapshot is being written, the document stays
+  marked dirty; `:wq` saves the newer state before quitting rather than
+  discarding edits.
 - Existing POSIX permission bits are copied to the replacement file before the
   rename.
 - LF and CRLF line endings are preserved. New lines use the file's detected
@@ -290,6 +297,9 @@ only at the UI boundary.
   comes first. The oldest applied groups are discarded first.
 - The modified flag is derived from the position of the last save in the
   history, so undoing back to the saved state marks the buffer clean again.
+- Background saves also capture an edit revision. A completed save only marks
+  the buffer clean when no edit happened after the snapshot was taken; an undo
+  followed by a new edit that returns to the same history depth is still dirty.
 
 ### Rendering
 
@@ -320,6 +330,7 @@ The test suite covers:
 - Ex command parsing with quoted/escaped file names,
 - undo/redo grouping, dirty-state tracking and redo-branch invalidation,
 - atomic save and failure behavior,
+- background-save snapshot isolation under continued editing,
 - BOM and newline preservation.
 
 The interactive UI was additionally smoke-tested in a pseudo-terminal
@@ -336,10 +347,13 @@ new files, Unicode input, CRLF files and terminal resizing).
 - No syntax highlighting, LSP, formatter or configuration loading yet.
 - The add buffer is append-only and grows with all text inserted during a
   session. A future compaction step can fold it into a fresh original buffer.
-- File loading and saving are synchronous in the MVP. Editing stays fast because
-  the buffer is never copied, but opening or saving very large files blocks the
-  UI for the duration of the I/O; moving these operations to a worker is a
-  Phase 3 task.
+- File loading is still synchronous in the MVP, so opening a very large file
+  blocks the UI while the initial read builds the piece index. Saving is
+  asynchronous and no longer blocks the UI.
+- Preparing a save snapshot copies the inserted-text buffer. For ordinary
+  editing sessions this is tiny; an exceptionally large paste can make the
+  snapshot step briefly expensive. The original file itself is shared, never
+  copied.
 - `lineText()` copies one line at a time; extremely long single lines are
   handled correctly but not as efficiently as ordinary lines.
 - Unicode width tables cover common combining marks and East Asian wide ranges;

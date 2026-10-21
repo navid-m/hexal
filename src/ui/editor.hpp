@@ -7,7 +7,9 @@
 #include "ui/screen.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <future>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,8 +43,8 @@ private:
     void openPath(const std::filesystem::path& path);
     void requestQuit(bool force);
     void requestOpen(const std::filesystem::path& path, bool force);
-    bool saveCurrent();
-    bool saveCurrentAs(const std::filesystem::path& path);
+    void startSave(const std::filesystem::path* path, bool quitAfter);
+    bool pollSave();
     void undo();
     void redo();
 
@@ -120,6 +122,23 @@ private:
 
     std::vector<std::size_t> jumpHistory_;
     bool pendingG_ = false;
+
+    struct SaveOutcome {
+        bool ok = false;
+        std::string error;
+        std::filesystem::path path;
+        std::size_t pose = 0;
+        std::uint64_t revision = 0;
+    };
+
+    std::future<SaveOutcome> saveFuture_;
+    bool savePending_ = false;
+    bool quitAfterSave_ = false;
+    bool resaveRequested_ = false;
+    bool waitThenQuit_ = false;
+    bool waitThenQuitForce_ = false;
+    std::uint64_t documentGeneration_ = 0;
+    std::uint64_t saveGeneration_ = 0;
 };
 
 } // namespace hexal

@@ -4,6 +4,7 @@ namespace Hexal.Platform;
 
 public enum Key
 {
+    None,
     Character,
     Enter,
     Escape,
@@ -57,7 +58,12 @@ public interface ITerminal : IDisposable
 
     void Shutdown();
 
-    bool ReadEvent(out InputEvent inputEvent);
+    /// <summary>
+    /// Reads one event. A negative timeout blocks; a non-negative timeout
+    /// returns a Key.None event when no input arrives in time. The editor uses
+    /// this to poll background saves without a separate wake-up thread.
+    /// </summary>
+    bool ReadEvent(out InputEvent inputEvent, int timeoutMilliseconds);
 
     void Write(ReadOnlySpan<byte> text);
 

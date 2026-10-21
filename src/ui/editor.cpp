@@ -4,8 +4,10 @@
 #include "util/unicode.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace hexal {
@@ -59,9 +61,26 @@ int Editor::run() {
     render();
 
     while (running_) {
-        InputEvent event;
-        if (!terminal_.readEvent(event)) {
+        if (pollSave()) {
+            render();
+        }
+        if (!running_) {
             break;
+        }
+
+        // A pending save needs a periodic wake-up so completion can be shown
+        // and :wq can finish. Idle with no save uses a blocking read.
+        InputEvent event;
+        const int timeout = savePending_ ? 50 : -1;
+        if (!terminal_.readEvent(event, timeout)) {
+            break;
+        }
+
+        if (event.key == Key::None) {
+            if (pollSave()) {
+                render();
+            }
+            continue;
         }
 
         if (!handleEvent(event)) {
@@ -70,6 +89,20 @@ int Editor::run() {
 
         ensureCursorVisible();
         render();
+    }
+
+    if (savePending_) {
+        quitAfterSave_ = false;
+        resaveRequested_ = false;
+        waitThenQuit_ = false;
+        waitThenQuitForce_ = false;
+        setMessage("Waiting for save to finish...");
+        render();
+
+        while (savePending_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            pollSave();
+        }
     }
 
     return 0;
@@ -465,9 +498,10 @@ void Editor::executeParsedCommand(const ExCommand& command, bool force) {
             return;
         }
         if (arguments.empty()) {
-            saveCurrent();
+            startSave(nullptr, false);
         } else {
-            saveCurrentAs(fsutil::pathFromUtf8(arguments[0]));
+            const std::filesystem::path path = fsutil::pathFromUtf8(arguments[0]);
+            startSave(&path, false);
         }
         return;
     }
@@ -477,9 +511,7 @@ void Editor::executeParsedCommand(const ExCommand& command, bool force) {
             setError("usage: :wq");
             return;
         }
-        if (saveCurrent()) {
-            running_ = false;
-        }
+        startSave(nullptr, true);
         return;
     }
 
@@ -515,35 +547,141 @@ void Editor::executeParsedCommand(const ExCommand& command, bool force) {
     setError("unknown command ':" + command.name + "' (try :help)");
 }
 
-bool Editor::saveCurrent() {
-    std::string error;
-    if (!document_.save(error)) {
-        setError(error);
-        return false;
+void Editor::startSave(const std::filesystem::path* path, bool quitAfter) {
+    if (savePending_) {
+        if (quitAfter) {
+            quitAfterSave_ = true;
+        }
+        resaveRequested_ = true;
+        setMessage("Save already in progress; queued another save.");
+        return;
     }
 
-    setMessage("Wrote " + fsutil::pathToUtf8(document_.path().value()) + " (" +
-               std::to_string(document_.lineCount()) + " lines)");
-    return true;
+    std::string error;
+    auto snapshot = path ? document_.createSaveSnapshot(*path, error)
+                         : document_.createSaveSnapshot(error);
+    if (!snapshot) {
+        setError(error);
+        if (quitAfter) {
+            quitAfterSave_ = false;
+        }
+        return;
+    }
+
+    savePending_ = true;
+    saveGeneration_ = documentGeneration_;
+    quitAfterSave_ = quitAfter;
+    setMessage("Writing " + fsutil::pathToUtf8(snapshot->path) + " ...");
+
+    try {
+        saveFuture_ = std::async(std::launch::async,
+            [snapshot = std::move(*snapshot)]() mutable {
+                SaveOutcome outcome;
+                outcome.ok = Document::writeSnapshot(snapshot, outcome.error);
+                outcome.path = std::move(snapshot.path);
+                outcome.pose = snapshot.pose;
+                outcome.revision = snapshot.revision;
+                return outcome;
+            });
+    } catch (const std::exception& ex) {
+        savePending_ = false;
+        quitAfterSave_ = false;
+        setError(std::string("cannot start save: ") + ex.what());
+    }
 }
 
-bool Editor::saveCurrentAs(const std::filesystem::path& path) {
-    std::string error;
-    if (!document_.saveAs(path, error)) {
-        setError(error);
+bool Editor::pollSave() {
+    if (!savePending_ || !saveFuture_.valid()) {
         return false;
     }
 
-    setMessage("Wrote " + fsutil::pathToUtf8(path) + " (" +
-               std::to_string(document_.lineCount()) + " lines)");
+    if (saveFuture_.wait_for(std::chrono::milliseconds(0)) !=
+        std::future_status::ready) {
+        return false;
+    }
+
+    SaveOutcome outcome;
+    try {
+        outcome = saveFuture_.get();
+    } catch (const std::exception& ex) {
+        outcome.ok = false;
+        outcome.error = ex.what();
+    } catch (...) {
+        outcome.ok = false;
+        outcome.error = "save worker failed";
+    }
+
+    savePending_ = false;
+    const bool sameDocument = saveGeneration_ == documentGeneration_;
+
+    if (!outcome.ok) {
+        setError(outcome.error);
+        quitAfterSave_ = false;
+        resaveRequested_ = false;
+        waitThenQuit_ = false;
+        waitThenQuitForce_ = false;
+        return true;
+    }
+
+    if (sameDocument) {
+        document_.markSaved(outcome.path, outcome.pose, outcome.revision);
+        setMessage("Wrote " + fsutil::pathToUtf8(outcome.path) + " (" +
+                   std::to_string(document_.lineCount()) + " lines)");
+    } else {
+        setMessage("Wrote " + fsutil::pathToUtf8(outcome.path));
+    }
+
+    if (waitThenQuit_) {
+        waitThenQuit_ = false;
+        quitAfterSave_ = false;
+        resaveRequested_ = false;
+
+        if (!sameDocument) {
+            setMessage("Save finished; current buffer was not quit.");
+        } else if (waitThenQuitForce_ || !document_.isDirty()) {
+            running_ = false;
+        } else {
+            setMessage("Save finished; newer edits remain unsaved.");
+        }
+        waitThenQuitForce_ = false;
+    } else if (quitAfterSave_) {
+        if (sameDocument && !document_.isDirty()) {
+            running_ = false;
+        } else if (sameDocument) {
+            // The user edited while the snapshot was being written. Save the
+            // newer state before quitting.
+            startSave(nullptr, true);
+        } else {
+            quitAfterSave_ = false;
+            resaveRequested_ = false;
+            setMessage("Saved the previous buffer; current buffer was not quit.");
+        }
+    } else if (resaveRequested_) {
+        resaveRequested_ = false;
+        startSave(nullptr, false);
+    }
+
     return true;
 }
 
 void Editor::requestQuit(bool force) {
+    if (savePending_) {
+        if (!force && document_.isDirty()) {
+            prompt_ = PromptKind::Quit;
+            return;
+        }
+
+        waitThenQuit_ = true;
+        waitThenQuitForce_ = force;
+        setMessage("Will quit when the save finishes.");
+        return;
+    }
+
     if (!force && document_.isDirty()) {
         prompt_ = PromptKind::Quit;
         return;
     }
+
     running_ = false;
 }
 
@@ -565,6 +703,7 @@ void Editor::openPath(const std::filesystem::path& path) {
     }
 
     document_ = std::move(*loaded);
+    ++documentGeneration_;
     cursor_ = 0;
     topLine_ = 0;
     leftColumn_ = 0;
@@ -965,6 +1104,9 @@ std::string Editor::statusLeft(std::size_t line, std::size_t column) const {
     std::string text = " " + modeLabel() + "  " + document_.displayName();
     if (document_.isDirty()) {
         text += " [+]";
+    }
+    if (savePending_) {
+        text += " [saving]";
     }
     return text;
 }

@@ -8,6 +8,7 @@
 namespace hexal {
 
 enum class Key {
+    None,
     Character,
     Enter,
     Escape,
@@ -58,7 +59,10 @@ public:
 
     virtual bool init(std::string& error) = 0;
     virtual void shutdown() = 0;
-    virtual bool readEvent(InputEvent& event) = 0;
+    // A negative timeout blocks until input arrives. A non-negative timeout
+    // returns true with Key::None when no input arrives in time. This lets the
+    // editor poll background saves without a separate wake-up mechanism.
+    virtual bool readEvent(InputEvent& event, int timeoutMilliseconds = -1) = 0;
     virtual void write(std::string_view text) = 0;
     virtual void getSize(int& columns, int& rows) const = 0;
 };

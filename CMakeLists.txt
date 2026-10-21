@@ -10,6 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(HEXAL_BUILD_TESTS "Build the Hexal unit tests" ON)
+option(HEXAL_BUILD_BENCHMARKS "Build the Hexal microbenchmarks" ON)
+
+find_package(Threads REQUIRED)
 
 if(MSVC)
     add_compile_options(/utf-8 /W4 /permissive-)
@@ -39,7 +42,7 @@ add_executable(hexal
     src/ui/screen.cpp
     src/ui/renderer.cpp)
 
-target_link_libraries(hexal PRIVATE hexal_core)
+target_link_libraries(hexal PRIVATE hexal_core Threads::Threads)
 
 # The terminal layer is the only platform-specific part of the MVP.
 if(WIN32)
@@ -51,6 +54,19 @@ if(WIN32)
     endif()
 else()
     target_sources(hexal PRIVATE src/platform/terminal_posix.cpp)
+endif()
+
+# ---------------------------------------------------------------------------
+# Microbenchmarks. The UI cell grid and renderer are included so the benchmark
+# can measure a representative viewport frame as well as core buffer work.
+# ---------------------------------------------------------------------------
+if(HEXAL_BUILD_BENCHMARKS)
+    add_executable(hexal_bench
+        benchmarks/bench_main.cpp
+        src/ui/screen.cpp
+        src/ui/renderer.cpp)
+
+    target_link_libraries(hexal_bench PRIVATE hexal_core)
 endif()
 
 # ---------------------------------------------------------------------------

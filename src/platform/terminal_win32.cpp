@@ -78,10 +78,22 @@ public:
         initialized_ = false;
     }
 
-    bool readEvent(InputEvent& event) override {
+    bool readEvent(InputEvent& event, int timeoutMilliseconds) override {
         event = InputEvent{};
 
         while (true) {
+            if (timeoutMilliseconds >= 0) {
+                const DWORD wait = WaitForSingleObject(
+                    input_, static_cast<DWORD>(timeoutMilliseconds));
+                if (wait == WAIT_TIMEOUT) {
+                    event.key = Key::None;
+                    return true;
+                }
+                if (wait == WAIT_FAILED) {
+                    return false;
+                }
+            }
+
             INPUT_RECORD record {};
             DWORD count = 0;
             if (!ReadConsoleInputW(input_, &record, 1, &count)) {

@@ -108,6 +108,9 @@ millions-of-lines behavior.
   recorded for undo.
 - Saving streams pieces directly to the output file; it does not call
   `toString()`.
+- A save snapshot shares the immutable original buffer and copies only the
+  piece descriptors plus the append-only inserted-text buffer. It can therefore
+  be written from a worker while editing continues.
 - `added_` is append-only for the life of a buffer. This is a known trade-off:
   a very long session with many edits can grow it beyond the live document
   size. A future compaction pass can rebuild `original_` after save or when the
@@ -161,6 +164,11 @@ Dirty state:
   it dirty again.
 - If an edit discards a redo branch that contained the saved state, the flag is
   set to unreachable (-1).
+- Every text mutation (insert, erase, replace, undo, redo) increments a
+  revision counter. A background save records that counter in its snapshot and
+  only marks the document clean when the counter is unchanged on completion.
+  This avoids falsely marking the buffer clean if an undo followed by a new edit
+  returns the undo stack to the same depth with different text.
 
 Retention:
 
@@ -213,13 +221,19 @@ depending on true-colour support. The MVP status bar uses blue (NORMAL), green
 
 ### Saving
 
-1. Create a sibling temporary file with a unique name.
-2. Write BOM (if any) and stream all pieces in order.
-3. Flush and check the stream.
-4. Copy the original file's POSIX permission bits to the temporary file.
-5. Rename over the target (`std::rename` on POSIX,
+1. On the UI thread, capture an immutable piece snapshot, BOM flag, target
+   path, undo pose and revision. The original buffer is shared, not copied.
+2. Hand the snapshot to `std::async`. The worker creates a sibling temporary
+   file with a unique name.
+3. Write BOM (if any) and stream all snapshot pieces in order.
+4. Flush and check the stream.
+5. Copy the original file's POSIX permission bits to the temporary file.
+6. Rename over the target (`std::rename` on POSIX,
    `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` on Windows).
-6. On any failure, remove the temporary file; the original is untouched.
+7. On any failure, remove the temporary file; the original is untouched.
+8. The UI polls completion on a short terminal timeout. It marks the document
+   clean only if the revision is unchanged, updates `[saving]` in the status
+   bar, and finishes `:wq` once the saved state has no newer edits.
 
 The target path is only updated after a successful `:w <file>` save.
 
@@ -260,7 +274,9 @@ Windows ACLs, and symlink policy beyond normal OS behavior.
 
 Unit tests (`tests/test_main.cpp`) link only `hexal_core` and are run by CTest.
 They include a randomized differential test of 3000 edits against
-`std::string`, line-index checks on a 100,000-line buffer, and file round trips.
+`std::string`, line-index checks on a 100,000-line buffer, file round trips,
+and snapshot-isolation checks that edit the live table while a snapshot is
+written.
 
 For a full performance report, generate representative files (100k, 1M, several
 million lines) and measure with a release build:

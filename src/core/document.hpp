@@ -70,6 +70,25 @@ public:
     bool save(std::string& error);
     bool saveAs(const std::filesystem::path& path, std::string& error);
 
+    // Asynchronous-save support. createSaveSnapshot() is cheap for ordinary
+    // editing sessions: it copies piece descriptors and inserted text, and
+    // shares the immutable original file buffer. writeSnapshot() is safe to
+    // call from a worker while the document continues to be edited.
+    struct SaveSnapshot {
+        std::filesystem::path path;
+        bool bom = false;
+        std::size_t pose = 0;
+        std::uint64_t revision = 0;
+        PieceTable::Snapshot table;
+    };
+
+    std::optional<SaveSnapshot> createSaveSnapshot(std::string& error) const;
+    std::optional<SaveSnapshot> createSaveSnapshot(const std::filesystem::path& path,
+                                                   std::string& error) const;
+    static bool writeSnapshot(const SaveSnapshot& snapshot, std::string& error);
+    void markSaved(const std::filesystem::path& path, std::size_t pose,
+                   std::uint64_t revision);
+
 private:
     enum class GroupKind { Insert, Erase, Mixed };
 
@@ -92,7 +111,6 @@ private:
     void trimHistory();
     void applyChangeForward(const Change& change);
     void applyChangeBackward(const Change& change);
-    bool writeToPath(const std::filesystem::path& path, std::string& error);
 
     PieceTable table_;
     std::optional<std::filesystem::path> path_;
@@ -106,6 +124,8 @@ private:
     // Number of applied undo groups at the last save. -1 means the saved
     // state is no longer reachable (history was truncated).
     long long savedPose_ = 0;
+
+    std::uint64_t revision_ = 0;
 
     bool insertRunOpen_ = false;
     bool eraseRunOpen_ = false;
