@@ -1,0 +1,35 @@
+{
+    "id": "csharp",
+    "name": "C#",
+    "extensions": [".cs"],
+    "keywords": [
+        "abstract", "as", "async", "await", "base", "class", "const",
+        "delegate", "enum", "event", "explicit", "extern", "fixed",
+        "implicit", "in", "interface", "internal", "is", "lock",
+        "namespace", "new", "operator", "out", "override", "params",
+        "partial", "private", "protected", "public", "readonly", "record",
+        "ref", "sealed", "sizeof", "stackalloc", "static", "struct",
+        "this", "typeof", "unsafe", "using", "virtual", "volatile", "where"
+    ],
+    "controlStatements": [
+        "break", "case", "catch", "checked", "continue", "default", "do",
+        "else", "finally", "for", "foreach", "goto", "if", "return",
+        "switch", "throw", "try", "unchecked", "while", "yield"
+    ],
+    "types": [
+        "bool", "byte", "char", "decimal", "double", "dynamic", "float",
+        "int", "long", "nint", "nuint", "object", "sbyte", "short",
+        "string", "uint", "ulong", "ushort", "var", "void"
+    ],
+    "constants": ["true", "false", "null"],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}

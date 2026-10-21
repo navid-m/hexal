@@ -1,0 +1,33 @@
+{
+    "id": "c",
+    "name": "C",
+    "extensions": [".h", ".c"],
+    "keywords": [
+        "auto", "const", "enum", "extern", "inline", "register",
+        "restrict", "static", "struct", "typedef", "union", "volatile",
+        "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex",
+        "_Generic", "_Imaginary", "_Noreturn", "_Static_assert",
+        "_Thread_local"
+    ],
+    "controlStatements": [
+        "break", "case", "continue", "default", "do", "else", "for",
+        "goto", "if", "return", "switch", "while"
+    ],
+    "types": [
+        "bool", "char", "double", "FILE", "float", "int", "int8_t",
+        "int16_t", "int32_t", "int64_t", "intptr_t", "long", "ptrdiff_t",
+        "short", "signed", "size_t", "ssize_t", "uint8_t", "uint16_t",
+        "uint32_t", "uint64_t", "uintptr_t", "unsigned", "void", "wchar_t"
+    ],
+    "constants": ["NULL", "true", "false", "EOF"],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}

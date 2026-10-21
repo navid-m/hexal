@@ -163,15 +163,8 @@ public sealed class SyntaxHighlighter
                 continue;
             }
 
-            if (language.LineCommentBytes is { Length: > 0 } lineComment &&
-                StartsWith(text, offset, lineComment))
-            {
-                AddToken(tokens, offset, text.Length - offset,
-                    SyntaxTokenKind.Comment);
-                offset = text.Length;
-                break;
-            }
-
+            // Check block comments first: Lua's --[[ ... ]] starts with its
+            // line-comment marker, and must still carry state across lines.
             if (language.HasBlockComments &&
                 StartsWith(text, offset, language.BlockCommentStartBytes!))
             {
@@ -190,6 +183,15 @@ public sealed class SyntaxHighlighter
                 AddToken(tokens, offset, tokenEnd - offset, SyntaxTokenKind.Comment);
                 offset = tokenEnd;
                 continue;
+            }
+
+            if (language.LineCommentBytes is { Length: > 0 } lineComment &&
+                StartsWith(text, offset, lineComment))
+            {
+                AddToken(tokens, offset, text.Length - offset,
+                    SyntaxTokenKind.Comment);
+                offset = text.Length;
+                break;
             }
 
             int quoteLength = MatchQuote(text, offset, language.QuoteCharacterBytes);

@@ -23,6 +23,9 @@ architecture and observable behaviour as the C++ MVP:
   beside the executable, with viewport-only incremental syntax highlighting
 - **Lua plugins** through an isolated NLua state and the documented
   `hexal.*` API modules
+- **Bundled grammars and LSP plugins** for Lua, Go, XML, C#, C, C++, Python,
+  Cython, and GLSL; the first language server found in `PATH` is started
+  automatically
 
 ## Why this stack
 
@@ -301,13 +304,38 @@ Implemented API modules:
 | `hexal.keymap` | map, map_callback, unmap |
 | `hexal.ui` | message, warn, prompt, select, set_status |
 | `hexal.events` | on/off for buffer and editor lifecycle events |
-| `hexal.lsp` | API surface is present; this build has no LSP transport yet and reports that immediately |
+| `hexal.lsp` | start/stop language servers, diagnostics subscriptions; custom request/notify and navigation are reserved for future host support |
 | `hexal.config` | per-plugin JSON settings under `~/.hexal/plugin-config/<id>.json` |
 
 Line and column values are zero-based. Columns count Unicode scalars, not bytes
 or display cells. `replace_range` accepts numeric UTF-8 byte offsets or
 `{ line = ..., column = ... }` tables. Edits made through the API participate
 in normal undo/redo and mark the buffer dirty.
+
+### Language servers
+
+Bundled plugins associate each grammar with language-server candidates and
+start the first executable found in `PATH` when a matching buffer is opened:
+
+| Language | Extensions | Server candidates |
+| --- | --- | --- |
+| Lua | `.lua` | `lua-language-server` |
+| Go | `.go` | `gopls` |
+| XML | `.xml`, `.csproj`, `.rpp` | `lemminx`, `xml-language-server` |
+| C# | `.cs` | `csharp-ls`, `roslyn-language-server`, `omnisharp` |
+| C | `.h`, `.c` | `clangd` |
+| C++ | `.h`, `.cpp`, `.hpp` | `clangd` |
+| Python | `.py` | `pyright-langserver`, `ty`, `mypy`, `mypy-language-server` |
+| Cython | `.pyx` | `cython-lsp`, `pyright-langserver`, `ty`, `mypy` |
+| GLSL | `.gdshader`, `.shader`, `.fs`, `.vs`, `.glsl` | `glsl_analyzer`, `glsl-language-server` |
+
+The LSP client runs asynchronously over stdio with JSON-RPC framing. It performs
+`initialize`, opens the document, sends debounced full-document changes and
+save notifications, and displays diagnostic counts in the status bar.
+`hexal.lsp.on_diagnostics` callbacks receive the server, URI and diagnostic
+objects. Servers are stopped and restarted when the buffer or language changes.
+If the executable is missing, the next candidate is attempted; absence of a
+server does not affect normal editing.
 
 Plugins run in isolated in-process Lua states. NLua's CLR package is not loaded,
 and only the documented `hexal.*` tables are exposed. An in-process Lua runtime
@@ -339,6 +367,9 @@ HexalCs/Hexal/
     Terminal.cs              terminal interface and factory
     PosixTerminal.cs         termios, poll, SIGWINCH, ANSI input decoder
     WindowsTerminal.cs       Console API, ReadConsoleInputW, VT output
+  Lsp/
+    LspManager.cs            async JSON-RPC client, document sync, diagnostics
+    LspServerConfig.cs       server config, executable lookup, diagnostic types
   Languages/
     LanguageDefinition.cs    validated .hexdef schema and token categories
     LanguageRegistry.cs      data/grammars loading and extension detection

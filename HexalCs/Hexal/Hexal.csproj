@@ -34,4 +34,14 @@
     <PackageReference Include="NLua" Version="1.7.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Bundled grammars and language-server plugins are deployed into the
+         portable data/ layout next to the executable. -->
+    <Content Include="Data\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>data/%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
 </Project>

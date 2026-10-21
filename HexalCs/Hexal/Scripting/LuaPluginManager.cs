@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Hexal.Lsp;
 using Hexal.Platform;
 using Hexal.Util;
 using NLua;
@@ -681,29 +682,67 @@ public sealed class LuaPluginManager : IDisposable
         });
 
         LuaTable lsp = NewModule(lua, root, "lsp");
-        lsp["start"] = new Func<object?, bool>(_ =>
+        lsp["start"] = new Func<object?, bool>(configValue =>
         {
-            _host.ShowMessage("LSP support is not available in this build", true);
+            if (configValue is not LuaTable config)
+            {
+                _host.ShowMessage("lsp.start expects a server configuration table", true);
+                return false;
+            }
+
+            string? command = config["command"]?.ToString();
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                _host.ShowMessage("lsp.start requires a command", true);
+                return false;
+            }
+
+            string name = config["name"]?.ToString() ?? command;
+            string languageId = config["language_id"]?.ToString() ?? string.Empty;
+            var arguments = new List<string>();
+            if (config["args"] is LuaTable args)
+            {
+                foreach (object? argument in LuaArray(args))
+                {
+                    arguments.Add(argument?.ToString() ?? string.Empty);
+                }
+            }
+
+            var serverConfig = new LspServerConfig
+            {
+                Name = name,
+                Command = command,
+                Arguments = arguments,
+                LanguageId = languageId
+            };
+
+            if (_host.StartLsp(serverConfig, out string error))
+            {
+                return true;
+            }
+
+            HexalPaths.Log($"LSP unavailable for plugin {plugin.Id}: {error}");
             return false;
         });
-        lsp["stop"] = new Func<string, bool>(_ =>
+        lsp["stop"] = new Func<object?, bool>(name =>
         {
-            _host.ShowMessage("LSP support is not available in this build", true);
-            return false;
+            _host.StopLsp(name?.ToString());
+            return true;
         });
         lsp["request"] = new Func<string, object?, LuaFunction?, bool>(
             (method, parameters, callback) =>
             {
-                _host.ShowMessage("LSP support is not available in this build", true);
+                const string message = "custom LSP requests are not supported by this host yet";
+                _host.ShowMessage(message, true);
                 if (callback is not null)
                 {
-                    InvokeSafely(plugin, callback, new object?[] { null, "LSP unavailable" });
+                    InvokeSafely(plugin, callback, new object?[] { null, message });
                 }
                 return false;
             });
         lsp["notify"] = new Func<string, object?, bool>((method, parameters) =>
         {
-            _host.ShowMessage("LSP support is not available in this build", true);
+            _host.ShowMessage("custom LSP notifications are not supported by this host yet", true);
             return false;
         });
         lsp["on_diagnostics"] = new Func<LuaFunction, long>(callback =>
@@ -723,9 +762,9 @@ public sealed class LuaPluginManager : IDisposable
             return id;
         });
         lsp["go_to_definition"] = new Action(() =>
-            _host.ShowMessage("LSP support is not available in this build", true));
+            _host.ShowMessage("go-to-definition is not implemented yet", true));
         lsp["find_references"] = new Action(() =>
-            _host.ShowMessage("LSP support is not available in this build", true));
+            _host.ShowMessage("find-references is not implemented yet", true));
 
         LuaTable config = NewModule(lua, root, "config");
         internalApi["config_get"] = new Func<string, object?, object?>((key, fallback) =>

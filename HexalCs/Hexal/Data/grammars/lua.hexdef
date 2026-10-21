@@ -1,0 +1,28 @@
+{
+    "id": "lua",
+    "name": "Lua",
+    "extensions": [".lua"],
+    "keywords": [
+        "and", "end", "function", "local", "not", "or", "repeat",
+        "then", "until", "self"
+    ],
+    "controlStatements": [
+        "break", "do", "else", "elseif", "for", "goto", "if", "in",
+        "return", "while"
+    ],
+    "types": [
+        "boolean", "function", "nil", "number", "string", "table",
+        "thread", "userdata"
+    ],
+    "constants": ["true", "false", "nil", "_G", "_VERSION"],
+    "comments": {
+        "line": "--",
+        "blockStart": "--[[",
+        "blockEnd": "]]"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}

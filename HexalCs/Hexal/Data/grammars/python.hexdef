@@ -1,0 +1,32 @@
+{
+    "id": "python",
+    "name": "Python",
+    "extensions": [".py"],
+    "keywords": [
+        "and", "as", "assert", "async", "await", "class", "def", "del",
+        "from", "global", "import", "in", "is", "lambda", "nonlocal",
+        "not", "or", "pass", "with"
+    ],
+    "controlStatements": [
+        "break", "case", "continue", "elif", "else", "except", "finally",
+        "for", "if", "match", "raise", "return", "try", "while", "yield"
+    ],
+    "types": [
+        "Any", "bool", "bytearray", "bytes", "Callable", "complex",
+        "dict", "Dict", "float", "frozenset", "int", "Iterable", "list",
+        "List", "object", "Optional", "Sequence", "set", "Set", "str",
+        "tuple", "Tuple", "type", "Union"
+    ],
+    "constants": [
+        "True", "False", "None", "NotImplemented", "Ellipsis",
+        "__file__", "__name__"
+    ],
+    "comments": {
+        "line": "#"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}

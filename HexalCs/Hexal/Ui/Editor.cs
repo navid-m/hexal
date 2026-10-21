@@ -191,7 +191,8 @@ public sealed partial class Editor
             // Pending background work needs a periodic wake-up so the UI can
             // report completion. Idle with no work uses a blocking read and
             // consumes no CPU.
-            bool busy = _saveOperation is not null || _pickerTask is not null;
+            bool busy = _saveOperation is not null || _pickerTask is not null ||
+                        _lsp.IsRunning || _lspDirty;
             int timeout = busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
@@ -398,6 +399,7 @@ public sealed partial class Editor
             return false;
         }
 
+        ResetLsp();
         _document = loaded;
         RefreshLanguage();
 
@@ -1739,6 +1741,8 @@ public sealed partial class Editor
                     return;
                 }
                 SetMessage($"Language set to {arguments[0]}");
+                ResetLsp();
+                FirePluginEvent("buffer_opened", CurrentBufferData());
                 return;
 
             case "help":
@@ -1837,6 +1841,11 @@ public sealed partial class Editor
             redraw = true;
         }
 
+        if (PollLsp())
+        {
+            redraw = true;
+        }
+
         if (_externalCheckPending && _saveOperation is null)
         {
             _externalCheckPending = false;
@@ -1894,6 +1903,7 @@ public sealed partial class Editor
                     ["path"] = result.Path,
                     ["id"] = CurrentBufferId
                 });
+                NotifyLspSaved();
             }
             else
             {
@@ -2004,6 +2014,7 @@ public sealed partial class Editor
             return;
         }
 
+        ResetLsp();
         _document = loaded;
         RefreshLanguage();
         _cursor = 0;

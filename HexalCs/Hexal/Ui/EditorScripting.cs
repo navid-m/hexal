@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Hexal.Core;
+using Hexal.Lsp;
 using Hexal.Platform;
 using Hexal.Scripting;
 using Hexal.Util;
@@ -11,8 +12,11 @@ namespace Hexal.Ui;
 public sealed partial class Editor : IEditorApi, IDisposable
 {
     private LuaPluginManager? _plugins;
+    private readonly LspManager _lsp = new();
     private readonly Dictionary<string, string> _pluginStatus =
         new(StringComparer.Ordinal);
+    private bool _lspDirty;
+    private long _lspDirtySince;
 
     private string _pluginPromptLabel = string.Empty;
     private readonly StringBuilder _pluginPromptText = new();
@@ -64,7 +68,9 @@ public sealed partial class Editor : IEditorApi, IDisposable
         _plugins.FireEvent("editor_shutdown");
         _plugins.Dispose();
         _plugins = null;
+        _lsp.Stop();
         _pluginStatus.Clear();
+        _lspDirty = false;
     }
 
     private void FirePluginEvent(string eventName,
@@ -76,15 +82,25 @@ public sealed partial class Editor : IEditorApi, IDisposable
     private void EmitInputEvents(Document documentBefore, long revisionBefore,
         long cursorBefore)
     {
-        if (_plugins is null || !ReferenceEquals(documentBefore, _document))
+        if (!ReferenceEquals(documentBefore, _document))
         {
             return;
         }
 
-        if (_document.Revision != revisionBefore &&
-            _plugins.HasSubscribers("buffer_changed"))
+        if (_document.Revision != revisionBefore)
         {
-            FirePluginEvent("buffer_changed", CurrentBufferData());
+            _lspDirty = _lsp.IsRunning;
+            _lspDirtySince = Environment.TickCount64;
+
+            if (_plugins is not null && _plugins.HasSubscribers("buffer_changed"))
+            {
+                FirePluginEvent("buffer_changed", CurrentBufferData());
+            }
+        }
+
+        if (_plugins is null)
+        {
+            return;
         }
 
         if (_cursor != cursorBefore && _plugins.HasSubscribers("cursor_moved"))
@@ -229,6 +245,88 @@ public sealed partial class Editor : IEditorApi, IDisposable
         _pluginSelectItems.AddRange(items);
         _pluginSelectCallback = callback;
         OpenPicker(PickerKind.Plugin);
+    }
+
+    private bool PollLsp()
+    {
+        bool redraw = false;
+
+        while (_lsp.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            redraw = true;
+            switch (lspEvent.Kind)
+            {
+                case LspEventKind.Started:
+                    _pluginStatus["lsp"] = $"LSP: starting {lspEvent.ServerName}";
+                    break;
+                case LspEventKind.Initialized:
+                    _pluginStatus["lsp"] = $"LSP: {lspEvent.ServerName}";
+                    break;
+                case LspEventKind.Diagnostics:
+                {
+                    int count = lspEvent.Diagnostics.Count;
+                    _pluginStatus["lsp"] = count == 0
+                        ? $"LSP: {lspEvent.ServerName}"
+                        : $"LSP: {lspEvent.ServerName} ({count})";
+
+                    if (_plugins is not null)
+                    {
+                        var diagnostics = new List<object?>(count);
+                        foreach (LspDiagnostic diagnostic in lspEvent.Diagnostics)
+                        {
+                            diagnostics.Add(new Dictionary<string, object?>
+                            {
+                                ["line"] = diagnostic.Line,
+                                ["column"] = diagnostic.Column,
+                                ["severity"] = diagnostic.Severity,
+                                ["message"] = diagnostic.Message,
+                                ["source"] = diagnostic.Source
+                            });
+                        }
+
+                        _plugins.FireEvent("__lsp_diagnostics",
+                            new Dictionary<string, object?>
+                            {
+                                ["server"] = lspEvent.ServerName,
+                                ["uri"] = lspEvent.Uri,
+                                ["diagnostics"] = diagnostics
+                            });
+                    }
+                    break;
+                }
+                case LspEventKind.Error:
+                    SetError($"LSP {lspEvent.ServerName}: {lspEvent.Message}");
+                    break;
+                case LspEventKind.Stopped:
+                    _pluginStatus.Remove("lsp");
+                    _lspDirty = false;
+                    break;
+            }
+        }
+
+        if (_lspDirty && _lsp.IsInitialized &&
+            Environment.TickCount64 - _lspDirtySince >= 150)
+        {
+            _lsp.DidChange(GetText());
+            _lspDirty = false;
+        }
+
+        return redraw;
+    }
+
+    private void ResetLsp()
+    {
+        _lsp.Stop();
+        _pluginStatus.Remove("lsp");
+        _lspDirty = false;
+    }
+
+    private void NotifyLspSaved()
+    {
+        if (_lsp.IsInitialized)
+        {
+            _lsp.DidSave(GetText());
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -400,6 +498,30 @@ public sealed partial class Editor : IEditorApi, IDisposable
         Action<int?> callback)
     {
         OpenPluginPicker(title ?? "Select", items, callback);
+    }
+
+    public bool StartLsp(LspServerConfig config, out string error)
+    {
+        error = string.Empty;
+        if (_document.Path is null)
+        {
+            error = "language servers require a file-backed buffer";
+            return false;
+        }
+
+        _lspDirty = false;
+        return _lsp.TryStart(config, _document.Path, GetText(), out error);
+    }
+
+    public void StopLsp(string? name)
+    {
+        if (string.IsNullOrEmpty(name) ||
+            string.Equals(_lsp.ServerName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            _lsp.Stop();
+            _pluginStatus.Remove("lsp");
+            _lspDirty = false;
+        }
     }
 
     public bool ExecuteCommand(string name, IReadOnlyList<string> args,

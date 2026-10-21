@@ -1,0 +1,20 @@
+{
+    "id": "xml",
+    "name": "XML",
+    "extensions": [".xml", ".csproj", ".rpp"],
+    "keywords": [
+        "xml", "version", "encoding", "standalone", "xmlns", "xsi",
+        "schemaLocation", "noNamespaceSchemaLocation"
+    ],
+    "controlStatements": [],
+    "types": [],
+    "constants": ["true", "false"],
+    "comments": {
+        "blockStart": "<!--",
+        "blockEnd": "-->"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"]
+    },
+    "numbers": true
+}

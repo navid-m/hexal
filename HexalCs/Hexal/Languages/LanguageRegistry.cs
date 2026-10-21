@@ -93,8 +93,12 @@ public sealed class LanguageRegistry
             {
                 if (_byExtension.TryGetValue(extension, out LanguageDefinition? existing))
                 {
-                    _errors.Add(
-                        $"{Path.GetFileName(file)}: extension '{extension}' already belongs to '{existing.Id}'");
+                    // Several grammars can legitimately share an extension
+                    // (.h is both C and C++). Keep the deterministic first
+                    // match; users can still select the other with :lang.
+                    HexalPaths.Log(
+                        $"Grammar warning: extension '{extension}' belongs to " +
+                        $"'{existing.Id}'; ignoring duplicate from '{language.Id}'");
                     continue;
                 }
                 _byExtension.Add(extension, language);

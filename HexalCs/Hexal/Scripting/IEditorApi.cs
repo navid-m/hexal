@@ -1,3 +1,5 @@
+using Hexal.Lsp;
+
 namespace Hexal.Scripting;
 
 public readonly record struct PluginCursor(long Line, long Column);
@@ -40,6 +42,10 @@ public interface IEditorApi
     void RequestPrompt(string label, Action<string?> callback);
 
     void RequestSelect(string title, IReadOnlyList<string> items, Action<int?> callback);
+
+    bool StartLsp(LspServerConfig config, out string error);
+
+    void StopLsp(string? name);
 
     bool ExecuteCommand(string name, IReadOnlyList<string> args, out string error);
 
