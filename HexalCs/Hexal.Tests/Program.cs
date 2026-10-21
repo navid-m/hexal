@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using Hexal.Core;
+using Hexal.Languages;
+using Hexal.Scripting;
 using Hexal.Util;
 
 namespace Hexal.Tests;
@@ -25,6 +27,8 @@ internal static class Program
         TestSaveFailureLeavesOriginal();
         TestFilesystemReadWrite();
         TestFileSearch();
+        TestLanguageGrammars();
+        TestPluginConfigStore();
 
         Console.Out.WriteLine($"{s_checks - s_failures} of {s_checks} checks passed");
         if (s_failures != 0)
@@ -636,6 +640,112 @@ internal static class Program
         CheckEqual(matches[0].Column, 7L, "match.Column", "7");
         Check(matches[0].Preview.Contains("beta needle", StringComparison.Ordinal),
             "match preview");
+    }
+
+    private static void TestLanguageGrammars()
+    {
+        const string grammarJson = """
+            {
+                "id": "test",
+                "name": "Test",
+                "extensions": ["tst"],
+                "keywords": ["fn", "let"],
+                "controlStatements": ["if"],
+                "types": ["int"],
+                "constants": ["true"],
+                "comments": {
+                    "line": "//",
+                    "blockStart": "/*",
+                    "blockEnd": "*/"
+                },
+                "strings": {
+                    "quoteCharacters": ["\""],
+                    "escapeCharacter": "\\"
+                }
+            }
+            """;
+
+        Check(LanguageDefinition.TryParse(grammarJson, "test.hexdef",
+                out LanguageDefinition? language, out string parseError),
+            "parse grammar");
+        CheckEqual(parseError, string.Empty, "parse error", "empty");
+        Check(language is not null, "grammar parsed");
+        LanguageDefinition definition = language!;
+        CheckEqual(definition.Id, "test", "grammar id", "test");
+        CheckEqual(definition.Extensions[0], ".tst", "grammar extension", ".tst");
+
+        using var directory = new TempDir();
+        string grammarPath = directory.Path("test.hexdef");
+        Check(WriteBytes(grammarPath, Encoding.UTF8.GetBytes(grammarJson)),
+            "write grammar file");
+
+        var registry = new LanguageRegistry();
+        registry.LoadDirectory(directory.Path("."));
+        CheckEqual(registry.Errors.Count, 0, "registry errors", "0");
+        Check(ReferenceEquals(registry.Detect("sample.tst"), registry.Find("test")),
+            "extension detection");
+
+        string sourcePath = directory.Path("sample.tst");
+        const string source = "fn main() {\n  let x = 42;\n  // comment\n  /* block\n     still */\n  int y = true;\n}\n";
+        Check(WriteBytes(sourcePath, Encoding.UTF8.GetBytes(source)), "write source");
+        Document? document = Document.Open(sourcePath, out string openError);
+        Check(document is not null, $"open source ({openError})");
+        if (document is null)
+        {
+            return;
+        }
+
+        var highlighter = new SyntaxHighlighter();
+        highlighter.SetDocument(document, definition);
+        var tokens = new List<SyntaxToken>();
+
+        highlighter.GetLineTokens(0, document.LineText(0), tokens);
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword),
+            "keyword token");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.ControlStatement) == false,
+            "no control token on line 0");
+
+        highlighter.GetLineTokens(1, document.LineText(1), tokens);
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Number),
+            "number token");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword),
+            "line 1 keyword token");
+
+        highlighter.GetLineTokens(2, document.LineText(2), tokens);
+        Check(tokens.Count == 1 && tokens[0].Kind == SyntaxTokenKind.Comment,
+            "line comment token");
+
+        highlighter.GetLineTokens(3, document.LineText(3), tokens);
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Comment),
+            "block comment start token");
+
+        highlighter.GetLineTokens(4, document.LineText(4), tokens);
+        Check(tokens.Count == 1 && tokens[0].Kind == SyntaxTokenKind.Comment,
+            "continued block comment token");
+
+        highlighter.GetLineTokens(5, document.LineText(5), tokens);
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Type), "type token");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Constant),
+            "constant token");
+    }
+
+    private static void TestPluginConfigStore()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("plugin.json");
+        var store = new PluginConfigStore(path);
+        store.Set("answer", 42);
+        store.Set("nested.name", "hexal");
+        Check(store.Save(out string error), $"save plugin config ({error})");
+
+        var loaded = new PluginConfigStore(path);
+        Check(loaded.TryLoad(out error), $"load plugin config ({error})");
+        CheckEqual(Convert.ToInt64(loaded.Get("answer")), 42L,
+            "config answer", "42");
+        CheckEqual(loaded.Get("nested.name") as string, "hexal",
+            "nested config value", "hexal");
+        CheckEqual(loaded.Get("missing", "fallback") as string, "fallback",
+            "config fallback", "fallback");
     }
 
     private static long ExpectedLineStart(byte[] text, long line)

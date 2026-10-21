@@ -5,8 +5,9 @@ because it sits alongside the original C++ tree, but the project and root
 namespace are `Hexal` (`HexalCs/Hexal`).
 
 The implementation is a cross-platform, modal, terminal text editor built on
-the .NET 9 runtime with **no third-party packages** and no UI toolkit. It uses
-the same architecture and observable behaviour as the C++ MVP:
+the .NET 9 runtime with no UI toolkit. Its single runtime dependency is NLua,
+which provides the native Lua 5.4 runtime for plugins. It uses the same
+architecture and observable behaviour as the C++ MVP:
 
 - Chunked piece table with an array-backed implicit treap line index
 - Viewport-only rendering with a front/back cell-grid diff renderer
@@ -18,6 +19,10 @@ the same architecture and observable behaviour as the C++ MVP:
   saved without freezing input or scrolling
 - **Automatic external reload on terminal focus**: one metadata stat in the
   common case, and a full read only when the file actually changed
+- **Data-driven `.hexdef` language grammars** loaded from
+  `~/.hexal/grammars/`, with viewport-only incremental syntax highlighting
+- **Lua plugins** through an isolated NLua state and the documented
+  `hexal.*` API modules
 
 ## Why this stack
 
@@ -42,6 +47,8 @@ The hot path avoids allocations and managed indirection:
 - .NET 9 SDK
 - Linux/macOS: an ANSI UTF-8 terminal
 - Windows 10/11 with virtual terminal processing (Windows Terminal is ideal)
+- NuGet restore for NLua/KeraLua. The package carries native Lua 5.4 libraries
+  for Linux (x64/arm64), macOS, and Windows (x86/x64/arm64).
 
 ## Build and run
 
@@ -67,6 +74,10 @@ dotnet publish Hexal/Hexal.csproj -c Release -r linux-x64 -p:PublishAot=true
 
 (Use the matching runtime identifier on macOS and Windows.)
 
+NLua's native library is copied beside the published executable
+(`liblua54.so`, `liblua54.dylib`, or `lua54.dll`). Keep it in the same directory
+when installing the binary; `install.sh` does this for Linux.
+
 ## Test
 
 The test project is a dependency-free console harness, matching the C++ MVP's
@@ -89,6 +100,8 @@ It covers:
 - save-snapshot isolation while the live document keeps changing
 - revision-based dirty tracking for edits made during a background save
 - project file enumeration, ignored directories and content search offsets
+- `.hexdef` parsing, extension detection and incremental tokenization of
+  keywords, types, constants, strings, numbers and multiline comments
 
 ## Usage
 
@@ -174,6 +187,104 @@ reports the reload and notes when unsaved edits were discarded.
 Focus reporting requires terminal support (`\e[?1004h`); when unavailable,
 external changes are picked up only after reopening the file.
 
+## Language grammars
+
+Language definitions are human-readable `.hexdef` JSON files placed in
+`~/.hexal/grammars/`. The directory is created on startup. Files are loaded
+once, sorted by name, and matched to buffers by extension. Invalid definitions
+are reported in the status bar and skipped without stopping the editor.
+
+Canonical schema:
+
+```json
+{
+    "id": "cpp",
+    "name": "C++",
+    "extensions": [".cpp", ".cc", ".hpp", ".h"],
+    "keywords": ["class", "struct", "namespace", "template"],
+    "controlStatements": ["if", "else", "for", "while", "return"],
+    "types": ["int", "char", "bool", "void"],
+    "constants": ["true", "false", "nullptr"],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}
+```
+
+- `comments.blockStart` and `comments.blockEnd` must be supplied together.
+- `lineComment` and `blockComment: { "start": ..., "end": ... }` are accepted
+  as aliases when `comments` is absent.
+- `numbers` defaults to `true`.
+- Highlight categories are keyword, control statement, type, constant, string,
+  comment, and number. Default text uses the terminal foreground.
+- `:lang <id>` overrides auto-detection for the current buffer.
+
+Only visible lines are tokenized. Lexer states are cached per line, so block
+comments remain correct while scrolling without rescanning the document on
+every frame or edit. A viewport far from any cached state starts in the default
+state, keeping jumps into multi-million-line files proportional to the visible
+window.
+
+## Lua plugins
+
+Plugins live under `~/.hexal/plugins/<plugin-id>/`:
+
+```text
+~/.hexal/plugins/example/
+    plugin.toml
+    init.lua
+```
+
+`plugin.toml` is a small key/value manifest. `entry` defaults to `init.lua`;
+`enabled = "false"` disables a plugin; `id` defaults to the directory name.
+
+```toml
+name = "Example"
+version = "1.0"
+entry = "init.lua"
+description = "Example Hexal plugin"
+```
+
+```lua
+hexal.commands.register("Hello", function()
+    hexal.ui.message("Hello from Hexal")
+end)
+
+hexal.keymap.map("space h", "Hello")
+```
+
+Plugin commands are callable through the Ex prompt (`:Hello`). Keymaps accept
+space-separated sequences, mode names `normal`, `insert`, or `select`, and
+single-key/chord tokens such as `f`, `space`, `esc`, `ctrl+p`, or `alt+x`.
+
+Implemented API modules:
+
+| Module | Notes |
+| --- | --- |
+| `hexal.editor` | buffer text, line/cursor/selection inspection, cursor movement, insert/replace with undo integration |
+| `hexal.commands` | register, unregister, execute |
+| `hexal.keymap` | map, map_callback, unmap |
+| `hexal.ui` | message, warn, prompt, select, set_status |
+| `hexal.events` | on/off for buffer and editor lifecycle events |
+| `hexal.lsp` | API surface is present; this build has no LSP transport yet and reports that immediately |
+| `hexal.config` | per-plugin JSON settings under `~/.hexal/plugin-config/<id>.json` |
+
+Line and column values are zero-based. Columns count Unicode scalars, not bytes
+or display cells. `replace_range` accepts numeric UTF-8 byte offsets or
+`{ line = ..., column = ... }` tables. Edits made through the API participate
+in normal undo/redo and mark the buffer dirty.
+
+Plugins run in isolated in-process Lua states. NLua's CLR package is not loaded,
+and only the documented `hexal.*` tables are exposed. An in-process Lua runtime
+is nevertheless **not a security boundary**; do not install untrusted plugins.
+
 ## Data safety
 
 - Saves write a sibling temporary file, flush it, copy the original POSIX
@@ -200,10 +311,20 @@ HexalCs/Hexal/
     Terminal.cs              terminal interface and factory
     PosixTerminal.cs         termios, poll, SIGWINCH, ANSI input decoder
     WindowsTerminal.cs       Console API, ReadConsoleInputW, VT output
+  Languages/
+    LanguageDefinition.cs    validated .hexdef schema and token categories
+    LanguageRegistry.cs      ~/.hexal/grammars loading and extension detection
+    SyntaxHighlighter.cs     visible-line lexer with cached block states
+  Scripting/
+    IEditorApi.cs            narrow Lua-to-editor host contract
+    LuaPluginManager.cs      isolated Lua states, modules, keymaps, events
+    PluginConfigStore.cs     per-plugin JSON configuration
   Ui/
     Screen.cs                cell grid and wide-character cells
     Renderer.cs              ANSI diff renderer
     Editor.cs                modes, key handling, commands, async save state
+    EditorLanguages.cs       language selection and token styles
+    EditorScripting.cs       Lua host implementation, prompts and selects
   Util/
     ByteBuffer.cs            reusable growable byte buffer
     UnicodeUtil.cs           UTF-8, boundaries, display widths
@@ -249,10 +370,11 @@ hidden; the block cursor is a reversed cell. Only viewport lines are extracted.
 
 ## Differences from the C++ MVP
 
-The feature set and command behaviour match, including asynchronous saves with
-a `[saving]` indicator and revision-aware dirty tracking. The C# port
-additionally uses chunked storage for both original and inserted text (avoiding
-a single large managed array) and supports NativeAOT publishing.
+The core editing feature set and command behaviour match, including
+asynchronous saves with a `[saving]` indicator and revision-aware dirty
+tracking. The C# port additionally uses chunked storage for both original and
+inserted text (avoiding a single large managed array), supports NativeAOT
+publishing, and adds data-driven grammars and Lua plugins.
 
 File **loading** remains synchronous in both implementations; only saving is
 backgrounded.

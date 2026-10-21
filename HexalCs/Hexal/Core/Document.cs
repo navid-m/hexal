@@ -66,6 +66,12 @@ public sealed class Document
 
     public long LineCount => _table.NewlineCount + 1;
 
+    /// <summary>
+    /// Monotonically increasing edit counter. Syntax caches and plugins use it
+    /// to detect changes without comparing document text.
+    /// </summary>
+    public long Revision => _revision;
+
     public static Document? Open(string path, out string error)
     {
         error = string.Empty;

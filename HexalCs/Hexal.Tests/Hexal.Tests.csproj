@@ -6,6 +6,7 @@
     <RootNamespace>Hexal.Tests</RootNamespace>
     <AssemblyName>hexal-tests</AssemblyName>
     <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

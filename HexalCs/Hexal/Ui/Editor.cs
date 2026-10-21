@@ -1,11 +1,12 @@
 using System.Text;
 using Hexal.Core;
+using Hexal.Languages;
 using Hexal.Platform;
 using Hexal.Util;
 
 namespace Hexal.Ui;
 
-public sealed class Editor
+public sealed partial class Editor
 {
     private const int TabWidth = 4;
 
@@ -17,7 +18,8 @@ public sealed class Editor
         Normal,
         Insert,
         Select,
-        Command
+        Command,
+        PluginPrompt
     }
 
     private enum PromptKind
@@ -31,7 +33,8 @@ public sealed class Editor
     {
         None,
         Files,
-        Search
+        Search,
+        Plugin
     }
 
     private static readonly (char Key, string Label)[] SpaceMenuItems =
@@ -107,12 +110,18 @@ public sealed class Editor
 
     private byte[] _lineBuffer = Array.Empty<byte>();
 
+    private readonly LanguageRegistry _languages;
+    private readonly SyntaxHighlighter _syntax = new();
+    private readonly List<SyntaxToken> _lineTokens = new();
+    private LanguageDefinition? _language;
+
     private sealed class PickerItem
     {
         public string Display = string.Empty;
         public string Path = string.Empty;
         public long Line = -1;
         public long Column;
+        public int Value;
     }
 
     private sealed class PickerScanResult
@@ -150,12 +159,20 @@ public sealed class Editor
     {
         _terminal = terminal;
         _document = document;
+        _languages = LanguageRegistry.LoadUserGrammars();
+        RefreshLanguage();
         RefreshFileStamp();
         SnapCursor();
+
+        if (_languages.Errors.Count > 0)
+        {
+            SetError($"grammar: {_languages.Errors[0]}");
+        }
     }
 
     public int Run()
     {
+        LoadPlugins();
         RefreshSize();
         EnsureCursorVisible();
         Render();
@@ -190,11 +207,16 @@ public sealed class Editor
                 continue;
             }
 
+            Document documentBefore = _document;
+            long revisionBefore = _document.Revision;
+            long cursorBefore = _cursor;
+
             if (!HandleEvent(inputEvent))
             {
                 break;
             }
 
+            EmitInputEvents(documentBefore, revisionBefore, cursorBefore);
             EnsureCursorVisible();
             Render();
         }
@@ -215,6 +237,7 @@ public sealed class Editor
             }
         }
 
+        UnloadPlugins();
         return 0;
     }
 
@@ -246,6 +269,25 @@ public sealed class Editor
             return _running;
         }
 
+        if (_plugins is not null &&
+            _prompt == PromptKind.None &&
+            _pickerKind == PickerKind.None &&
+            !_spaceMenuOpen &&
+            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        {
+            string keymapMode = _mode switch
+            {
+                Mode.Insert => "insert",
+                Mode.Select => "select",
+                _ => "normal"
+            };
+
+            if (_plugins.TryHandleKey(inputEvent, keymapMode, out bool handled) && handled)
+            {
+                return _running;
+            }
+        }
+
         try
         {
             if (_pickerKind != PickerKind.None)
@@ -259,6 +301,10 @@ public sealed class Editor
             else if (_prompt != PromptKind.None)
             {
                 HandlePrompt(inputEvent);
+            }
+            else if (_mode == Mode.PluginPrompt)
+            {
+                HandlePluginPrompt(inputEvent);
             }
             else if (_mode == Mode.Command)
             {
@@ -353,6 +399,7 @@ public sealed class Editor
         }
 
         _document = loaded;
+        RefreshLanguage();
 
         if (_mode == Mode.Select)
         {
@@ -386,6 +433,12 @@ public sealed class Editor
             SetMessage($"Reloaded {_document.DisplayName} (changed on disk)");
         }
 
+        FirePluginEvent("buffer_opened", new Dictionary<string, object?>
+        {
+            ["path"] = path,
+            ["id"] = CurrentBufferId,
+            ["reloaded"] = true
+        });
         return true;
     }
 
@@ -1081,7 +1134,11 @@ public sealed class Editor
         _document.BreakUndoGroup();
         ClearMessage();
 
-        if (!_pickerFilesLoaded)
+        if (kind == PickerKind.Plugin)
+        {
+            BeginPickerQuery();
+        }
+        else if (!_pickerFilesLoaded)
         {
             StartPickerFileScan();
         }
@@ -1091,8 +1148,14 @@ public sealed class Editor
         }
     }
 
-    private void ClosePicker()
+    private void ClosePicker(bool cancelled = true)
     {
+        PickerKind oldKind = _pickerKind;
+        Action<int?>? pluginCallback = oldKind == PickerKind.Plugin
+            ? _pluginSelectCallback
+            : null;
+        _pluginSelectCallback = null;
+
         CancelPickerWork();
         _pickerKind = PickerKind.None;
         _pickerQuery.Clear();
@@ -1102,6 +1165,13 @@ public sealed class Editor
         _pickerTop = 0;
         _pickerLoading = false;
         _pickerStatus = string.Empty;
+        _pluginSelectTitle = string.Empty;
+        _pluginSelectItems.Clear();
+
+        if (cancelled && pluginCallback is not null)
+        {
+            pluginCallback(null);
+        }
     }
 
     private void StartPickerFileScan()
@@ -1145,6 +1215,9 @@ public sealed class Editor
         {
             case PickerKind.Files:
                 PopulateFileItems();
+                return;
+            case PickerKind.Plugin:
+                PopulatePluginItems();
                 return;
             case PickerKind.Search:
                 if (_pickerQuery.Length == 0)
@@ -1215,6 +1288,62 @@ public sealed class Editor
         _pickerStatus = _pickerItems.Count == 0
             ? "No matching files"
             : $"{_pickerItems.Count} file{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+    }
+
+    private void PopulatePluginItems()
+    {
+        _pickerItems.Clear();
+        string query = _pickerQuery.ToString();
+
+        if (query.Length == 0)
+        {
+            for (int i = 0; i < _pluginSelectItems.Count; ++i)
+            {
+                _pickerItems.Add(new PickerItem
+                {
+                    Display = _pluginSelectItems[i],
+                    Value = i
+                });
+            }
+        }
+        else
+        {
+            var scored = new List<(int Score, PickerItem Item)>();
+            for (int i = 0; i < _pluginSelectItems.Count; ++i)
+            {
+                string item = _pluginSelectItems[i];
+                int score = FuzzyScore(item, query);
+                if (score < int.MaxValue)
+                {
+                    scored.Add((score, new PickerItem
+                    {
+                        Display = item,
+                        Value = i
+                    }));
+                }
+            }
+
+            scored.Sort((left, right) =>
+            {
+                int comparison = left.Score.CompareTo(right.Score);
+                return comparison != 0
+                    ? comparison
+                    : string.Compare(left.Item.Display, right.Item.Display,
+                        StringComparison.OrdinalIgnoreCase);
+            });
+
+            foreach ((int _, PickerItem item) in scored)
+            {
+                _pickerItems.Add(item);
+            }
+        }
+
+        _pickerSelected = 0;
+        _pickerTop = 0;
+        _pickerLoading = false;
+        _pickerStatus = _pickerItems.Count == 0
+            ? "No matching items"
+            : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
     }
 
     private void StartPickerSearch()
@@ -1359,8 +1488,12 @@ public sealed class Editor
     {
         if (inputEvent.Key == Key.Escape)
         {
+            bool pluginPicker = _pickerKind == PickerKind.Plugin;
             ClosePicker();
-            SetMessage("Cancelled.");
+            if (!pluginPicker)
+            {
+                SetMessage("Cancelled.");
+            }
             return;
         }
 
@@ -1466,6 +1599,15 @@ public sealed class Editor
         }
 
         PickerItem item = _pickerItems[_pickerSelected];
+        if (_pickerKind == PickerKind.Plugin)
+        {
+            int value = item.Value;
+            Action<int?>? callback = _pluginSelectCallback;
+            ClosePicker(cancelled: false);
+            callback?.Invoke(value);
+            return;
+        }
+
         string path = item.Path;
         long line = item.Line;
         long column = item.Column;
@@ -1585,10 +1727,37 @@ public sealed class Editor
                 RequestOpen(arguments[0], force);
                 return;
 
+            case "lang":
+                if (arguments.Count != 1)
+                {
+                    SetError("usage: :lang <id>");
+                    return;
+                }
+                if (!TrySetLanguage(arguments[0], out string languageError))
+                {
+                    SetError(languageError);
+                    return;
+                }
+                SetMessage($"Language set to {arguments[0]}");
+                return;
+
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | :w :wq :q :e | u/Ctrl+R undo | gg/ge/gp");
+                SetMessage("i insert | Esc normal | :w :wq :q :e :lang | u/Ctrl+R undo | gg/ge/gp");
                 return;
+        }
+
+        if (_plugins is not null && _plugins.HasCommand(name))
+        {
+            if (!_plugins.TryExecuteCommand(name, arguments, out string pluginError))
+            {
+                SetError($"plugin command ':{name}' failed");
+            }
+            else if (pluginError.Length > 0)
+            {
+                SetError(pluginError);
+            }
+            return;
         }
 
         if (IsFutureCommand(name))
@@ -1601,7 +1770,7 @@ public sealed class Editor
     }
 
     private static bool IsFutureCommand(string name)
-        => name is "fmt" or "cfg" or "rcfg" or "lang" or "sf" or "g" or "sv" or "sh" or
+        => name is "fmt" or "cfg" or "rcfg" or "sf" or "g" or "sv" or "sh" or
             "setup";
 
     private void StartSave(string? path, bool quitAfter)
@@ -1720,6 +1889,11 @@ public sealed class Editor
                 operation.Document.MarkSaved(result.Path, result.Pose, result.Revision);
                 RefreshFileStamp();
                 SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
+                FirePluginEvent("buffer_saved", new Dictionary<string, object?>
+                {
+                    ["path"] = result.Path,
+                    ["id"] = CurrentBufferId
+                });
             }
             else
             {
@@ -1831,6 +2005,7 @@ public sealed class Editor
         }
 
         _document = loaded;
+        RefreshLanguage();
         _cursor = 0;
         _topLine = 0;
         _leftColumn = 0;
@@ -1869,6 +2044,13 @@ public sealed class Editor
         SetMessage(line >= 0
             ? $"Opened {path}:{line + 1}"
             : $"Opened {path}");
+
+        FirePluginEvent("buffer_opened", new Dictionary<string, object?>
+        {
+            ["path"] = path,
+            ["id"] = CurrentBufferId,
+            ["line"] = line
+        });
     }
 
     private void Undo()
@@ -2448,6 +2630,7 @@ public sealed class Editor
             Mode.Insert => "INSERT",
             Mode.Select => "SELECT",
             Mode.Command => "COMMAND",
+            Mode.PluginPrompt => "PROMPT",
             _ => "NORMAL"
         };
     }
@@ -2461,9 +2644,19 @@ public sealed class Editor
         {
             text += " [+]";
         }
+        if (_language is not null)
+        {
+            text += $"  [{_language.Name}]";
+        }
         if (_saveOperation is not null)
         {
             text += " [saving]";
+        }
+
+        string pluginStatus = PluginStatusText();
+        if (pluginStatus.Length > 0)
+        {
+            text += "  " + pluginStatus;
         }
         return text;
     }
@@ -2530,7 +2723,6 @@ public sealed class Editor
 
         long total = _document.LineCount;
         int textWidth = _columns - gutter;
-        var textStyle = new Style();
 
         for (int row = 0; row < rows; ++row)
         {
@@ -2542,12 +2734,29 @@ public sealed class Editor
 
             int length = _document.CopyLineText(line, ref _lineBuffer, out _);
             ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
+            _syntax.GetLineTokens(line, text, _lineTokens);
+            int tokenIndex = 0;
 
             int offset = 0;
             long visual = 0;
 
             while (offset < length)
             {
+                int runeStart = offset;
+                while (tokenIndex < _lineTokens.Count &&
+                       _lineTokens[tokenIndex].End <= runeStart)
+                {
+                    ++tokenIndex;
+                }
+
+                SyntaxTokenKind tokenKind = SyntaxTokenKind.Default;
+                if (tokenIndex < _lineTokens.Count &&
+                    _lineTokens[tokenIndex].Start <= runeStart)
+                {
+                    tokenKind = _lineTokens[tokenIndex].Kind;
+                }
+                Style textStyle = TokenStyle(tokenKind);
+
                 UnicodeUtil.Decode(text, offset, out Rune rune, out int byteLength);
                 offset += byteLength;
 
@@ -2762,6 +2971,12 @@ public sealed class Editor
             style.Bg = 3;
             style.Bold = true;
         }
+        else if (_mode == Mode.PluginPrompt)
+        {
+            style.Fg = 0;
+            style.Bg = 6;
+            style.Bold = true;
+        }
         else if (_mode == Mode.Command)
         {
             style.Fg = 0;
@@ -2818,6 +3033,12 @@ public sealed class Editor
 
         var baseStyle = new Style();
         _screen.Fill(0, (int)y, _columns, 1, ' ', baseStyle);
+
+        if (_mode == Mode.PluginPrompt)
+        {
+            RenderPluginPrompt((int)y, baseStyle);
+            return;
+        }
 
         if (_mode == Mode.Command)
         {
@@ -2980,9 +3201,14 @@ public sealed class Editor
 
         int x = (_columns - width) / 2;
         int y = Math.Max(0, ((int)StatusRow() - height) / 2);
-        string title = _pickerKind == PickerKind.Files
-            ? "Open file"
-            : "Search across files";
+        string title = _pickerKind switch
+        {
+            PickerKind.Files => "Open file",
+            PickerKind.Plugin => _pluginSelectTitle.Length > 0
+                ? _pluginSelectTitle
+                : "Select",
+            _ => "Search across files"
+        };
 
         DrawBox(x, y, width, height, title);
 

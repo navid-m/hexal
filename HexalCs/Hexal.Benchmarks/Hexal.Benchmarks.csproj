@@ -6,6 +6,7 @@
     <RootNamespace>Hexal.Benchmarks</RootNamespace>
     <AssemblyName>hexal-benchmarks</AssemblyName>
     <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

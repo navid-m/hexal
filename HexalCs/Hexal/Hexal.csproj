@@ -19,8 +19,19 @@
     <!-- Keep the door open for NativeAOT, trimming, and predictable startup. -->
     <IsAotCompatible>true</IsAotCompatible>
     <IsTrimmable>true</IsTrimmable>
+    <!-- NLua is exercised by the published NativeAOT build, but its package
+         assembly includes analyzer-only trim/AOT warnings. Suppress those
+         third-party assembly-level warnings without hiding warnings from our
+         own code. -->
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
     <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Native Lua 5.4 runtime with per-platform libraries. Kept behind the
+         Scripting/ abstraction so the editor core has no Lua dependency. -->
+    <PackageReference Include="NLua" Version="1.7.9" />
+  </ItemGroup>
 
 </Project>

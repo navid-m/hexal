@@ -79,7 +79,7 @@ internal static class Program
                 return 1;
             }
 
-            var editor = new Editor(terminal, document);
+            using var editor = new Editor(terminal, document);
             int result = editor.Run();
             terminal.Shutdown();
             return result;
@@ -110,6 +110,7 @@ internal static class Program
               :wq              Save and quit
               :q[!]            Quit (asks before discarding changes)
               :e[!] <file>     Open a file
+              :lang <id>       Set the active language grammar
               :help            Show a short key reminder
 
             Modes and keys:
