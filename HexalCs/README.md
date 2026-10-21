@@ -16,6 +16,8 @@ the same architecture and observable behaviour as the C++ MVP:
   unsaved-change prompts
 - **Background saves from an immutable piece snapshot** so large files can be
   saved without freezing input or scrolling
+- **Automatic external reload on terminal focus**: one metadata stat in the
+  common case, and a full read only when the file actually changed
 
 ## Why this stack
 
@@ -156,6 +158,21 @@ writes; scrolling and editing remain available. If an edit lands after the
 snapshot, the document stays dirty, and `:wq` saves the newer state before
 quitting. `:q`/`:q!` wait for an in-flight save rather than terminating the
 process mid-write.
+
+### External changes
+
+The terminal's focus-reporting mode is enabled at startup. When the window
+regains focus Hexal performs one `stat` of the current file and compares its
+size, modification time and creation time with the values recorded at the last
+open/save/reload. If nothing changed, no file data is read.
+
+If the file did change, Hexal reloads it immediately and restores the cursor's
+line and display column. This deliberately differs from Helix's explicit `:rla`
+workflow: external content wins, and unsaved edits are replaced. The status bar
+reports the reload and notes when unsaved edits were discarded.
+
+Focus reporting requires terminal support (`\e[?1004h`); when unavailable,
+external changes are picked up only after reopening the file.
 
 ## Data safety
 

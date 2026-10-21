@@ -199,7 +199,9 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         }
 
         _output = Console.OpenStandardOutput();
-        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H"u8);
+        // 1004 enables terminal focus reporting so the editor can check for
+        // external file changes when the window regains focus.
+        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h"u8);
         _initialized = true;
         return true;
     }
@@ -208,7 +210,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
     {
         if (_initialized)
         {
-            Write("\x1b[0m\x1b[?25h\x1b[?1049l"u8);
+            Write("\x1b[?1004l\x1b[0m\x1b[?25h\x1b[?1049l"u8);
         }
 
         if (_output is not null)
@@ -550,6 +552,8 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             'D' => Key.Left,
             'H' => Key.Home,
             'F' => Key.End,
+            'I' => Key.FocusIn,
+            'O' => Key.FocusOut,
             'Z' => Key.BackTab,
             '~' => DecodeTilde(parameters[..parameterLength]),
             _ => Key.Unknown

@@ -27,6 +27,7 @@ internal sealed partial class WindowsTerminal : ITerminal
 
     private const ushort KeyEventType = 0x0001;
     private const ushort WindowBufferSizeEventType = 0x0004;
+    private const ushort FocusEventType = 0x0010;
 
     private const uint WaitTimeout = 0x00000102;
     private const uint WaitFailed = 0xFFFFFFFF;
@@ -71,6 +72,7 @@ internal sealed partial class WindowsTerminal : ITerminal
         [FieldOffset(0)] public ushort EventType;
         [FieldOffset(4)] public KeyEventRecord KeyEvent;
         [FieldOffset(4)] public WindowBufferSizeRecord WindowBufferSizeEvent;
+        [FieldOffset(4)] public int FocusSet;
     }
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
@@ -360,6 +362,12 @@ internal sealed partial class WindowsTerminal : ITerminal
             if (record.EventType == WindowBufferSizeEventType)
             {
                 special = Key.Resize;
+                return true;
+            }
+
+            if (record.EventType == FocusEventType)
+            {
+                special = record.FocusSet != 0 ? Key.FocusIn : Key.FocusOut;
                 return true;
             }
 

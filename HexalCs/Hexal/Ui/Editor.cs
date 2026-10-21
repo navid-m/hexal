@@ -46,6 +46,18 @@ public sealed class Editor
 
     private Document _document;
 
+    private struct FileStamp
+    {
+        public bool Valid;
+        public bool Exists;
+        public long Length;
+        public long LastWriteTicks;
+        public long CreationTicks;
+    }
+
+    private FileStamp _fileStamp;
+    private bool _externalCheckPending;
+
     private Mode _mode = Mode.Normal;
     private PromptKind _prompt = PromptKind.None;
     private string _pendingOpen = string.Empty;
@@ -138,6 +150,7 @@ public sealed class Editor
     {
         _terminal = terminal;
         _document = document;
+        RefreshFileStamp();
         SnapCursor();
     }
 
@@ -222,6 +235,17 @@ public sealed class Editor
             return _running;
         }
 
+        if (inputEvent.Key == Key.FocusIn)
+        {
+            HandleFocusGained();
+            return _running;
+        }
+
+        if (inputEvent.Key == Key.FocusOut)
+        {
+            return _running;
+        }
+
         try
         {
             if (_pickerKind != PickerKind.None)
@@ -261,6 +285,151 @@ public sealed class Editor
         }
 
         return _running;
+    }
+
+    // -----------------------------------------------------------------------
+    // EXTERNAL FILE CHANGES
+    // -----------------------------------------------------------------------
+
+    private void HandleFocusGained()
+    {
+        // A save can be writing the file while focus changes. Defer the stat
+        // until the writer has finished so our own output is not mistaken for
+        // an external modification.
+        if (_saveOperation is not null)
+        {
+            _externalCheckPending = true;
+            return;
+        }
+
+        CheckExternalFile();
+    }
+
+    /// <summary>
+    /// Checks a single stat record captured on focus. The common case is one
+    /// metadata lookup and no file I/O at all.
+    /// </summary>
+    private bool CheckExternalFile()
+    {
+        if (_document.Path is null)
+        {
+            return false;
+        }
+
+        if (!_fileStamp.Valid)
+        {
+            RefreshFileStamp();
+            return false;
+        }
+
+        if (!TryCaptureFileStamp(_document.Path, out FileStamp current))
+        {
+            return false;
+        }
+
+        if (current.Exists == _fileStamp.Exists &&
+            current.Length == _fileStamp.Length &&
+            current.LastWriteTicks == _fileStamp.LastWriteTicks &&
+            current.CreationTicks == _fileStamp.CreationTicks)
+        {
+            return false;
+        }
+
+        return ReloadFromDisk(_document.Path, current);
+    }
+
+    private bool ReloadFromDisk(string path, FileStamp stamp)
+    {
+        long oldLine = _document.LineOfOffset(_cursor);
+        long oldColumn = CursorVisualColumn();
+        long oldTopOffset = oldLine - _topLine;
+        bool wasDirty = _document.IsDirty;
+
+        Document? loaded = Document.Open(path, out string error);
+        if (loaded is null)
+        {
+            SetError($"external change: {error}");
+            return false;
+        }
+
+        _document = loaded;
+
+        if (_mode == Mode.Select)
+        {
+            _mode = Mode.Normal;
+            _selectionLinewise = false;
+        }
+
+        _pendingG = false;
+        _jumpHistory.Clear();
+
+        long line = Math.Clamp(oldLine, 0, _document.LineCount - 1);
+        long lineStart = _document.LineStart(line);
+        long lineEnd = _document.LineEnd(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        long column = UnicodeUtil.ByteOffsetForVisualColumn(
+            _lineBuffer.AsSpan(0, length), oldColumn, TabWidth);
+
+        _cursor = Math.Clamp(lineStart + column, lineStart, lineEnd);
+        _selectionAnchor = _cursor;
+        _preferredColumnValid = false;
+        _topLine = Math.Max(0, line - Math.Max(0, oldTopOffset));
+        SnapCursor();
+        _fileStamp = stamp;
+
+        if (wasDirty)
+        {
+            SetMessage($"Reloaded {_document.DisplayName} (external change; unsaved edits replaced)");
+        }
+        else
+        {
+            SetMessage($"Reloaded {_document.DisplayName} (changed on disk)");
+        }
+
+        return true;
+    }
+
+    private void RefreshFileStamp()
+    {
+        _fileStamp = default;
+        if (_document.Path is null)
+        {
+            return;
+        }
+
+        if (TryCaptureFileStamp(_document.Path, out FileStamp stamp))
+        {
+            _fileStamp = stamp;
+        }
+    }
+
+    private static bool TryCaptureFileStamp(string path, out FileStamp stamp)
+    {
+        stamp = default;
+
+        try
+        {
+            var info = new FileInfo(path);
+            info.Refresh();
+
+            stamp.Valid = true;
+            stamp.Exists = info.Exists;
+            if (!info.Exists)
+            {
+                return true;
+            }
+
+            stamp.Length = info.Length;
+            stamp.LastWriteTicks = info.LastWriteTimeUtc.Ticks;
+            stamp.CreationTicks = info.CreationTimeUtc.Ticks;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException or
+                                   PathTooLongException)
+        {
+            return false;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1498,6 +1667,16 @@ public sealed class Editor
         {
             redraw = true;
         }
+
+        if (_externalCheckPending && _saveOperation is null)
+        {
+            _externalCheckPending = false;
+            if (CheckExternalFile())
+            {
+                redraw = true;
+            }
+        }
+
         return redraw;
     }
 
@@ -1539,6 +1718,7 @@ public sealed class Editor
             if (sameDocument)
             {
                 operation.Document.MarkSaved(result.Path, result.Pose, result.Revision);
+                RefreshFileStamp();
                 SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
             }
             else
@@ -1655,6 +1835,7 @@ public sealed class Editor
         _topLine = 0;
         _leftColumn = 0;
         _preferredColumnValid = false;
+        _selectionLinewise = false;
         _jumpHistory.Clear();
         _pendingG = false;
         _mode = Mode.Normal;
@@ -1683,6 +1864,8 @@ public sealed class Editor
         }
 
         SnapCursor();
+        _selectionAnchor = _cursor;
+        RefreshFileStamp();
         SetMessage(line >= 0
             ? $"Opened {path}:{line + 1}"
             : $"Opened {path}");
