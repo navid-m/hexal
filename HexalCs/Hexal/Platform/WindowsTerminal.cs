@@ -1,0 +1,511 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Hexal.Platform;
+
+internal sealed partial class WindowsTerminal : ITerminal
+{
+    private const int StdInputHandle = -10;
+    private const int StdOutputHandle = -11;
+
+    private const uint EnableProcessedInput = 0x0001;
+    private const uint EnableLineInput = 0x0002;
+    private const uint EnableEchoInput = 0x0004;
+    private const uint EnableWindowInput = 0x0008;
+    private const uint EnableProcessedOutput = 0x0001;
+    private const uint EnableVirtualTerminalProcessing = 0x0004;
+    private const uint DisableNewlineAutoReturn = 0x0008;
+    private const uint EnableQuickEditMode = 0x0040;
+    private const uint EnableExtendedFlags = 0x0080;
+
+    private const uint LeftAltPressed = 0x0001;
+    private const uint LeftCtrlPressed = 0x0002;
+    private const uint RightAltPressed = 0x0004;
+    private const uint RightCtrlPressed = 0x0008;
+    private const uint ShiftPressed = 0x0010;
+
+    private const ushort KeyEventType = 0x0001;
+    private const ushort WindowBufferSizeEventType = 0x0004;
+
+    private const ushort VkBack = 0x08;
+    private const ushort VkTab = 0x09;
+    private const ushort VkReturn = 0x0D;
+    private const ushort VkEscape = 0x1B;
+    private const ushort VkPrior = 0x21;
+    private const ushort VkNext = 0x22;
+    private const ushort VkEnd = 0x23;
+    private const ushort VkHome = 0x24;
+    private const ushort VkLeft = 0x25;
+    private const ushort VkUp = 0x26;
+    private const ushort VkRight = 0x27;
+    private const ushort VkDown = 0x28;
+    private const ushort VkInsert = 0x2D;
+    private const ushort VkDelete = 0x2E;
+    private const ushort VkF1 = 0x70;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyEventRecord
+    {
+        public int KeyDown;
+        public ushort RepeatCount;
+        public ushort VirtualKeyCode;
+        public ushort VirtualScanCode;
+        public char UnicodeChar;
+        public uint ControlKeyState;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowBufferSizeRecord
+    {
+        public short X;
+        public short Y;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 20)]
+    private struct InputRecord
+    {
+        [FieldOffset(0)] public ushort EventType;
+        [FieldOffset(4)] public KeyEventRecord KeyEvent;
+        [FieldOffset(4)] public WindowBufferSizeRecord WindowBufferSizeEvent;
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr GetStdHandle(int stdHandle);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int GetConsoleMode(IntPtr consoleHandle, out uint mode);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int SetConsoleMode(IntPtr consoleHandle, uint mode);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int ReadConsoleInputW(IntPtr consoleHandle,
+        ref InputRecord inputRecord, uint length, out uint numberOfEventsRead);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial uint GetConsoleCP();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial uint GetConsoleOutputCP();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int SetConsoleCP(uint codePage);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int SetConsoleOutputCP(uint codePage);
+
+    private IntPtr _inputHandle;
+    private IntPtr _outputHandle;
+    private uint _originalInputMode;
+    private uint _originalOutputMode;
+    private uint _originalInputCodePage;
+    private uint _originalOutputCodePage;
+    private Stream? _output;
+    private bool _initialized;
+
+    private char _pendingHighSurrogate;
+    private KeyEventRecord _stashedKey;
+    private bool _hasStashedKey;
+    private InputEvent _repeatEvent;
+    private ushort _repeatRemaining;
+
+    public bool Init(out string error)
+    {
+        error = string.Empty;
+
+        if (Console.IsInputRedirected || Console.IsOutputRedirected)
+        {
+            error = "standard input/output is not an interactive terminal";
+            return false;
+        }
+
+        _inputHandle = GetStdHandle(StdInputHandle);
+        _outputHandle = GetStdHandle(StdOutputHandle);
+        if (_inputHandle == IntPtr.Zero || _inputHandle == new IntPtr(-1) ||
+            _outputHandle == IntPtr.Zero || _outputHandle == new IntPtr(-1))
+        {
+            error = $"cannot access the console handles: {Win32Message()}";
+            return false;
+        }
+
+        if (GetConsoleMode(_inputHandle, out _originalInputMode) == 0)
+        {
+            error = $"cannot read the console input mode: {Win32Message()}";
+            return false;
+        }
+
+        if (GetConsoleMode(_outputHandle, out _originalOutputMode) == 0)
+        {
+            error = $"cannot read the console output mode: {Win32Message()}";
+            return false;
+        }
+
+        uint inputMode = (_originalInputMode &
+                          ~(EnableEchoInput | EnableLineInput | EnableProcessedInput |
+                            EnableQuickEditMode)) |
+                         EnableWindowInput | EnableExtendedFlags;
+
+        if (SetConsoleMode(_inputHandle, inputMode) == 0)
+        {
+            error = $"cannot configure the console input mode: {Win32Message()}";
+            return false;
+        }
+
+        uint outputMode = _originalOutputMode | EnableProcessedOutput |
+                          EnableVirtualTerminalProcessing | DisableNewlineAutoReturn;
+
+        if (SetConsoleMode(_outputHandle, outputMode) == 0)
+        {
+            SetConsoleMode(_inputHandle, _originalInputMode);
+            error = "Windows 10 or newer with virtual terminal support is required";
+            return false;
+        }
+
+        _originalInputCodePage = GetConsoleCP();
+        _originalOutputCodePage = GetConsoleOutputCP();
+        SetConsoleCP(65001);
+        SetConsoleOutputCP(65001);
+
+        _output = Console.OpenStandardOutput();
+        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H"u8);
+        _initialized = true;
+        return true;
+    }
+
+    public void Shutdown()
+    {
+        if (_initialized)
+        {
+            Write("\x1b[0m\x1b[?25h\x1b[?1049l"u8);
+        }
+
+        if (_output is not null)
+        {
+            try
+            {
+                _output.Flush();
+            }
+            catch (IOException)
+            {
+                // Ignore shutdown I/O failures.
+            }
+            _output = null;
+        }
+
+        if (_initialized)
+        {
+            SetConsoleMode(_inputHandle, _originalInputMode);
+            SetConsoleMode(_outputHandle, _originalOutputMode);
+            SetConsoleCP(_originalInputCodePage);
+            SetConsoleOutputCP(_originalOutputCodePage);
+        }
+
+        _initialized = false;
+    }
+
+    public bool ReadEvent(out InputEvent inputEvent)
+    {
+        inputEvent = default;
+
+        while (true)
+        {
+            if (_repeatRemaining > 0)
+            {
+                --_repeatRemaining;
+                inputEvent = _repeatEvent;
+                return true;
+            }
+
+            KeyEventRecord key;
+            if (_hasStashedKey)
+            {
+                key = _stashedKey;
+                _hasStashedKey = false;
+            }
+            else
+            {
+                if (!ReadKeyEvent(out Key? special, out key))
+                {
+                    return false;
+                }
+
+                if (special is not null)
+                {
+                    inputEvent.Key = special.Value;
+                    return true;
+                }
+            }
+
+            char character = key.UnicodeChar;
+
+            if (_pendingHighSurrogate != 0)
+            {
+                char high = _pendingHighSurrogate;
+                _pendingHighSurrogate = '\0';
+
+                if (char.IsLowSurrogate(character))
+                {
+                    int codePoint = char.ConvertToUtf32(high, character);
+                    inputEvent.Key = Key.Character;
+                    inputEvent.Character = new Rune(codePoint);
+                    ApplyModifiers(key.ControlKeyState, ref inputEvent);
+                    StoreRepeat(key.RepeatCount, inputEvent);
+                    return true;
+                }
+
+                // The high surrogate was not followed by a low surrogate. Emit
+                // U+FFFD and process the current key on the next call.
+                _stashedKey = key;
+                _hasStashedKey = true;
+                inputEvent.Key = Key.Character;
+                inputEvent.Character = Rune.ReplacementChar;
+                return true;
+            }
+
+            if (char.IsHighSurrogate(character))
+            {
+                _pendingHighSurrogate = character;
+                continue;
+            }
+
+            inputEvent = DecodeKey(key);
+
+            if (char.IsLowSurrogate(character))
+            {
+                inputEvent.Key = Key.Character;
+                inputEvent.Character = Rune.ReplacementChar;
+            }
+
+            StoreRepeat(key.RepeatCount, inputEvent);
+            return true;
+        }
+    }
+
+    public void Write(ReadOnlySpan<byte> text)
+    {
+        if (_output is null || text.IsEmpty)
+        {
+            return;
+        }
+
+        try
+        {
+            _output.Write(text);
+            _output.Flush();
+        }
+        catch (IOException)
+        {
+            // The editor loop will end when input is no longer available.
+        }
+    }
+
+    public void GetSize(out int columns, out int rows)
+    {
+        try
+        {
+            columns = Console.WindowWidth;
+            rows = Console.WindowHeight;
+            if (columns > 0 && rows > 0)
+            {
+                return;
+            }
+        }
+        catch (IOException)
+        {
+            // Fall through to the conventional default.
+        }
+
+        columns = 80;
+        rows = 24;
+    }
+
+    public void Dispose() => Shutdown();
+
+    private bool ReadKeyEvent(out Key? special, out KeyEventRecord key)
+    {
+        special = null;
+        key = default;
+
+        while (true)
+        {
+            InputRecord record = default;
+            if (ReadConsoleInputW(_inputHandle, ref record, 1,
+                    out uint read) == 0 || read == 0)
+            {
+                return false;
+            }
+
+            if (record.EventType == WindowBufferSizeEventType)
+            {
+                special = Key.Resize;
+                return true;
+            }
+
+            if (record.EventType != KeyEventType)
+            {
+                continue;
+            }
+
+            if (record.KeyEvent.KeyDown == 0)
+            {
+                continue;
+            }
+
+            key = record.KeyEvent;
+            return true;
+        }
+    }
+
+    private static InputEvent DecodeKey(KeyEventRecord key)
+    {
+        var result = new InputEvent();
+        ApplyModifiers(key.ControlKeyState, ref result);
+
+        bool ctrl = result.Ctrl;
+        bool alt = result.Alt;
+        char character = key.UnicodeChar;
+
+        switch (key.VirtualKeyCode)
+        {
+            case VkReturn:
+                result.Key = Key.Enter;
+                return result;
+            case VkEscape:
+                result.Key = Key.Escape;
+                return result;
+            case VkBack:
+                result.Key = Key.Backspace;
+                return result;
+            case VkTab:
+                result.Key = result.Shift ? Key.BackTab : Key.Tab;
+                return result;
+            case VkDelete:
+                result.Key = Key.Delete;
+                return result;
+            case VkLeft:
+                result.Key = Key.Left;
+                return result;
+            case VkRight:
+                result.Key = Key.Right;
+                return result;
+            case VkUp:
+                result.Key = Key.Up;
+                return result;
+            case VkDown:
+                result.Key = Key.Down;
+                return result;
+            case VkHome:
+                result.Key = Key.Home;
+                return result;
+            case VkEnd:
+                result.Key = Key.End;
+                return result;
+            case VkPrior:
+                result.Key = Key.PageUp;
+                return result;
+            case VkNext:
+                result.Key = Key.PageDown;
+                return result;
+            case VkInsert:
+                result.Key = Key.Insert;
+                return result;
+        }
+
+        if (key.VirtualKeyCode >= VkF1 && key.VirtualKeyCode <= VkF1 + 11)
+        {
+            result.Key = (Key)((int)Key.F1 + (key.VirtualKeyCode - VkF1));
+            return result;
+        }
+
+        // Ctrl+[ is the terminal Escape key on POSIX and should behave the same
+        // way here.
+        if (ctrl && character == 0x1B)
+        {
+            result.Key = Key.Escape;
+            return result;
+        }
+
+        if (character == '\r' || character == '\n')
+        {
+            result.Key = Key.Enter;
+            return result;
+        }
+
+        if (character == '\t')
+        {
+            result.Key = Key.Tab;
+            return result;
+        }
+
+        if (character == '\b' || character == 0x7F)
+        {
+            result.Key = Key.Backspace;
+            return result;
+        }
+
+        if (ctrl && alt && character >= 0x20)
+        {
+            // AltGr: a printable character should not be treated as a chord.
+            ctrl = false;
+            alt = false;
+        }
+
+        if (ctrl && !alt && character >= 0x01 && character <= 0x1A)
+        {
+            result.Key = Key.Character;
+            result.Character = new Rune('a' + (character - 1));
+            result.Ctrl = true;
+            result.Alt = false;
+            return result;
+        }
+
+        if (character == 0)
+        {
+            if (ctrl && !alt && key.VirtualKeyCode >= 'A' && key.VirtualKeyCode <= 'Z')
+            {
+                result.Key = Key.Character;
+                result.Character = new Rune('a' + (key.VirtualKeyCode - 'A'));
+                result.Ctrl = true;
+                result.Alt = false;
+                return result;
+            }
+
+            result.Key = Key.Unknown;
+            return result;
+        }
+
+        if (character < 0x20)
+        {
+            result.Key = Key.Unknown;
+            return result;
+        }
+
+        result.Key = Key.Character;
+        result.Character = new Rune(character);
+        result.Ctrl = ctrl;
+        result.Alt = alt;
+        return result;
+    }
+
+    private static void ApplyModifiers(uint state, ref InputEvent inputEvent)
+    {
+        inputEvent.Ctrl = (state & (LeftCtrlPressed | RightCtrlPressed)) != 0;
+        inputEvent.Alt = (state & (LeftAltPressed | RightAltPressed)) != 0;
+        inputEvent.Shift = (state & ShiftPressed) != 0;
+    }
+
+    private void StoreRepeat(ushort repeatCount, InputEvent inputEvent)
+    {
+        if (repeatCount <= 1)
+        {
+            return;
+        }
+
+        _repeatEvent = inputEvent;
+        _repeatRemaining = (ushort)(repeatCount - 1);
+    }
+
+    private static string Win32Message()
+        => new Win32Exception(Marshal.GetLastPInvokeError()).Message;
+}

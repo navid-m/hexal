@@ -1,0 +1,575 @@
+using Hexal.Util;
+
+namespace Hexal.Core;
+
+/// <summary>
+/// Coordinates used by Hexal:
+///   * Storage: UTF-8 byte offsets into the document.
+///   * Cursor:  a UTF-8 byte offset on a Unicode scalar boundary.
+///   * Display: terminal cell columns (tabs expanded, wide scalars = 2).
+/// These are deliberately distinct; the UI converts between them. Invalid
+/// UTF-8 is preserved on disk and displayed as U+FFFD.
+/// </summary>
+public sealed class Document
+{
+    private const int MaxUndoGroups = 4096;
+    private const long MaxUndoBytes = 64L * 1024 * 1024;
+    private const long Unreachable = -1;
+
+    private static readonly byte[] BomBytes = { 0xEF, 0xBB, 0xBF };
+
+    private enum GroupKind
+    {
+        Insert,
+        Erase,
+        Mixed
+    }
+
+    private sealed class Change
+    {
+        public long Offset;
+        public readonly ByteBuffer Removed = new();
+        public readonly ByteBuffer Inserted = new();
+    }
+
+    private sealed class Group
+    {
+        public GroupKind Kind;
+        public readonly List<Change> Changes = new();
+    }
+
+    private readonly PieceTable _table = new();
+    private readonly List<Group> _undo = new();
+    private readonly List<Group> _redo = new();
+
+    private string? _path;
+    private string _eol = "\n";
+    private bool _bom;
+    private long _historyBytes;
+    private long _savedPose;
+    private bool _insertRunOpen;
+    private bool _eraseRunOpen;
+    private bool _restoring;
+
+    public string? Path => _path;
+
+    public bool HasFile => _path is not null;
+
+    public bool IsDirty => _savedPose < 0 || _savedPose != _undo.Count;
+
+    public string Eol => _eol;
+
+    public bool HasBom => _bom;
+
+    public long Size => _table.Size;
+
+    public long LineCount => _table.NewlineCount + 1;
+
+    public static Document? Open(string path, out string error)
+    {
+        error = string.Empty;
+
+        if (string.IsNullOrEmpty(path))
+        {
+            error = "empty file name";
+            return null;
+        }
+
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return OpenNew(path, out error);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            error = $"parent directory does not exist: '{FileSystemUtil.ParentDirectory(path)}'";
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            error = $"cannot access '{path}': {ex.Message}";
+            return null;
+        }
+
+        if ((attributes & FileAttributes.Directory) != 0)
+        {
+            error = $"'{path}' is a directory";
+            return null;
+        }
+
+        var document = new Document { _path = path };
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.Read, 1, FileOptions.SequentialScan);
+
+            Span<byte> bom = stackalloc byte[3];
+            int bomLength = 0;
+            while (bomLength < bom.Length)
+            {
+                int read = stream.Read(bom[bomLength..]);
+                if (read == 0)
+                {
+                    break;
+                }
+                bomLength += read;
+            }
+
+            if (bomLength == 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF)
+            {
+                document._bom = true;
+            }
+            else
+            {
+                stream.Position = 0;
+            }
+
+            document._table.SetOriginal(stream);
+            document._eol = document._table.DetectedEol;
+            return document;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            error = $"cannot open '{path}' for reading: {ex.Message}";
+            return null;
+        }
+    }
+
+    private static Document? OpenNew(string path, out string error)
+    {
+        error = string.Empty;
+
+        if (Directory.Exists(path))
+        {
+            error = $"'{path}' is a directory";
+            return null;
+        }
+
+        string parent = FileSystemUtil.ParentDirectory(path);
+        if (!Directory.Exists(parent))
+        {
+            error = $"parent directory does not exist: '{parent}'";
+            return null;
+        }
+
+        return new Document { _path = path };
+    }
+
+    public string DisplayName
+    {
+        get
+        {
+            if (_path is null)
+            {
+                return "[No Name]";
+            }
+
+            string name = System.IO.Path.GetFileName(_path);
+            return name.Length == 0 ? _path : name;
+        }
+    }
+
+    public long LineStart(long line) => _table.LineStart(line);
+
+    public long LineEnd(long line)
+    {
+        long count = LineCount;
+        if (line >= count)
+        {
+            return Size;
+        }
+
+        if (line + 1 >= count)
+        {
+            return Size;
+        }
+
+        long end = _table.LineStart(line + 1);
+        if (end > 0 && _table.ByteAt(end - 1) == (byte)'\n')
+        {
+            --end;
+            if (end > 0 && _table.ByteAt(end - 1) == (byte)'\r')
+            {
+                --end;
+            }
+        }
+        return end;
+    }
+
+    public long LineOfOffset(long offset) => _table.LineOfOffset(offset);
+
+    public byte[] LineText(long line)
+    {
+        long begin = LineStart(line);
+        long end = LineEnd(line);
+        return end <= begin ? Array.Empty<byte>() : _table.Range(begin, end - begin);
+    }
+
+    public int CopyLineText(long line, ref byte[] buffer, out int length)
+    {
+        long begin = LineStart(line);
+        long end = LineEnd(line);
+        if (end <= begin)
+        {
+            length = 0;
+            return 0;
+        }
+
+        length = _table.CopyRange(begin, end - begin, ref buffer);
+        return length;
+    }
+
+    public byte[] Range(long offset, long length) => _table.Range(offset, length);
+
+    public byte[] Text() => _table.ToArray();
+
+    public byte ByteAt(long offset) => _table.ByteAt(offset);
+
+    public void Insert(long offset, ReadOnlySpan<byte> text)
+    {
+        if (text.IsEmpty)
+        {
+            return;
+        }
+
+        offset = Math.Clamp(offset, 0, Size);
+        PrepareForEdit();
+        _table.Insert(offset, text);
+
+        if (_insertRunOpen && _undo.Count > 0 && !ContainsLineBreak(text))
+        {
+            Group group = _undo[^1];
+            if (group.Kind == GroupKind.Insert && group.Changes.Count == 1)
+            {
+                Change change = group.Changes[0];
+                if (offset == change.Offset + change.Inserted.Length)
+                {
+                    change.Inserted.Append(text);
+                    _historyBytes += text.Length;
+                    TrimHistory();
+                    _eraseRunOpen = false;
+                    return;
+                }
+            }
+        }
+
+        var newGroup = new Group { Kind = GroupKind.Insert };
+        var newChange = new Change { Offset = offset };
+        newChange.Inserted.Append(text);
+        newGroup.Changes.Add(newChange);
+
+        _insertRunOpen = !ContainsLineBreak(text);
+        _eraseRunOpen = false;
+        PushGroup(newGroup);
+    }
+
+    public void Erase(long offset, long length)
+    {
+        if (length <= 0 || offset >= Size)
+        {
+            return;
+        }
+
+        offset = Math.Clamp(offset, 0, Size);
+        length = Math.Min(length, Size - offset);
+
+        byte[] removed = _table.Range(offset, length);
+        _table.Erase(offset, length);
+
+        if (_restoring)
+        {
+            return;
+        }
+
+        PrepareForEdit();
+
+        if (_eraseRunOpen && _undo.Count > 0 && !ContainsLineBreak(removed))
+        {
+            Group group = _undo[^1];
+            if (group.Kind == GroupKind.Erase && group.Changes.Count == 1)
+            {
+                Change change = group.Changes[0];
+                if (offset + length == change.Offset)
+                {
+                    // Backspace: extend the deletion to the left.
+                    change.Offset = offset;
+                    change.Removed.Prepend(removed);
+                    _historyBytes += removed.Length;
+                    TrimHistory();
+                    _insertRunOpen = false;
+                    return;
+                }
+
+                if (offset == change.Offset)
+                {
+                    // Delete: extend the deletion to the right.
+                    change.Removed.Append(removed);
+                    _historyBytes += removed.Length;
+                    TrimHistory();
+                    _insertRunOpen = false;
+                    return;
+                }
+            }
+        }
+
+        var newGroup = new Group { Kind = GroupKind.Erase };
+        var newChange = new Change { Offset = offset };
+        newChange.Removed.Append(removed);
+        newGroup.Changes.Add(newChange);
+
+        _eraseRunOpen = !ContainsLineBreak(removed);
+        _insertRunOpen = false;
+        PushGroup(newGroup);
+    }
+
+    public void Replace(long offset, long length, ReadOnlySpan<byte> text)
+    {
+        offset = Math.Clamp(offset, 0, Size);
+        length = Math.Min(length, Size - offset);
+
+        byte[] removed = _table.Range(offset, length);
+        if (removed.AsSpan().SequenceEqual(text))
+        {
+            return;
+        }
+
+        _table.Erase(offset, length);
+        if (!text.IsEmpty)
+        {
+            _table.Insert(offset, text);
+        }
+
+        if (_restoring)
+        {
+            return;
+        }
+
+        PrepareForEdit();
+
+        var group = new Group { Kind = GroupKind.Mixed };
+        var change = new Change { Offset = offset };
+        change.Removed.Append(removed);
+        change.Inserted.Append(text);
+        group.Changes.Add(change);
+
+        _insertRunOpen = false;
+        _eraseRunOpen = false;
+        PushGroup(group);
+    }
+
+    public void BreakUndoGroup()
+    {
+        _insertRunOpen = false;
+        _eraseRunOpen = false;
+    }
+
+    public long? Undo()
+    {
+        BreakUndoGroup();
+        if (_undo.Count == 0)
+        {
+            return null;
+        }
+
+        Group group = _undo[^1];
+        _undo.RemoveAt(_undo.Count - 1);
+
+        _restoring = true;
+        for (int i = group.Changes.Count - 1; i >= 0; --i)
+        {
+            ApplyChangeBackward(group.Changes[i]);
+        }
+        _restoring = false;
+
+        long hint = group.Changes[0].Offset;
+        if (group.Changes[0].Inserted.Length == 0)
+        {
+            hint += group.Changes[0].Removed.Length;
+        }
+
+        _redo.Add(group);
+        TrimHistory();
+        return hint;
+    }
+
+    public long? Redo()
+    {
+        BreakUndoGroup();
+        if (_redo.Count == 0)
+        {
+            return null;
+        }
+
+        Group group = _redo[^1];
+        _redo.RemoveAt(_redo.Count - 1);
+
+        _restoring = true;
+        foreach (Change change in group.Changes)
+        {
+            ApplyChangeForward(change);
+        }
+        _restoring = false;
+
+        Change last = group.Changes[^1];
+        long hint = last.Inserted.Length == 0
+            ? last.Offset
+            : last.Offset + last.Inserted.Length;
+
+        _undo.Add(group);
+        TrimHistory();
+        return hint;
+    }
+
+    public bool CanUndo => _undo.Count > 0;
+
+    public bool CanRedo => _redo.Count > 0;
+
+    public bool Save(out string error)
+    {
+        if (_path is null)
+        {
+            error = "no file name assigned (use :w <file>)";
+            return false;
+        }
+
+        return WriteToPath(_path, out error);
+    }
+
+    public bool SaveAs(string path, out string error)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            error = "empty file name";
+            return false;
+        }
+
+        return WriteToPath(path, out error);
+    }
+
+    private bool WriteToPath(string path, out string error)
+    {
+        bool ok = FileSystemUtil.AtomicWrite(path, stream =>
+        {
+            if (_bom)
+            {
+                stream.Write(BomBytes);
+            }
+            _table.WriteTo(stream);
+        }, out error);
+
+        if (!ok)
+        {
+            return false;
+        }
+
+        _path = path;
+        _savedPose = _undo.Count;
+        BreakUndoGroup();
+        return true;
+    }
+
+    private void PrepareForEdit()
+    {
+        if (_redo.Count == 0)
+        {
+            return;
+        }
+
+        if (_savedPose > _undo.Count)
+        {
+            _savedPose = Unreachable;
+        }
+
+        foreach (Group group in _redo)
+        {
+            _historyBytes -= GroupBytes(group);
+        }
+        _redo.Clear();
+    }
+
+    private void PushGroup(Group group)
+    {
+        _historyBytes += GroupBytes(group);
+        _undo.Add(group);
+        TrimHistory();
+    }
+
+    private void TrimHistory()
+    {
+        long dropped = 0;
+        while (_undo.Count > 1 &&
+               (_undo.Count > MaxUndoGroups || _historyBytes > MaxUndoBytes))
+        {
+            _historyBytes -= GroupBytes(_undo[0]);
+            _undo.RemoveAt(0);
+            ++dropped;
+        }
+
+        if (dropped > 0 && _savedPose >= 0)
+        {
+            if (_savedPose >= dropped)
+            {
+                _savedPose -= dropped;
+            }
+            else
+            {
+                _savedPose = Unreachable;
+            }
+        }
+
+        while (_redo.Count > 0 &&
+               (_redo.Count > MaxUndoGroups || _historyBytes > MaxUndoBytes))
+        {
+            if (_savedPose > _undo.Count)
+            {
+                _savedPose = Unreachable;
+            }
+            _historyBytes -= GroupBytes(_redo[0]);
+            _redo.RemoveAt(0);
+        }
+    }
+
+    private static long GroupBytes(Group group)
+    {
+        long total = 32;
+        foreach (Change change in group.Changes)
+        {
+            total += change.Removed.Length + change.Inserted.Length;
+        }
+        return total;
+    }
+
+    private void ApplyChangeForward(Change change)
+    {
+        if (change.Removed.Length > 0)
+        {
+            _table.Erase(change.Offset, change.Removed.Length);
+        }
+        if (change.Inserted.Length > 0)
+        {
+            _table.Insert(change.Offset, change.Inserted.Span);
+        }
+    }
+
+    private void ApplyChangeBackward(Change change)
+    {
+        if (change.Inserted.Length > 0)
+        {
+            _table.Erase(change.Offset, change.Inserted.Length);
+        }
+        if (change.Removed.Length > 0)
+        {
+            _table.Insert(change.Offset, change.Removed.Span);
+        }
+    }
+
+    private static bool ContainsLineBreak(ReadOnlySpan<byte> text)
+        => text.IndexOf((byte)'\n') >= 0 || text.IndexOf((byte)'\r') >= 0;
+}
