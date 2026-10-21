@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Hexal.Core;
 using Hexal.Languages;
+using Hexal.Lsp;
 using Hexal.Scripting;
 using Hexal.Util;
 
@@ -27,6 +28,8 @@ internal static class Program
         TestSaveFailureLeavesOriginal();
         TestFilesystemReadWrite();
         TestFileSearch();
+        TestFilePreview();
+        TestLspPositions();
         TestLanguageGrammars();
         TestPluginConfigStore();
         TestHexalPaths();
@@ -641,6 +644,66 @@ internal static class Program
         CheckEqual(matches[0].Column, 7L, "match.Column", "7");
         Check(matches[0].Preview.Contains("beta needle", StringComparison.Ordinal),
             "match preview");
+    }
+
+    private static void TestFilePreview()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("preview.txt");
+        var content = new StringBuilder();
+        for (int i = 0; i < 25; ++i)
+        {
+            content.Append($"line {i}\n");
+        }
+        Check(WriteBytes(path, Encoding.UTF8.GetBytes(content.ToString())),
+            "write preview file");
+
+        FilePreview preview = FileSearch.ReadPreview(path);
+        CheckEqual(preview.Error, string.Empty, "preview.Error", "empty");
+        CheckEqual(preview.Lines.Count, FileSearch.DefaultPreviewLines,
+            "preview.Lines.Count", "10");
+        CheckEqual(preview.Lines[0], "line 0", "preview first line", "line 0");
+        CheckEqual(preview.Lines[9], "line 9", "preview tenth line", "line 9");
+        Check(preview.Truncated, "preview is truncated");
+
+        string shortPath = directory.Path("short.txt");
+        Check(WriteBytes(shortPath, "one\ntwo\n"u8), "write short preview file");
+        FilePreview shortPreview = FileSearch.ReadPreview(shortPath);
+        CheckEqual(shortPreview.Lines.Count, 2, "short preview lines", "2");
+        Check(!shortPreview.Truncated, "short preview is not truncated");
+
+        string binaryPath = directory.Path("binary.bin");
+        Check(WriteBytes(binaryPath, new byte[] { (byte)'a', 0, (byte)'b' }),
+            "write binary preview file");
+        FilePreview binaryPreview = FileSearch.ReadPreview(binaryPath);
+        Check(binaryPreview.Binary, "binary preview detected");
+
+        FilePreview missing = FileSearch.ReadPreview(directory.Path("missing.txt"));
+        Check(missing.Error.Length > 0, "missing preview reports an error");
+    }
+
+    private static void TestLspPositions()
+    {
+        byte[] line = Encoding.UTF8.GetBytes("a😀b");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 0), 0,
+            "utf16 0", "0");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 1), 1,
+            "utf16 1", "1");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 2), 5,
+            "utf16 inside surrogate rounds up", "5");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 3), 5,
+            "utf16 3", "5");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 4), 6,
+            "utf16 4", "6");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 99), 6,
+            "utf16 past end clamps", "6");
+
+        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 1), 1,
+            "byte 1", "1");
+        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 5), 3,
+            "byte after emoji", "3");
+        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 6), 4,
+            "byte past end", "4");
     }
 
     private static void TestLanguageGrammars()

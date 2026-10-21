@@ -269,6 +269,11 @@ public sealed partial class Editor : IEditorApi, IDisposable
                         ? $"LSP: {lspEvent.ServerName}"
                         : $"LSP: {lspEvent.ServerName} ({count})";
 
+                    if (_pickerKind == PickerKind.Problems)
+                    {
+                        PopulateProblemItems();
+                    }
+
                     if (_plugins is not null)
                     {
                         var diagnostics = new List<object?>(count);
@@ -294,7 +299,61 @@ public sealed partial class Editor : IEditorApi, IDisposable
                     }
                     break;
                 }
+                case LspEventKind.Hover:
+                    if (!_hoverRequestPending)
+                    {
+                        break;
+                    }
+                    _hoverRequestPending = false;
+                    if (lspEvent.Text.Length == 0)
+                    {
+                        SetMessage("No hover information available.");
+                    }
+                    else
+                    {
+                        ShowHoverPopup(lspEvent.Text);
+                    }
+                    break;
+                case LspEventKind.CodeActions:
+                    if (!_codeActionRequestPending)
+                    {
+                        break;
+                    }
+                    _codeActionRequestPending = false;
+                    if (lspEvent.CodeActions.Count == 0)
+                    {
+                        SetMessage("No code actions available.");
+                    }
+                    else
+                    {
+                        _codeActions.Clear();
+                        _codeActions.AddRange(lspEvent.CodeActions);
+                        _pendingCodeActionResolve = false;
+                        OpenPicker(PickerKind.CodeActions);
+                    }
+                    break;
+                case LspEventKind.CodeActionResolved:
+                    if (_pendingCodeActionResolve)
+                    {
+                        _pendingCodeActionResolve = false;
+                        if (lspEvent.CodeActions.Count > 0)
+                        {
+                            ApplyCodeAction(lspEvent.CodeActions[0]);
+                        }
+                        else
+                        {
+                            SetMessage("The language server returned no changes for this code action.");
+                        }
+                    }
+                    break;
+                case LspEventKind.WorkspaceDiagnostics:
+                    if (_pickerKind == PickerKind.Problems && _problemsWorkspace)
+                    {
+                        PopulateProblemItems();
+                    }
+                    break;
                 case LspEventKind.Error:
+                    _pendingCodeActionResolve = false;
                     SetError($"LSP {lspEvent.ServerName}: {lspEvent.Message}");
                     break;
                 case LspEventKind.Stopped:
@@ -319,6 +378,8 @@ public sealed partial class Editor : IEditorApi, IDisposable
         _lsp.Stop();
         _pluginStatus.Remove("lsp");
         _lspDirty = false;
+        _hoverRequestPending = false;
+        _codeActionRequestPending = false;
     }
 
     private void NotifyLspSaved()
@@ -327,6 +388,349 @@ public sealed partial class Editor : IEditorApi, IDisposable
         {
             _lsp.DidSave(GetText());
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // LSP ACTIONS
+    // -----------------------------------------------------------------------
+
+    private (int Line, int Character) CursorLspPosition()
+    {
+        long line = CursorLine();
+        long start = _document.LineStart(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        int byteOffset = (int)Math.Clamp(_cursor - start, 0, length);
+        return ((int)line, LspPositions.ByteOffsetToUtf16Column(
+            _lineBuffer.AsSpan(0, length), byteOffset));
+    }
+
+    private bool EnsureLspReady(string feature)
+    {
+        if (!_lsp.IsRunning)
+        {
+            SetError("No LSP configured");
+            return false;
+        }
+
+        if (!_lsp.IsInitialized)
+        {
+            SetError($"LSP is still starting; {feature} is not available yet");
+            return false;
+        }
+
+        if (_document.Path is null)
+        {
+            SetError($"{feature} requires a file-backed buffer");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ShowHover()
+    {
+        if (!EnsureLspReady("hover"))
+        {
+            return;
+        }
+
+        (int line, int character) = CursorLspPosition();
+        if (!_lsp.RequestHover(_document.Path!, line, character))
+        {
+            SetError("No LSP configured");
+            return;
+        }
+
+        _hoverRequestPending = true;
+        SetMessage("Requesting hover information...");
+    }
+
+    private void ShowCodeActions()
+    {
+        if (!EnsureLspReady("code actions"))
+        {
+            return;
+        }
+
+        (int line, int character) = CursorLspPosition();
+        List<LspDiagnostic> diagnostics =
+            _lsp.SnapshotDiagnosticsForPath(_document.Path!);
+        _pendingCodeActionResolve = false;
+
+        if (!_lsp.RequestCodeActions(_document.Path!, line, character, diagnostics))
+        {
+            SetError("No LSP configured");
+            return;
+        }
+
+        _codeActionRequestPending = true;
+        SetMessage("Requesting code actions...");
+    }
+
+    private void ShowProblems(bool workspace)
+    {
+        _problemsWorkspace = workspace;
+
+        if (!_lsp.IsRunning)
+        {
+            SetError("No LSP configured");
+            return;
+        }
+
+        if (!workspace && _document.Path is null)
+        {
+            SetError("Document diagnostics require a file-backed buffer");
+            return;
+        }
+
+        // Servers that support pull diagnostics answer with a complete
+        // workspace report. Published diagnostics are always shown as well, so
+        // this is useful even when the request is unsupported.
+        _lsp.RequestWorkspaceDiagnostics();
+        OpenPicker(PickerKind.Problems);
+    }
+
+    private void ShowHoverPopup(string text)
+    {
+        _hoverLines.Clear();
+
+        int width = Math.Max(20, Math.Min(_columns - 6, 88));
+        foreach (string rawLine in text.Replace("\r\n", "\n").Replace('\r', '\n')
+                     .Split('\n'))
+        {
+            if (rawLine.Length == 0)
+            {
+                _hoverLines.Add(string.Empty);
+                continue;
+            }
+
+            WrapHoverLine(rawLine, width - 4, _hoverLines);
+        }
+
+        if (_hoverLines.Count == 0)
+        {
+            SetMessage("No hover information available.");
+            return;
+        }
+
+        _hoverTitle = "Hover";
+        _hoverTop = 0;
+        _hoverVisible = true;
+        ClearMessage();
+    }
+
+    private static void WrapHoverLine(string line, int width,
+        List<string> destination)
+    {
+        width = Math.Max(1, width);
+        int offset = 0;
+
+        while (offset < line.Length)
+        {
+            int take = Math.Min(width, line.Length - offset);
+            if (offset + take < line.Length && take > 0)
+            {
+                int space = line.LastIndexOf(' ', offset + take - 1, take);
+                if (space > offset)
+                {
+                    take = space - offset;
+                }
+            }
+
+            if (take <= 0)
+            {
+                take = 1;
+            }
+
+            destination.Add(line.Substring(offset, take).TrimEnd());
+            offset += take;
+            while (offset < line.Length && line[offset] == ' ')
+            {
+                ++offset;
+            }
+        }
+    }
+
+    private void CloseHover()
+    {
+        _hoverVisible = false;
+        _hoverLines.Clear();
+        _hoverTop = 0;
+        _hoverRequestPending = false;
+    }
+
+    private void ApplyCodeAction(LspCodeAction action)
+    {
+        _pendingCodeActionResolve = false;
+
+        if (action.NeedsResolve || (action.Edits.Count == 0 &&
+                                    action.Command.Length == 0 &&
+                                    action.Raw is not null))
+        {
+            if (_lsp.ResolveCodeAction(action))
+            {
+                _pendingCodeActionResolve = true;
+                SetMessage($"Resolving code action: {action.Title}");
+                return;
+            }
+        }
+
+        bool changedCurrent = false;
+        int changedFiles = 0;
+        var failures = new List<string>();
+
+        foreach (IGrouping<string, LspTextEdit> group in
+                 action.Edits.GroupBy(edit => edit.Uri, StringComparer.Ordinal))
+        {
+            string path;
+            try
+            {
+                path = Path.GetFullPath(LspManager.UriToPath(group.Key));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                       PathTooLongException)
+            {
+                failures.Add(ex.Message);
+                continue;
+            }
+
+            bool isCurrent = _document.Path is not null &&
+                             PathsEqual(Path.GetFullPath(_document.Path), path);
+
+            if (isCurrent)
+            {
+                if (!TryApplyTextEdits(_document, group.ToList(), out string error))
+                {
+                    failures.Add(error);
+                    continue;
+                }
+
+                changedCurrent = true;
+                ++changedFiles;
+                continue;
+            }
+
+            Document? document = Document.Open(path, out string openError);
+            if (document is null)
+            {
+                failures.Add(openError);
+                continue;
+            }
+
+            if (!TryApplyTextEdits(document, group.ToList(), out string editError))
+            {
+                failures.Add(editError);
+                continue;
+            }
+
+            if (!document.Save(out string saveError))
+            {
+                failures.Add(saveError);
+                continue;
+            }
+
+            ++changedFiles;
+        }
+
+        if (changedCurrent)
+        {
+            _cursor = Math.Clamp(_cursor, 0, _document.Size);
+            _preferredColumnValid = false;
+            _document.BreakUndoGroup();
+            SnapCursor();
+            _lspDirty = _lsp.IsRunning;
+            _lspDirtySince = Environment.TickCount64;
+        }
+
+        if (action.Command.Length > 0)
+        {
+            _lsp.ExecuteCommand(action.Command, action.CommandArguments);
+        }
+
+        if (failures.Count > 0)
+        {
+            SetError($"code action failed: {failures[0]}");
+        }
+        else if (changedFiles > 0)
+        {
+            string plural = changedFiles == 1 ? "file" : "files";
+            SetMessage($"Applied code action: {action.Title} ({changedFiles} {plural})");
+        }
+        else if (action.Command.Length > 0)
+        {
+            SetMessage($"Ran code action: {action.Title}");
+        }
+        else
+        {
+            SetMessage($"Code action '{action.Title}' made no changes.");
+        }
+    }
+
+    /// <summary>
+    /// Applies LSP edits to a document. Edits are converted from UTF-16
+    /// positions using the pre-edit line index and applied from the end of the
+    /// document backwards so earlier offsets remain valid.
+    /// </summary>
+    private static bool TryApplyTextEdits(Document document,
+        List<LspTextEdit> edits, out string error)
+    {
+        error = string.Empty;
+        var resolved = new List<(long Start, long End, byte[] Text)>(edits.Count);
+
+        foreach (LspTextEdit edit in edits)
+        {
+            if (edit.StartLine < 0 || edit.EndLine < 0 ||
+                edit.StartLine >= document.LineCount || edit.EndLine >= document.LineCount)
+            {
+                error = "code action references a line outside the document";
+                return false;
+            }
+
+            long start = LinePositionToOffset(document, edit.StartLine,
+                edit.StartCharacter);
+            long end = LinePositionToOffset(document, edit.EndLine,
+                edit.EndCharacter);
+            if (end < start)
+            {
+                error = "code action has an inverted edit range";
+                return false;
+            }
+
+            resolved.Add((start, end, Encoding.UTF8.GetBytes(edit.NewText)));
+        }
+
+        resolved.Sort((left, right) => right.Start.CompareTo(left.Start));
+
+        long lastStart = long.MaxValue;
+        foreach ((long start, long end, byte[] text) in resolved)
+        {
+            if (end > lastStart)
+            {
+                error = "code action contains overlapping edits";
+                return false;
+            }
+
+            lastStart = start;
+        }
+
+        document.BreakUndoGroup();
+        foreach ((long start, long end, byte[] text) in resolved)
+        {
+            document.Replace(start, end - start, text);
+        }
+        document.BreakUndoGroup();
+        return true;
+    }
+
+    private static long LinePositionToOffset(Document document, int line,
+        int utf16Character)
+    {
+        line = (int)Math.Clamp(line, 0, document.LineCount - 1);
+        long start = document.LineStart(line);
+        long end = document.LineEnd(line);
+        byte[] text = document.LineText(line);
+        int column = LspPositions.Utf16ColumnToByteOffset(text, utf16Character);
+        return Math.Clamp(start + column, start, end);
     }
 
     // -----------------------------------------------------------------------
@@ -510,7 +914,8 @@ public sealed partial class Editor : IEditorApi, IDisposable
         }
 
         _lspDirty = false;
-        return _lsp.TryStart(config, _document.Path, GetText(), out error);
+        return _lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot,
+            out error);
     }
 
     public void StopLsp(string? name)

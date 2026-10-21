@@ -1,6 +1,7 @@
 using System.Text;
 using Hexal.Core;
 using Hexal.Languages;
+using Hexal.Lsp;
 using Hexal.Platform;
 using Hexal.Util;
 
@@ -34,13 +35,19 @@ public sealed partial class Editor
         None,
         Files,
         Search,
-        Plugin
+        Plugin,
+        CodeActions,
+        Problems
     }
 
     private static readonly (char Key, string Label)[] SpaceMenuItems =
     {
         ('/', "Search across files"),
-        ('f', "Open file picker")
+        ('f', "Open file picker"),
+        ('K', "LSP hover"),
+        ('A', "LSP code actions"),
+        ('D', "Workspace diagnostics"),
+        ('d', "Document diagnostics")
     };
 
     private readonly ITerminal _terminal;
@@ -48,6 +55,8 @@ public sealed partial class Editor
     private readonly Screen _screen = new();
 
     private Document _document;
+    private readonly string _workspaceRoot;
+    private readonly bool _openFilePickerOnStart;
 
     private struct FileStamp
     {
@@ -83,6 +92,26 @@ public sealed partial class Editor
     private CancellationTokenSource? _pickerCancellation;
     private Task<PickerScanResult>? _pickerTask;
     private long _pickerGeneration;
+
+    private readonly List<string> _pickerPreviewLines = new();
+    private string _pickerPreviewPath = string.Empty;
+    private string _pickerPreviewStatus = string.Empty;
+    private bool _pickerPreviewBinary;
+    private bool _pickerPreviewLoading;
+    private CancellationTokenSource? _pickerPreviewCancellation;
+    private Task<PickerPreviewResult>? _pickerPreviewTask;
+    private long _pickerPreviewGeneration;
+
+    private readonly List<LspCodeAction> _codeActions = new();
+    private bool _pendingCodeActionResolve;
+    private bool _problemsWorkspace;
+
+    private bool _hoverVisible;
+    private readonly List<string> _hoverLines = new();
+    private string _hoverTitle = "Hover";
+    private int _hoverTop;
+    private bool _hoverRequestPending;
+    private bool _codeActionRequestPending;
 
     private long _cursor;
     private long _selectionAnchor;
@@ -133,6 +162,13 @@ public sealed partial class Editor
         public string Error = string.Empty;
     }
 
+    private sealed class PickerPreviewResult
+    {
+        public long Generation;
+        public string Path = string.Empty;
+        public FilePreview Preview = new();
+    }
+
     private sealed class SaveOperation
     {
         public Task<SaveResult> Task = null!;
@@ -155,10 +191,13 @@ public sealed partial class Editor
     private bool _waitThenQuit;
     private bool _waitThenQuitForce;
 
-    public Editor(ITerminal terminal, Document document)
+    public Editor(ITerminal terminal, Document document,
+        string? workspaceRoot = null, bool openFilePicker = false)
     {
         _terminal = terminal;
         _document = document;
+        _workspaceRoot = ResolveWorkspaceRoot(workspaceRoot);
+        _openFilePickerOnStart = openFilePicker;
         _languages = LanguageRegistry.LoadUserGrammars();
         RefreshLanguage();
         RefreshFileStamp();
@@ -170,11 +209,45 @@ public sealed partial class Editor
         }
     }
 
+    private static string ResolveWorkspaceRoot(string? workspaceRoot)
+    {
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            try
+            {
+                if (Directory.Exists(workspaceRoot))
+                {
+                    return Path.GetFullPath(workspaceRoot);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                       PathTooLongException or UnauthorizedAccessException or
+                                       IOException)
+            {
+                // Fall back to the current directory below.
+            }
+        }
+
+        try
+        {
+            return Directory.GetCurrentDirectory();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            return ".";
+        }
+    }
+
     public int Run()
     {
         LoadPlugins();
         RefreshSize();
         EnsureCursorVisible();
+        if (_openFilePickerOnStart)
+        {
+            OpenPicker(PickerKind.Files);
+        }
         Render();
 
         while (_running)
@@ -267,6 +340,12 @@ public sealed partial class Editor
 
         if (inputEvent.Key == Key.FocusOut)
         {
+            return _running;
+        }
+
+        if (_hoverVisible)
+        {
+            HandleHoverInput(inputEvent);
             return _running;
         }
 
@@ -582,6 +661,8 @@ public sealed partial class Editor
                 return;
             case Key.Escape:
                 _document.BreakUndoGroup();
+                _hoverRequestPending = false;
+                _codeActionRequestPending = false;
                 ClearMessage();
                 return;
             case Key.Delete:
@@ -1112,7 +1193,22 @@ public sealed partial class Editor
                 OpenPicker(PickerKind.Search);
                 return;
             case 'f':
+            case 'F':
                 OpenPicker(PickerKind.Files);
+                return;
+            case 'K':
+            case 'k':
+                ShowHover();
+                return;
+            case 'A':
+            case 'a':
+                ShowCodeActions();
+                return;
+            case 'D':
+                ShowProblems(workspace: true);
+                return;
+            case 'd':
+                ShowProblems(workspace: false);
                 return;
             default:
                 // Helix closes the which-key menu when an unbound key is
@@ -1123,6 +1219,7 @@ public sealed partial class Editor
 
     private void OpenPicker(PickerKind kind)
     {
+        CancelPickerPreview();
         _pickerKind = kind;
         _pickerQuery.Clear();
         _pickerQueryCursor = 0;
@@ -1132,11 +1229,16 @@ public sealed partial class Editor
         _pickerStatus = string.Empty;
         _pickerLoading = true;
         _pickerRoot = ProjectRoot();
+        _pickerPreviewLines.Clear();
+        _pickerPreviewPath = string.Empty;
+        _pickerPreviewStatus = string.Empty;
+        _pickerPreviewBinary = false;
         _pendingG = false;
         _document.BreakUndoGroup();
         ClearMessage();
 
-        if (kind == PickerKind.Plugin)
+        if (kind == PickerKind.Plugin || kind == PickerKind.CodeActions ||
+            kind == PickerKind.Problems)
         {
             BeginPickerQuery();
         }
@@ -1159,6 +1261,7 @@ public sealed partial class Editor
         _pluginSelectCallback = null;
 
         CancelPickerWork();
+        CancelPickerPreview();
         _pickerKind = PickerKind.None;
         _pickerQuery.Clear();
         _pickerQueryCursor = 0;
@@ -1167,6 +1270,11 @@ public sealed partial class Editor
         _pickerTop = 0;
         _pickerLoading = false;
         _pickerStatus = string.Empty;
+        _pickerPreviewLines.Clear();
+        _pickerPreviewPath = string.Empty;
+        _pickerPreviewStatus = string.Empty;
+        _codeActions.Clear();
+        _pendingCodeActionResolve = false;
         _pluginSelectTitle = string.Empty;
         _pluginSelectItems.Clear();
 
@@ -1220,6 +1328,12 @@ public sealed partial class Editor
                 return;
             case PickerKind.Plugin:
                 PopulatePluginItems();
+                return;
+            case PickerKind.CodeActions:
+                PopulateCodeActionItems();
+                return;
+            case PickerKind.Problems:
+                PopulateProblemItems();
                 return;
             case PickerKind.Search:
                 if (_pickerQuery.Length == 0)
@@ -1290,6 +1404,7 @@ public sealed partial class Editor
         _pickerStatus = _pickerItems.Count == 0
             ? "No matching files"
             : $"{_pickerItems.Count} file{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        UpdatePickerPreview();
     }
 
     private void PopulatePluginItems()
@@ -1346,6 +1461,290 @@ public sealed partial class Editor
         _pickerStatus = _pickerItems.Count == 0
             ? "No matching items"
             : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+    }
+
+    private void PopulateCodeActionItems()
+    {
+        _pickerItems.Clear();
+        string query = _pickerQuery.ToString();
+
+        for (int i = 0; i < _codeActions.Count; ++i)
+        {
+            LspCodeAction action = _codeActions[i];
+            string label = action.Kind.Length > 0
+                ? $"[{action.Kind}] {action.Title}"
+                : action.Title;
+
+            if (query.Length > 0 && FuzzyScore(label, query) == int.MaxValue)
+            {
+                continue;
+            }
+
+            _pickerItems.Add(new PickerItem
+            {
+                Display = label,
+                Value = i
+            });
+        }
+
+        _pickerSelected = 0;
+        _pickerTop = 0;
+        _pickerLoading = false;
+        _pickerStatus = _pickerItems.Count == 0
+            ? "No matching code actions"
+            : $"{_pickerItems.Count} code action{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+    }
+
+    private void PopulateProblemItems()
+    {
+        _pickerItems.Clear();
+        string query = _pickerQuery.ToString();
+
+        foreach ((string path, LspDiagnostic diagnostic) in CollectProblems())
+        {
+            string relative;
+            try
+            {
+                relative = Path.GetRelativePath(_pickerRoot, path);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                relative = path;
+            }
+
+            string severity = diagnostic.Severity switch
+            {
+                1 => "E",
+                2 => "W",
+                3 => "I",
+                _ => "H"
+            };
+
+            string label =
+                $"{severity} {relative}:{diagnostic.Line + 1}:{diagnostic.Column + 1}  {diagnostic.Message}";
+            if (query.Length > 0 && FuzzyScore(label, query) == int.MaxValue)
+            {
+                continue;
+            }
+
+            _pickerItems.Add(new PickerItem
+            {
+                Display = label,
+                Path = path,
+                Line = diagnostic.Line,
+                Column = diagnostic.Column,
+                Value = diagnostic.Severity
+            });
+        }
+
+        _pickerSelected = Math.Clamp(_pickerSelected, 0,
+            Math.Max(0, _pickerItems.Count - 1));
+        _pickerTop = 0;
+        _pickerLoading = false;
+        _pickerStatus = _pickerItems.Count == 0
+            ? "No problems reported"
+            : $"{_pickerItems.Count} problem{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+    }
+
+    private List<(string Path, LspDiagnostic Diagnostic)> CollectProblems()
+    {
+        var result = new List<(string Path, LspDiagnostic Diagnostic)>();
+        string root = Path.GetFullPath(_pickerRoot);
+        string currentPath = _document.Path is null
+            ? string.Empty
+            : Path.GetFullPath(_document.Path);
+
+        foreach (LspDocumentDiagnostics report in _lsp.SnapshotDiagnostics())
+        {
+            string path;
+            try
+            {
+                path = Path.GetFullPath(LspManager.UriToPath(report.Uri));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                       PathTooLongException)
+            {
+                continue;
+            }
+
+            if (!_problemsWorkspace)
+            {
+                if (currentPath.Length == 0 ||
+                    !PathsEqual(path, currentPath))
+                {
+                    continue;
+                }
+            }
+            else if (!IsPathInside(root, path))
+            {
+                continue;
+            }
+
+            foreach (LspDiagnostic diagnostic in report.Diagnostics)
+            {
+                result.Add((path, diagnostic));
+            }
+        }
+
+        result.Sort((left, right) =>
+        {
+            int comparison = string.Compare(left.Path, right.Path,
+                StringComparison.OrdinalIgnoreCase);
+            if (comparison != 0)
+            {
+                return comparison;
+            }
+            return left.Diagnostic.Line.CompareTo(right.Diagnostic.Line);
+        });
+
+        return result;
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        return string.Equals(left, right, OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal);
+    }
+
+    private static bool IsPathInside(string root, string path)
+    {
+        string normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string comparisonPath = path;
+        if (!comparisonPath.EndsWith(Path.DirectorySeparatorChar))
+        {
+            comparisonPath += Path.DirectorySeparatorChar;
+        }
+
+        return comparisonPath.StartsWith(normalizedRoot,
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
+    }
+
+    private void UpdatePickerPreview()
+    {
+        if (_pickerKind != PickerKind.Files)
+        {
+            CancelPickerPreview();
+            return;
+        }
+
+        if (_pickerSelected < 0 || _pickerSelected >= _pickerItems.Count)
+        {
+            CancelPickerPreview();
+            _pickerPreviewLines.Clear();
+            _pickerPreviewPath = string.Empty;
+            _pickerPreviewStatus = "No file selected";
+            return;
+        }
+
+        PickerItem item = _pickerItems[_pickerSelected];
+        if (item.Path.Length == 0)
+        {
+            return;
+        }
+
+        if (PathsEqual(_pickerPreviewPath, item.Path) &&
+            (_pickerPreviewLoading || _pickerPreviewStatus.Length > 0 ||
+             _pickerPreviewLines.Count > 0))
+        {
+            return;
+        }
+
+        StartPickerPreviewLoad(item.Path);
+    }
+
+    private void StartPickerPreviewLoad(string path)
+    {
+        CancelPickerPreview();
+
+        long generation = ++_pickerPreviewGeneration;
+        var cancellation = new CancellationTokenSource();
+        _pickerPreviewCancellation = cancellation;
+        _pickerPreviewPath = path;
+        _pickerPreviewLines.Clear();
+        _pickerPreviewBinary = false;
+        _pickerPreviewStatus = string.Empty;
+        _pickerPreviewLoading = true;
+
+        _pickerPreviewTask = Task.Run(() => new PickerPreviewResult
+        {
+            Generation = generation,
+            Path = path,
+            Preview = FileSearch.ReadPreview(path)
+        }, cancellation.Token);
+    }
+
+    private void CancelPickerPreview()
+    {
+        _pickerPreviewCancellation?.Cancel();
+        _pickerPreviewCancellation?.Dispose();
+        _pickerPreviewCancellation = null;
+        _pickerPreviewTask = null;
+        _pickerPreviewLoading = false;
+    }
+
+    private bool PollPickerPreview()
+    {
+        Task<PickerPreviewResult>? task = _pickerPreviewTask;
+        if (task is null || !task.IsCompleted)
+        {
+            return false;
+        }
+
+        _pickerPreviewTask = null;
+        _pickerPreviewCancellation?.Dispose();
+        _pickerPreviewCancellation = null;
+
+        PickerPreviewResult result;
+        try
+        {
+            result = task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _pickerPreviewLoading = false;
+            _pickerPreviewStatus = $"E: {ex.Message}";
+            return true;
+        }
+
+        if (result.Generation != _pickerPreviewGeneration)
+        {
+            return false;
+        }
+
+        _pickerPreviewLoading = false;
+        _pickerPreviewPath = result.Path;
+        _pickerPreviewLines.Clear();
+        _pickerPreviewLines.AddRange(result.Preview.Lines);
+        _pickerPreviewBinary = result.Preview.Binary;
+
+        if (result.Preview.Error.Length > 0)
+        {
+            _pickerPreviewStatus = $"E: {result.Preview.Error}";
+        }
+        else if (result.Preview.Binary)
+        {
+            _pickerPreviewStatus = "Binary file";
+        }
+        else if (result.Preview.Lines.Count == 0)
+        {
+            _pickerPreviewStatus = "Empty file";
+        }
+        else
+        {
+            _pickerPreviewStatus = result.Preview.Truncated
+                ? $"First {result.Preview.Lines.Count} lines (truncated)"
+                : $"First {result.Preview.Lines.Count} line{(result.Preview.Lines.Count == 1 ? string.Empty : "s")}";
+        }
+
+        return true;
     }
 
     private void StartPickerSearch()
@@ -1473,17 +1872,9 @@ public sealed partial class Editor
         return true;
     }
 
-    private static string ProjectRoot()
+    private string ProjectRoot()
     {
-        try
-        {
-            return Directory.GetCurrentDirectory();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
-        {
-            return ".";
-        }
+        return _workspaceRoot;
     }
 
     private void HandlePicker(InputEvent inputEvent)
@@ -1516,10 +1907,10 @@ public sealed partial class Editor
                 MovePickerSelection(1);
                 return;
             case Key.PageUp:
-                MovePickerSelection(-PickerListRows());
+                MovePickerSelection(-PickerLayoutRows());
                 return;
             case Key.PageDown:
-                MovePickerSelection(PickerListRows());
+                MovePickerSelection(PickerLayoutRows());
                 return;
             case Key.Backspace:
                 if (_pickerQueryCursor > 0)
@@ -1579,7 +1970,7 @@ public sealed partial class Editor
         }
 
         _pickerSelected = Math.Clamp(_pickerSelected + delta, 0, _pickerItems.Count - 1);
-        int rows = PickerListRows();
+        int rows = PickerLayoutRows();
         if (_pickerSelected < _pickerTop)
         {
             _pickerTop = _pickerSelected;
@@ -1591,6 +1982,11 @@ public sealed partial class Editor
 
         int maxTop = Math.Max(0, _pickerItems.Count - rows);
         _pickerTop = Math.Clamp(_pickerTop, 0, maxTop);
+
+        if (_pickerKind == PickerKind.Files)
+        {
+            UpdatePickerPreview();
+        }
     }
 
     private void ActivatePickerItem()
@@ -1610,12 +2006,93 @@ public sealed partial class Editor
             return;
         }
 
+        if (_pickerKind == PickerKind.CodeActions)
+        {
+            if (item.Value < 0 || item.Value >= _codeActions.Count)
+            {
+                return;
+            }
+
+            LspCodeAction action = _codeActions[item.Value];
+            ClosePicker(cancelled: false);
+            ApplyCodeAction(action);
+            return;
+        }
+
+        if (_pickerKind == PickerKind.Problems)
+        {
+            string problemPath = item.Path;
+            long problemLine = item.Line;
+            long problemColumn = LspColumnToByteOffset(problemPath, item.Line, (int)item.Column);
+            bool sameFile = _document.Path is not null &&
+                            PathsEqual(Path.GetFullPath(_document.Path),
+                                Path.GetFullPath(problemPath));
+
+            ClosePicker(cancelled: false);
+            if (sameFile)
+            {
+                if (problemLine >= 0 && problemLine < _document.LineCount)
+                {
+                    long start = _document.LineStart(problemLine);
+                    long end = _document.LineEnd(problemLine);
+                    MoveTo(Math.Clamp(start + problemColumn, start, end), recordJump: true);
+                }
+            }
+            else
+            {
+                RequestOpen(problemPath, force: false, problemLine, problemColumn);
+            }
+            return;
+        }
+
         string path = item.Path;
         long line = item.Line;
         long column = item.Column;
 
         ClosePicker();
         RequestOpen(path, force: false, line, column);
+    }
+
+    /// <summary>
+    /// Converts an LSP UTF-16 column into a UTF-8 byte offset within a line of
+    /// an arbitrary file. The current buffer is read in place; other files are
+    /// read lazily up to the requested line.
+    /// </summary>
+    private long LspColumnToByteOffset(string path, long line, int character)
+    {
+        if (line < 0)
+        {
+            return 0;
+        }
+
+        try
+        {
+            if (_document.Path is not null &&
+                PathsEqual(Path.GetFullPath(_document.Path), Path.GetFullPath(path)) &&
+                line < _document.LineCount)
+            {
+                int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+                return LspPositions.Utf16ColumnToByteOffset(
+                    _lineBuffer.AsSpan(0, length), character);
+            }
+
+            foreach (string text in File.ReadLines(path))
+            {
+                if (line == 0)
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes(text);
+                    return LspPositions.Utf16ColumnToByteOffset(bytes, character);
+                }
+                --line;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            // Fall back to the raw column below.
+        }
+
+        return Math.Max(0, character);
     }
 
     private void CancelPickerWork()
@@ -1837,6 +2314,10 @@ public sealed partial class Editor
     {
         bool redraw = PollSave();
         if (PollPicker())
+        {
+            redraw = true;
+        }
+        if (PollPickerPreview())
         {
             redraw = true;
         }
@@ -3104,6 +3585,34 @@ public sealed partial class Editor
         return Math.Max(1, PickerHeight() - 3);
     }
 
+    private int PickerPreviewHeight(int available)
+    {
+        if (_pickerKind != PickerKind.Files || available < 10)
+        {
+            return 0;
+        }
+
+        int preview = Math.Min(12, Math.Max(4, Math.Min(12, available - 5)));
+        return available - preview - 1 >= 4 ? preview : 0;
+    }
+
+    private int PickerDialogHeight(int available)
+    {
+        int preview = PickerPreviewHeight(available);
+        if (preview <= 0)
+        {
+            return PickerHeight();
+        }
+
+        return Math.Max(4, Math.Min(18, available - preview - 1));
+    }
+
+    private int PickerLayoutRows()
+    {
+        int available = (int)Math.Max(0, StatusRow());
+        return Math.Max(1, PickerDialogHeight(available) - 3);
+    }
+
     private void DrawBox(int x, int y, int width, int height, string title)
     {
         if (width < 2 || height < 2)
@@ -3198,7 +3707,10 @@ public sealed partial class Editor
             return;
         }
 
-        int height = PickerHeight();
+        int available = (int)Math.Max(0, StatusRow());
+        int previewHeight = PickerPreviewHeight(available);
+        int height = PickerDialogHeight(available);
+
         if (height < 4 || _columns < 20)
         {
             return;
@@ -3210,14 +3722,19 @@ public sealed partial class Editor
             return;
         }
 
+        int totalHeight = height + (previewHeight > 0 ? previewHeight + 1 : 0);
         int x = (_columns - width) / 2;
-        int y = Math.Max(0, ((int)StatusRow() - height) / 2);
+        int y = Math.Max(0, (available - totalHeight) / 2);
         string title = _pickerKind switch
         {
             PickerKind.Files => "Open file",
             PickerKind.Plugin => _pluginSelectTitle.Length > 0
                 ? _pluginSelectTitle
                 : "Select",
+            PickerKind.CodeActions => "Code actions",
+            PickerKind.Problems => _problemsWorkspace
+                ? "Workspace diagnostics"
+                : "Document diagnostics",
             _ => "Search across files"
         };
 
@@ -3273,6 +3790,190 @@ public sealed partial class Editor
 
         var statusStyle = new Style { Fg = 14 };
         _screen.PutString(x + 2, y + height - 1, $" {status} ", statusStyle, width - 4);
+
+        if (previewHeight > 0)
+        {
+            RenderPickerPreview(x, y + height + 1, width, previewHeight);
+        }
+    }
+
+    private void RenderPickerPreview(int x, int y, int width, int height)
+    {
+        string relativePath = _pickerPreviewPath;
+        if (relativePath.Length > 0)
+        {
+            try
+            {
+                relativePath = Path.GetRelativePath(_pickerRoot, relativePath);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                // Keep the absolute path.
+            }
+        }
+
+        string title = relativePath.Length > 0
+            ? $"Preview: {relativePath}"
+            : "Preview";
+        if (_pickerPreviewStatus.Length > 0)
+        {
+            title += $" — {_pickerPreviewStatus}";
+        }
+
+        DrawBox(x, y, width, height, title);
+
+        var style = new Style { Fg = 15 };
+        var dimStyle = new Style { Fg = 8, Dim = true };
+        var errorStyle = new Style { Fg = 9, Bold = true };
+        int contentRows = Math.Max(0, height - 2);
+        int contentWidth = Math.Max(0, width - 4);
+
+        if (_pickerPreviewLoading)
+        {
+            _screen.PutString(x + 2, y + 1, "Loading preview...", dimStyle, contentWidth);
+            return;
+        }
+
+        if (_pickerPreviewStatus.StartsWith("E: ", StringComparison.Ordinal))
+        {
+            _screen.PutString(x + 2, y + 1, _pickerPreviewStatus, errorStyle,
+                contentWidth);
+            return;
+        }
+
+        if (_pickerPreviewBinary)
+        {
+            _screen.PutString(x + 2, y + 1, "Binary file", dimStyle, contentWidth);
+            return;
+        }
+
+        if (_pickerPreviewLines.Count == 0)
+        {
+            _screen.PutString(x + 2, y + 1,
+                _pickerPreviewStatus.Length > 0 ? _pickerPreviewStatus : "No preview",
+                dimStyle, contentWidth);
+            return;
+        }
+
+        for (int row = 0; row < contentRows && row < _pickerPreviewLines.Count; ++row)
+        {
+            _screen.PutString(x + 2, y + 1 + row,
+                ExpandPreviewLine(_pickerPreviewLines[row]), style, contentWidth);
+        }
+    }
+
+    private static string ExpandPreviewLine(string line)
+    {
+        var builder = new StringBuilder(line.Length + 8);
+        int column = 0;
+
+        foreach (char character in line)
+        {
+            if (character == '\t')
+            {
+                int spaces = TabWidth - (column % TabWidth);
+                builder.Append(' ', spaces);
+                column += spaces;
+            }
+            else if (character < 0x20 || character == 0x7F)
+            {
+                builder.Append(' ');
+                ++column;
+            }
+            else
+            {
+                builder.Append(character);
+                ++column;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private void HandleHoverInput(InputEvent inputEvent)
+    {
+        switch (inputEvent.Key)
+        {
+            case Key.Escape:
+            case Key.Enter:
+                CloseHover();
+                return;
+            case Key.Up:
+                if (_hoverTop > 0)
+                {
+                    --_hoverTop;
+                }
+                return;
+            case Key.Down:
+                if (_hoverTop + HoverContentRows() < _hoverLines.Count)
+                {
+                    ++_hoverTop;
+                }
+                return;
+            case Key.PageUp:
+                _hoverTop = Math.Max(0, _hoverTop - Math.Max(1, HoverContentRows()));
+                return;
+            case Key.PageDown:
+                _hoverTop = Math.Min(
+                    Math.Max(0, _hoverLines.Count - HoverContentRows()),
+                    _hoverTop + Math.Max(1, HoverContentRows()));
+                return;
+        }
+
+        if (inputEvent.Key == Key.Character &&
+            (inputEvent.Character.Value == 'q' || inputEvent.Character.Value == 'Q'))
+        {
+            CloseHover();
+        }
+    }
+
+    private int HoverContentRows()
+    {
+        int available = (int)Math.Max(0, StatusRow());
+        int height = Math.Min(available - 1, _hoverLines.Count + 2);
+        return Math.Max(1, height - 2);
+    }
+
+    private void RenderHover()
+    {
+        if (!_hoverVisible || _hoverLines.Count == 0)
+        {
+            return;
+        }
+
+        int available = (int)Math.Max(0, StatusRow());
+        if (available < 5 || _columns < 20)
+        {
+            return;
+        }
+
+        int height = Math.Min(available - 1, _hoverLines.Count + 2);
+        height = Math.Max(3, height);
+        int width = Math.Min(_columns - 2, 92);
+        if (width < 20)
+        {
+            return;
+        }
+
+        int x = (_columns - width) / 2;
+        int y = Math.Max(0, (available - height) / 2);
+        DrawBox(x, y, width, height, $"{_hoverTitle} (Esc to close)");
+
+        var style = new Style { Fg = 15 };
+        int contentRows = Math.Max(0, height - 2);
+        int contentWidth = Math.Max(0, width - 4);
+
+        for (int row = 0; row < contentRows; ++row)
+        {
+            int index = _hoverTop + row;
+            if (index >= _hoverLines.Count)
+            {
+                break;
+            }
+
+            _screen.PutString(x + 2, y + 1 + row, _hoverLines[index], style,
+                contentWidth);
+        }
     }
 
     private void Render()
@@ -3311,6 +4012,7 @@ public sealed partial class Editor
         RenderBottomLine();
         RenderSpaceMenu();
         RenderPicker();
+        RenderHover();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

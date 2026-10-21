@@ -16,6 +16,18 @@ public readonly struct FileSearchMatch
 }
 
 /// <summary>
+/// The first few lines of a file, used by the file-picker preview pane.
+/// </summary>
+public sealed class FilePreview
+{
+    public string Path { get; init; } = string.Empty;
+    public IReadOnlyList<string> Lines { get; init; } = Array.Empty<string>();
+    public bool Binary { get; init; }
+    public bool Truncated { get; init; }
+    public string Error { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Shared project-file enumeration and plain-text search used by the file
 /// picker and the workspace search modal. The implementation deliberately has
 /// no UI dependency so it can run on a worker thread.
@@ -24,6 +36,8 @@ public static class FileSearch
 {
     public const int DefaultMaxFiles = 20_000;
     public const int DefaultMaxResults = 1_000;
+    public const int DefaultPreviewLines = 10;
+    private const int MaxPreviewLineLength = 400;
     private const long MaxSearchFileBytes = 4L * 1024 * 1024;
     private const int MaxPreviewLength = 200;
 
@@ -211,6 +225,88 @@ public static class FileSearch
         }
 
         return matches;
+    }
+
+    /// <summary>
+    /// Reads the leading lines of a file for the picker preview. Oversized
+    /// lines are clipped so a single minified line cannot stall the editor.
+    /// </summary>
+    public static FilePreview ReadPreview(string path,
+        int maxLines = DefaultPreviewLines)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return new FilePreview { Error = "no file selected" };
+        }
+
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return new FilePreview { Path = path, Error = "file does not exist" };
+            }
+
+            var info = new FileInfo(path);
+            if (info.Length > MaxSearchFileBytes)
+            {
+                return new FilePreview
+                {
+                    Path = path,
+                    Error = "file is too large to preview"
+                };
+            }
+
+            var lines = new List<string>(Math.Max(1, maxLines));
+            bool binary = false;
+            bool truncated = false;
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite);
+            using var reader = new StreamReader(stream, Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true);
+
+            while (lines.Count < maxLines)
+            {
+                string? line = reader.ReadLine();
+                if (line is null)
+                {
+                    break;
+                }
+
+                if (line.Contains('\0'))
+                {
+                    binary = true;
+                    break;
+                }
+
+                if (line.Length > MaxPreviewLineLength)
+                {
+                    line = line[..MaxPreviewLineLength] + "…";
+                    truncated = true;
+                }
+
+                lines.Add(line);
+            }
+
+            if (!binary && lines.Count >= maxLines && reader.ReadLine() is not null)
+            {
+                truncated = true;
+            }
+
+            return new FilePreview
+            {
+                Path = path,
+                Lines = lines,
+                Binary = binary,
+                Truncated = truncated
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException or
+                                   PathTooLongException)
+        {
+            return new FilePreview { Path = path, Error = ex.Message };
+        }
     }
 
     private static string MakePreview(string line, int index)

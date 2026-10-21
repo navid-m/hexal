@@ -13,6 +13,7 @@ internal static class Program
     public static int RunHexal(string[] arguments)
     {
         string file = string.Empty;
+        string? directory = null;
         bool optionsEnded = false;
 
         foreach (string argument in arguments)
@@ -43,20 +44,52 @@ internal static class Program
                 return 2;
             }
 
-            if (file.Length > 0)
+            if (file.Length > 0 || directory is not null)
             {
                 Console.Error.WriteLine(
-                    "hexal: the MVP opens one file at a time; use :e to switch files");
+                    "hexal: the MVP opens one file or one project directory at a time");
                 return 2;
+            }
+
+            if (IsDirectory(argument))
+            {
+                directory = FullPath(argument);
+                continue;
             }
 
             file = argument;
         }
 
-        return RunEditor(file);
+        return RunEditor(file, directory);
     }
 
-    private static int RunEditor(string file)
+    private static bool IsDirectory(string path)
+    {
+        try
+        {
+            return Directory.Exists(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static string FullPath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            return path;
+        }
+    }
+
+    private static int RunEditor(string file, string? directory)
     {
         try
         {
@@ -79,7 +112,8 @@ internal static class Program
                 return 1;
             }
 
-            using var editor = new Editor(terminal, document);
+            using var editor = new Editor(terminal, document, directory,
+                openFilePicker: directory is not null);
             int result = editor.Run();
             terminal.Shutdown();
             return result;
@@ -99,6 +133,10 @@ internal static class Program
 
             Usage:
               hexal [options] [file]
+              hexal [options] [directory]
+
+            Passing a directory opens the file picker rooted at that directory
+            and scopes file search to it for the rest of the session.
 
             Options:
               -h, --help       Show this help message and exit
@@ -128,6 +166,10 @@ internal static class Program
               Space            Open the space menu
               Space /          Search across files
               Space f          Open the file picker
+              Space K          Show LSP hover information
+              Space A          Show and apply LSP code actions
+              Space D          Show workspace diagnostics
+              Space d          Show diagnostics for the current file
 
             Relative file names are resolved from the current working directory.
 

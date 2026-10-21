@@ -18,6 +18,9 @@ public sealed class LspManager : IDisposable
     private readonly object _stateLock = new();
     private readonly object _writeLock = new();
     private readonly ConcurrentQueue<LspEvent> _events = new();
+    private readonly Dictionary<long, string> _pendingRequests = new();
+    private readonly Dictionary<string, List<LspDiagnostic>> _diagnostics =
+        new(StringComparer.Ordinal);
 
     private Process? _process;
     private Stream? _input;
@@ -33,6 +36,7 @@ public sealed class LspManager : IDisposable
     private long _nextRequestId;
     private long _initializeId;
     private bool _initialized;
+    private bool _workspaceDiagnosticsSupported;
     private bool _disposed;
 
     public bool IsRunning
@@ -69,7 +73,7 @@ public sealed class LspManager : IDisposable
     }
 
     public bool TryStart(LspServerConfig config, string documentPath, string text,
-        out string error)
+        string? workspaceRoot, out string error)
     {
         error = string.Empty;
         if (string.IsNullOrWhiteSpace(config.Command))
@@ -118,7 +122,10 @@ public sealed class LspManager : IDisposable
                 return false;
             }
 
-            string workingDirectory = Path.GetDirectoryName(fullPath) ?? ".";
+            string workingDirectory = !string.IsNullOrWhiteSpace(workspaceRoot) &&
+                                      Directory.Exists(workspaceRoot)
+                ? Path.GetFullPath(workspaceRoot)
+                : Path.GetDirectoryName(fullPath) ?? ".";
             _rootPath = workingDirectory;
             _rootUri = PathToUri(workingDirectory, directory: true);
             _documentUri = PathToUri(fullPath);
@@ -126,6 +133,9 @@ public sealed class LspManager : IDisposable
             _currentText = text;
             _version = 1;
             _initialized = false;
+            _workspaceDiagnosticsSupported = false;
+            _pendingRequests.Clear();
+            _diagnostics.Clear();
             _initializeId = Interlocked.Increment(ref _nextRequestId);
 
             var startInfo = new ProcessStartInfo
@@ -232,6 +242,220 @@ public sealed class LspManager : IDisposable
                 ["text"] = text
             };
             SendNotificationLocked("textDocument/didSave", parameters);
+        }
+    }
+
+    /// <summary>
+    /// Requests hover information at a zero-based line and UTF-16 column.
+    /// Returns false when no initialized server owns the active document.
+    /// </summary>
+    public bool RequestHover(string documentPath, int line, int character)
+    {
+        lock (_stateLock)
+        {
+            if (!CanRequestForPathLocked(documentPath))
+            {
+                return false;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["textDocument"] = new JsonObject
+                {
+                    ["uri"] = _documentUri
+                },
+                ["position"] = new JsonObject
+                {
+                    ["line"] = line,
+                    ["character"] = character
+                }
+            };
+
+            SendRequestLocked("textDocument/hover", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Requests code actions for the cursor position. Diagnostics for the
+    /// current line are passed as context, as required by the specification.
+    /// </summary>
+    public bool RequestCodeActions(string documentPath, int line, int character,
+        IReadOnlyList<LspDiagnostic> diagnostics)
+    {
+        lock (_stateLock)
+        {
+            if (!CanRequestForPathLocked(documentPath))
+            {
+                return false;
+            }
+
+            var contextDiagnostics = new JsonArray();
+            foreach (LspDiagnostic diagnostic in diagnostics)
+            {
+                if (diagnostic.Line != line)
+                {
+                    continue;
+                }
+
+                int endLine = diagnostic.EndLine >= 0 ? diagnostic.EndLine : diagnostic.Line;
+                int endColumn = diagnostic.EndColumn >= 0
+                    ? diagnostic.EndColumn
+                    : diagnostic.Column + 1;
+
+                contextDiagnostics.Add((JsonNode)new JsonObject
+                {
+                    ["range"] = new JsonObject
+                    {
+                        ["start"] = new JsonObject
+                        {
+                            ["line"] = diagnostic.Line,
+                            ["character"] = diagnostic.Column
+                        },
+                        ["end"] = new JsonObject
+                        {
+                            ["line"] = endLine,
+                            ["character"] = endColumn
+                        }
+                    },
+                    ["severity"] = diagnostic.Severity,
+                    ["source"] = diagnostic.Source,
+                    ["message"] = diagnostic.Message
+                });
+            }
+
+            var parameters = new JsonObject
+            {
+                ["textDocument"] = new JsonObject
+                {
+                    ["uri"] = _documentUri
+                },
+                ["range"] = new JsonObject
+                {
+                    ["start"] = new JsonObject
+                    {
+                        ["line"] = line,
+                        ["character"] = character
+                    },
+                    ["end"] = new JsonObject
+                    {
+                        ["line"] = line,
+                        ["character"] = character
+                    }
+                },
+                ["context"] = new JsonObject
+                {
+                    ["diagnostics"] = contextDiagnostics
+                }
+            };
+
+            SendRequestLocked("textDocument/codeAction", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a code action that the server returned without an edit or
+    /// command (the "data-only" form used by some servers).
+    /// </summary>
+    public bool ResolveCodeAction(LspCodeAction action)
+    {
+        if (action.Raw is null)
+        {
+            return false;
+        }
+
+        lock (_stateLock)
+        {
+            if (_process is null || !_initialized)
+            {
+                return false;
+            }
+
+            var parameters = (JsonObject)action.Raw.DeepClone();
+            SendRequestLocked("codeAction/resolve", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Asks the server for diagnostics for the whole workspace. Returns false
+    /// when the server did not advertise workspace diagnostic support.
+    /// </summary>
+    public bool RequestWorkspaceDiagnostics()
+    {
+        lock (_stateLock)
+        {
+            if (_process is null || !_initialized || !_workspaceDiagnosticsSupported)
+            {
+                return false;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["previousResultIds"] = new JsonArray()
+            };
+            SendRequestLocked("workspace/diagnostic", parameters);
+            return true;
+        }
+    }
+
+    public void ExecuteCommand(string command, JsonArray? arguments)
+    {
+        if (string.IsNullOrEmpty(command))
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            if (_process is null || !_initialized)
+            {
+                return;
+            }
+
+            SendRequestLocked("workspace/executeCommand", new JsonObject
+            {
+                ["command"] = command,
+                ["arguments"] = arguments?.DeepClone() ?? new JsonArray()
+            });
+        }
+    }
+
+    /// <summary>
+    /// Returns a snapshot of every diagnostic set the server has published.
+    /// </summary>
+    public List<LspDocumentDiagnostics> SnapshotDiagnostics()
+    {
+        lock (_stateLock)
+        {
+            var result = new List<LspDocumentDiagnostics>(_diagnostics.Count);
+            foreach ((string uri, List<LspDiagnostic> diagnostics) in _diagnostics)
+            {
+                result.Add(new LspDocumentDiagnostics(uri, diagnostics.ToArray()));
+            }
+            return result;
+        }
+    }
+
+    public List<LspDiagnostic> SnapshotDiagnosticsForPath(string documentPath)
+    {
+        string uri;
+        try
+        {
+            uri = PathToUri(documentPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            return new List<LspDiagnostic>();
+        }
+
+        lock (_stateLock)
+        {
+            return _diagnostics.TryGetValue(uri, out List<LspDiagnostic>? diagnostics)
+                ? new List<LspDiagnostic>(diagnostics)
+                : new List<LspDiagnostic>();
         }
     }
 
@@ -345,6 +569,40 @@ public sealed class LspManager : IDisposable
         var message = new JsonObject
         {
             ["jsonrpc"] = "2.0",
+            ["method"] = method,
+            ["params"] = parameters
+        };
+        SendMessage(message);
+    }
+
+    private bool CanRequestForPathLocked(string documentPath)
+    {
+        if (_process is null || !_initialized || _input is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(_documentUri, PathToUri(documentPath),
+                StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private void SendRequestLocked(string method, JsonObject parameters)
+    {
+        long id = Interlocked.Increment(ref _nextRequestId);
+        _pendingRequests[id] = method;
+
+        var message = new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["id"] = id,
             ["method"] = method,
             ["params"] = parameters
         };
@@ -499,30 +757,144 @@ public sealed class LspManager : IDisposable
 
         if (root.TryGetProperty("id", out JsonElement responseId) &&
             responseId.ValueKind == JsonValueKind.Number &&
-            responseId.TryGetInt64(out long id) && id == _initializeId)
+            responseId.TryGetInt64(out long id))
         {
+            if (id == _initializeId)
+            {
+                HandleInitializeResponse(root);
+                return;
+            }
+
+            string method;
             lock (_stateLock)
             {
-                if (_process is null)
-                {
-                    return;
-                }
+                _pendingRequests.Remove(id, out method!);
+            }
 
-                if (root.TryGetProperty("error", out JsonElement error))
+            if (!string.IsNullOrEmpty(method))
+            {
+                HandleResponse(method, root);
+            }
+        }
+    }
+
+    private void HandleInitializeResponse(JsonElement root)
+    {
+        lock (_stateLock)
+        {
+            if (_process is null)
+            {
+                return;
+            }
+
+            if (root.TryGetProperty("error", out JsonElement error))
+            {
+                string message = error.TryGetProperty("message", out JsonElement text)
+                    ? text.GetString() ?? "initialize failed"
+                    : "initialize failed";
+                Enqueue(new LspEvent
                 {
-                    string message = error.TryGetProperty("message", out JsonElement text)
-                        ? text.GetString() ?? "initialize failed"
-                        : "initialize failed";
-                    Enqueue(new LspEvent
+                    Kind = LspEventKind.Error,
+                    ServerName = _config?.Name ?? string.Empty,
+                    Method = "initialize",
+                    Message = message
+                });
+                return;
+            }
+
+            if (root.TryGetProperty("result", out JsonElement result) &&
+                result.TryGetProperty("capabilities", out JsonElement capabilities) &&
+                capabilities.TryGetProperty("diagnosticProvider", out JsonElement provider) &&
+                provider.ValueKind == JsonValueKind.Object &&
+                provider.TryGetProperty("workspaceDiagnostics", out JsonElement workspace) &&
+                workspace.ValueKind == JsonValueKind.True)
+            {
+                _workspaceDiagnosticsSupported = true;
+            }
+
+            SendInitializedAndOpenLocked();
+        }
+    }
+
+    private void HandleResponse(string method, JsonElement root)
+    {
+        string serverName = ServerName;
+
+        if (root.TryGetProperty("error", out JsonElement error))
+        {
+            string message = error.TryGetProperty("message", out JsonElement text)
+                ? text.GetString() ?? $"{method} failed"
+                : $"{method} failed";
+
+            // Workspace diagnostics are opt-in; a server rejecting the pull
+            // request should not spam the status line.
+            if (method != "workspace/diagnostic")
+            {
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Error,
+                    ServerName = serverName,
+                    Method = method,
+                    Message = message
+                });
+            }
+            return;
+        }
+
+        root.TryGetProperty("result", out JsonElement result);
+
+        switch (method)
+        {
+            case "textDocument/hover":
+            {
+                string text = result.ValueKind == JsonValueKind.Object
+                    ? ExtractHoverText(result)
+                    : string.Empty;
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Hover,
+                    ServerName = serverName,
+                    Method = method,
+                    Text = text
+                });
+                return;
+            }
+
+            case "textDocument/codeAction":
+            case "codeAction/resolve":
+            {
+                List<LspCodeAction> actions = ParseCodeActions(result);
+                Enqueue(new LspEvent
+                {
+                    Kind = method == "codeAction/resolve"
+                        ? LspEventKind.CodeActionResolved
+                        : LspEventKind.CodeActions,
+                    ServerName = serverName,
+                    Method = method,
+                    CodeActions = actions
+                });
+                return;
+            }
+
+            case "workspace/diagnostic":
+            {
+                List<LspDocumentDiagnostics> reports = ParseWorkspaceDiagnostics(result);
+                lock (_stateLock)
+                {
+                    foreach (LspDocumentDiagnostics report in reports)
                     {
-                        Kind = LspEventKind.Error,
-                        ServerName = _config?.Name ?? string.Empty,
-                        Message = message
-                    });
-                    return;
+                        _diagnostics[report.Uri] = new List<LspDiagnostic>(report.Diagnostics);
+                    }
                 }
 
-                SendInitializedAndOpenLocked();
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.WorkspaceDiagnostics,
+                    ServerName = serverName,
+                    Method = method,
+                    DocumentDiagnostics = reports
+                });
+                return;
             }
         }
     }
@@ -552,16 +924,31 @@ public sealed class LspManager : IDisposable
                 {
                     int line = 0;
                     int column = 0;
-                    if (item.TryGetProperty("range", out JsonElement range) &&
-                        range.TryGetProperty("start", out JsonElement start))
+                    int endLine = -1;
+                    int endColumn = -1;
+                    if (item.TryGetProperty("range", out JsonElement range))
                     {
-                        if (start.TryGetProperty("line", out JsonElement lineElement))
+                        if (range.TryGetProperty("start", out JsonElement start))
                         {
-                            line = lineElement.GetInt32();
+                            if (start.TryGetProperty("line", out JsonElement lineElement))
+                            {
+                                line = lineElement.GetInt32();
+                            }
+                            if (start.TryGetProperty("character", out JsonElement columnElement))
+                            {
+                                column = columnElement.GetInt32();
+                            }
                         }
-                        if (start.TryGetProperty("character", out JsonElement columnElement))
+                        if (range.TryGetProperty("end", out JsonElement end))
                         {
-                            column = columnElement.GetInt32();
+                            if (end.TryGetProperty("line", out JsonElement endLineElement))
+                            {
+                                endLine = endLineElement.GetInt32();
+                            }
+                            if (end.TryGetProperty("character", out JsonElement endColumnElement))
+                            {
+                                endColumn = endColumnElement.GetInt32();
+                            }
                         }
                     }
 
@@ -576,8 +963,15 @@ public sealed class LspManager : IDisposable
                             : string.Empty,
                         item.TryGetProperty("source", out JsonElement source)
                             ? source.GetString() ?? string.Empty
-                            : string.Empty));
+                            : string.Empty,
+                        endLine,
+                        endColumn));
                 }
+            }
+
+            lock (_stateLock)
+            {
+                _diagnostics[uri] = new List<LspDiagnostic>(diagnostics);
             }
 
             Enqueue(new LspEvent
@@ -607,6 +1001,285 @@ public sealed class LspManager : IDisposable
                 : string.Empty;
             HexalPaths.Log($"LSP [{_config?.Name}]: {message}");
         }
+    }
+
+    private static string ExtractHoverText(JsonElement hover)
+    {
+        if (!hover.TryGetProperty("contents", out JsonElement contents))
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        AppendHoverContents(contents, parts);
+        return string.Join("\n", parts);
+    }
+
+    private static void AppendHoverContents(JsonElement contents, List<string> parts)
+    {
+        switch (contents.ValueKind)
+        {
+            case JsonValueKind.String:
+            {
+                string? text = contents.GetString();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    parts.Add(text);
+                }
+                break;
+            }
+
+            case JsonValueKind.Array:
+                foreach (JsonElement item in contents.EnumerateArray())
+                {
+                    AppendHoverContents(item, parts);
+                }
+                break;
+
+            case JsonValueKind.Object:
+                if (contents.TryGetProperty("value", out JsonElement value) &&
+                    value.ValueKind == JsonValueKind.String)
+                {
+                    string? text = value.GetString();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        parts.Add(text);
+                    }
+                }
+                break;
+        }
+    }
+
+    private static List<LspCodeAction> ParseCodeActions(JsonElement result)
+    {
+        var actions = new List<LspCodeAction>();
+        if (result.ValueKind != JsonValueKind.Array)
+        {
+            return actions;
+        }
+
+        foreach (JsonElement item in result.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            List<LspTextEdit> edits = ParseWorkspaceEdit(item, "edit");
+
+            string command = string.Empty;
+            JsonArray? arguments = null;
+            if (item.TryGetProperty("command", out JsonElement commandElement) &&
+                commandElement.ValueKind == JsonValueKind.Object)
+            {
+                if (commandElement.TryGetProperty("command", out JsonElement name) &&
+                    name.ValueKind == JsonValueKind.String)
+                {
+                    command = name.GetString() ?? string.Empty;
+                }
+
+                if (commandElement.TryGetProperty("arguments", out JsonElement args) &&
+                    args.ValueKind == JsonValueKind.Array &&
+                    JsonNode.Parse(args.GetRawText()) is JsonArray array)
+                {
+                    arguments = array;
+                }
+            }
+
+            bool hasData = item.TryGetProperty("data", out JsonElement data) &&
+                           data.ValueKind != JsonValueKind.Null &&
+                           data.ValueKind != JsonValueKind.Undefined;
+
+            JsonObject? raw = JsonNode.Parse(item.GetRawText()) as JsonObject;
+
+            actions.Add(new LspCodeAction
+            {
+                Title = item.TryGetProperty("title", out JsonElement title)
+                    ? title.GetString() ?? string.Empty
+                    : string.Empty,
+                Kind = item.TryGetProperty("kind", out JsonElement kind)
+                    ? kind.GetString() ?? string.Empty
+                    : string.Empty,
+                Edits = edits,
+                Command = command,
+                CommandArguments = arguments,
+                NeedsResolve = edits.Count == 0 && command.Length == 0 && hasData,
+                Raw = raw
+            });
+        }
+
+        return actions;
+    }
+
+    private static List<LspTextEdit> ParseWorkspaceEdit(JsonElement owner, string property)
+    {
+        var edits = new List<LspTextEdit>();
+        if (!owner.TryGetProperty(property, out JsonElement edit) ||
+            edit.ValueKind != JsonValueKind.Object)
+        {
+            return edits;
+        }
+
+        if (edit.TryGetProperty("changes", out JsonElement changes) &&
+            changes.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty file in changes.EnumerateObject())
+            {
+                if (file.Value.ValueKind == JsonValueKind.Array)
+                {
+                    ParseTextEdits(file.Name, file.Value, edits);
+                }
+            }
+        }
+
+        if (edit.TryGetProperty("documentChanges", out JsonElement documentChanges) &&
+            documentChanges.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement change in documentChanges.EnumerateArray())
+            {
+                if (change.ValueKind != JsonValueKind.Object ||
+                    !change.TryGetProperty("textDocument", out JsonElement textDocument) ||
+                    !textDocument.TryGetProperty("uri", out JsonElement uriElement))
+                {
+                    // Create/rename/delete file operations are not supported.
+                    continue;
+                }
+
+                if (change.TryGetProperty("edits", out JsonElement textEdits) &&
+                    textEdits.ValueKind == JsonValueKind.Array)
+                {
+                    ParseTextEdits(uriElement.GetString() ?? string.Empty, textEdits, edits);
+                }
+            }
+        }
+
+        return edits;
+    }
+
+    private static void ParseTextEdits(string uri, JsonElement array,
+        List<LspTextEdit> edits)
+    {
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !item.TryGetProperty("range", out JsonElement range) ||
+                !range.TryGetProperty("start", out JsonElement start) ||
+                !range.TryGetProperty("end", out JsonElement end))
+            {
+                continue;
+            }
+
+            int startLine = start.TryGetProperty("line", out JsonElement startLineElement)
+                ? startLineElement.GetInt32()
+                : 0;
+            int startCharacter = start.TryGetProperty("character",
+                out JsonElement startCharacterElement)
+                ? startCharacterElement.GetInt32()
+                : 0;
+            int endLine = end.TryGetProperty("line", out JsonElement endLineElement)
+                ? endLineElement.GetInt32()
+                : startLine;
+            int endCharacter = end.TryGetProperty("character",
+                out JsonElement endCharacterElement)
+                ? endCharacterElement.GetInt32()
+                : startCharacter;
+
+            string newText = item.TryGetProperty("newText", out JsonElement newTextElement)
+                ? newTextElement.GetString() ?? string.Empty
+                : string.Empty;
+
+            edits.Add(new LspTextEdit(uri, startLine, startCharacter, endLine,
+                endCharacter, newText));
+        }
+    }
+
+    private static List<LspDocumentDiagnostics> ParseWorkspaceDiagnostics(JsonElement result)
+    {
+        var reports = new List<LspDocumentDiagnostics>();
+        if (result.ValueKind != JsonValueKind.Object ||
+            !result.TryGetProperty("items", out JsonElement items) ||
+            items.ValueKind != JsonValueKind.Array)
+        {
+            return reports;
+        }
+
+        foreach (JsonElement item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !item.TryGetProperty("uri", out JsonElement uri) ||
+                uri.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var diagnostics = new List<LspDiagnostic>();
+            if (item.TryGetProperty("diagnostics", out JsonElement array) &&
+                array.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement diagnostic in array.EnumerateArray())
+                {
+                    diagnostics.Add(ParseDiagnostic(diagnostic));
+                }
+            }
+
+            reports.Add(new LspDocumentDiagnostics(uri.GetString() ?? string.Empty,
+                diagnostics));
+        }
+
+        return reports;
+    }
+
+    private static LspDiagnostic ParseDiagnostic(JsonElement item)
+    {
+        int line = 0;
+        int column = 0;
+        int endLine = -1;
+        int endColumn = -1;
+
+        if (item.ValueKind == JsonValueKind.Object &&
+            item.TryGetProperty("range", out JsonElement range))
+        {
+            if (range.TryGetProperty("start", out JsonElement start))
+            {
+                if (start.TryGetProperty("line", out JsonElement lineElement))
+                {
+                    line = lineElement.GetInt32();
+                }
+                if (start.TryGetProperty("character", out JsonElement columnElement))
+                {
+                    column = columnElement.GetInt32();
+                }
+            }
+            if (range.TryGetProperty("end", out JsonElement end))
+            {
+                if (end.TryGetProperty("line", out JsonElement endLineElement))
+                {
+                    endLine = endLineElement.GetInt32();
+                }
+                if (end.TryGetProperty("character", out JsonElement endColumnElement))
+                {
+                    endColumn = endColumnElement.GetInt32();
+                }
+            }
+        }
+
+        return new LspDiagnostic(
+            line,
+            column,
+            item.ValueKind == JsonValueKind.Object &&
+            item.TryGetProperty("severity", out JsonElement severity)
+                ? severity.GetInt32()
+                : 1,
+            item.ValueKind == JsonValueKind.Object &&
+            item.TryGetProperty("message", out JsonElement message)
+                ? message.GetString() ?? string.Empty
+                : string.Empty,
+            item.ValueKind == JsonValueKind.Object &&
+            item.TryGetProperty("source", out JsonElement source)
+                ? source.GetString() ?? string.Empty
+                : string.Empty,
+            endLine,
+            endColumn);
     }
 
     private void HandleServerRequest(string method, JsonElement id, JsonElement root)
@@ -786,8 +1459,11 @@ public sealed class LspManager : IDisposable
         _input = null;
         _config = null;
         _initialized = false;
+        _workspaceDiagnosticsSupported = false;
         _currentText = string.Empty;
         _documentUri = string.Empty;
+        _pendingRequests.Clear();
+        _diagnostics.Clear();
 
         Enqueue(new LspEvent
         {
@@ -808,5 +1484,21 @@ public sealed class LspManager : IDisposable
             full += Path.DirectorySeparatorChar;
         }
         return new Uri(full).AbsoluteUri;
+    }
+
+    /// <summary>
+    /// Converts a file URI from a language server back into a local path.
+    /// </summary>
+    public static string UriToPath(string uri)
+    {
+        try
+        {
+            return new Uri(uri).LocalPath;
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException or
+                                   NotSupportedException)
+        {
+            return uri;
+        }
     }
 }
