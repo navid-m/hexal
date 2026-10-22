@@ -131,31 +131,43 @@ public sealed class Renderer
             output.Append(";7"u8);
         }
 
-        uint fg = (uint)(style.Fg & 0x0F);
-        if (fg < 8)
-        {
-            output.Append(";3"u8);
-            AppendInt(output, (int)fg);
-        }
-        else
-        {
-            output.Append(";9"u8);
-            AppendInt(output, (int)(fg - 8));
-        }
+        uint fg = style.Fg;
+        AppendColor(output, fg, foreground: true);
 
-        uint bg = (uint)(style.Bg & 0x0F);
-        if (bg < 8)
-        {
-            output.Append(";4"u8);
-            AppendInt(output, (int)bg);
-        }
-        else
-        {
-            output.Append(";10"u8);
-            AppendInt(output, (int)(bg - 8));
-        }
+        uint bg = style.Bg;
+        AppendColor(output, bg, foreground: false);
 
         output.Append((byte)'m');
+    }
+
+    private static void AppendColor(ByteBuffer output, uint color, bool foreground)
+    {
+        if (Theme.IsTrueColor(color))
+        {
+            output.Append(foreground ? ";38;2;"u8 : ";48;2;"u8);
+            AppendInt(output, Theme.Red(color));
+            output.Append((byte)';');
+            AppendInt(output, Theme.Green(color));
+            output.Append((byte)';');
+            AppendInt(output, Theme.Blue(color));
+            return;
+        }
+
+        if (color < 8)
+        {
+            output.Append(foreground ? ";3"u8 : ";4"u8);
+            AppendInt(output, (int)color);
+        }
+        else if (color < 16)
+        {
+            output.Append(foreground ? ";9"u8 : ";10"u8);
+            AppendInt(output, (int)(color - 8));
+        }
+        else
+        {
+            output.Append(foreground ? ";38;5;"u8 : ";48;5;"u8);
+            AppendInt(output, (int)(color & 0xFF));
+        }
     }
 
     private static void AppendCodePoint(ByteBuffer output, uint codePoint)

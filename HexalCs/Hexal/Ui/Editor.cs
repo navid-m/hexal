@@ -42,7 +42,9 @@ public sealed partial class Editor
         Search,
         Plugin,
         CodeActions,
-        Problems
+        Problems,
+        Palette,
+        Themes
     }
 
     private enum CompletionKind
@@ -118,8 +120,11 @@ public sealed partial class Editor
     private bool _pickerLoading;
     private string _pickerStatus = string.Empty;
     private string _pickerRoot = string.Empty;
+    private string _pickerTitle = string.Empty;
     private List<string> _pickerFiles = new();
+    private string _pickerFilesRoot = string.Empty;
     private bool _pickerFilesLoaded;
+    private string _themeBeforePicker = string.Empty;
     private CancellationTokenSource? _pickerCancellation;
     private Task<PickerScanResult>? _pickerTask;
     private long _pickerGeneration;
@@ -244,6 +249,8 @@ public sealed partial class Editor
 
     private LanguageRegistry _languages;
     private HexalConfig _config = new();
+    private ThemeRegistry _themes = new();
+    private Theme _theme = Theme.CreateDefault();
     private readonly SyntaxHighlighter _syntax = new();
     private readonly List<SyntaxToken> _lineTokens = new();
     private LanguageDefinition? _language;
@@ -251,7 +258,9 @@ public sealed partial class Editor
     private sealed class PickerItem
     {
         public string Display = string.Empty;
+        public string Detail = string.Empty;
         public string Path = string.Empty;
+        public string Key = string.Empty;
         public long Line = -1;
         public long Column;
         public int Value;
@@ -261,6 +270,7 @@ public sealed partial class Editor
     {
         public long Generation;
         public bool FileList;
+        public string Root = string.Empty;
         public List<string> Files = new();
         public List<FileSearchMatch> Matches = new();
         public string Error = string.Empty;
@@ -324,6 +334,8 @@ public sealed partial class Editor
         _openFilePickerOnStart = openFilePicker;
         _languages = LanguageRegistry.LoadUserGrammars();
         _config = HexalConfig.LoadDefault(out string configError);
+        _themes = ThemeRegistry.LoadDefault(out string themeError);
+        _theme = _themes.ActiveTheme;
         RefreshLanguage();
         RefreshFileStamp();
         SnapCursor();
@@ -331,6 +343,10 @@ public sealed partial class Editor
         if (_languages.Errors.Count > 0)
         {
             SetError($"grammar: {_languages.Errors[0]}");
+        }
+        else if (themeError.Length > 0)
+        {
+            SetError($"theme: {themeError}");
         }
         else if (configError.Length > 0)
         {
@@ -513,6 +529,18 @@ public sealed partial class Editor
             _mode is Mode.Normal or Mode.Insert or Mode.Select)
         {
             ToggleSidebar();
+            return _running;
+        }
+
+        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
+            inputEvent.Character.Value is 'p' or 'P' &&
+            _pickerKind == PickerKind.None &&
+            _prompt == PromptKind.None &&
+            !_spaceMenuOpen &&
+            !_findActive &&
+            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        {
+            OpenCommandPalette();
             return _running;
         }
 
@@ -2326,7 +2354,8 @@ public sealed partial class Editor
         SelectFindMatch(index);
     }
 
-    private void OpenPicker(PickerKind kind)
+    private void OpenPicker(PickerKind kind, string? root = null,
+        string? title = null)
     {
         CancelPickerPreview();
         _pickerKind = kind;
@@ -2337,7 +2366,8 @@ public sealed partial class Editor
         _pickerTop = 0;
         _pickerStatus = string.Empty;
         _pickerLoading = true;
-        _pickerRoot = ProjectRoot();
+        _pickerRoot = string.IsNullOrEmpty(root) ? ProjectRoot() : root;
+        _pickerTitle = title ?? string.Empty;
         _pickerPreviewLines.Clear();
         _pickerPreviewPath = string.Empty;
         _pickerPreviewStatus = string.Empty;
@@ -2347,12 +2377,18 @@ public sealed partial class Editor
         _document.BreakUndoGroup();
         ClearMessage();
 
-        if (kind == PickerKind.Plugin || kind == PickerKind.CodeActions ||
-            kind == PickerKind.Problems)
+        if (kind == PickerKind.Themes)
+        {
+            _themeBeforePicker = _theme.Id;
+        }
+
+        if (kind is PickerKind.Plugin or PickerKind.CodeActions or
+            PickerKind.Problems or PickerKind.Palette or PickerKind.Themes)
         {
             BeginPickerQuery();
         }
-        else if (!_pickerFilesLoaded)
+        else if (!_pickerFilesLoaded ||
+                 !SamePath(_pickerRoot, _pickerFilesRoot))
         {
             StartPickerFileScan();
         }
@@ -2380,6 +2416,7 @@ public sealed partial class Editor
         _pickerTop = 0;
         _pickerLoading = false;
         _pickerStatus = string.Empty;
+        _pickerTitle = string.Empty;
         _pickerPreviewLines.Clear();
         _pickerPreviewPath = string.Empty;
         _pickerPreviewStatus = string.Empty;
@@ -2388,6 +2425,13 @@ public sealed partial class Editor
         _pendingCodeActionResolve = false;
         _pluginSelectTitle = string.Empty;
         _pluginSelectItems.Clear();
+
+        if (cancelled && oldKind == PickerKind.Themes &&
+            _themeBeforePicker.Length > 0)
+        {
+            SetActiveTheme(_themeBeforePicker, persist: false, announce: false);
+        }
+        _themeBeforePicker = string.Empty;
 
         if (cancelled && pluginCallback is not null)
         {
@@ -2409,7 +2453,8 @@ public sealed partial class Editor
             var result = new PickerScanResult
             {
                 Generation = generation,
-                FileList = true
+                FileList = true,
+                Root = root
             };
 
             try
@@ -2445,6 +2490,12 @@ public sealed partial class Editor
                 return;
             case PickerKind.Problems:
                 PopulateProblemItems();
+                return;
+            case PickerKind.Palette:
+                PopulatePaletteItems();
+                return;
+            case PickerKind.Themes:
+                PopulateThemeItems();
                 return;
             case PickerKind.Search:
                 if (_pickerQuery.Length == 0)
@@ -2969,6 +3020,7 @@ public sealed partial class Editor
             }
 
             _pickerFiles = result.Files;
+            _pickerFilesRoot = result.Root;
             _pickerFilesLoaded = true;
             if (_pickerKind != PickerKind.None)
             {
@@ -3126,6 +3178,48 @@ public sealed partial class Editor
         {
             UpdatePickerPreview();
         }
+        else if (_pickerKind == PickerKind.Themes)
+        {
+            PreviewSelectedTheme();
+        }
+
+        if (_pickerKind is PickerKind.Palette or PickerKind.Themes)
+        {
+            UpdatePickerDetailStatus();
+        }
+    }
+
+    private void UpdatePickerDetailStatus()
+    {
+        if (_pickerSelected < 0 || _pickerSelected >= _pickerItems.Count)
+        {
+            return;
+        }
+
+        PickerItem item = _pickerItems[_pickerSelected];
+        if (item.Detail.Length == 0)
+        {
+            return;
+        }
+
+        string count = _pickerKind == PickerKind.Themes
+            ? $"{_pickerItems.Count} theme{(_pickerItems.Count == 1 ? string.Empty : "s")}"
+            : $"{_pickerItems.Count} command{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        _pickerStatus = $"{count}  ·  {item.Detail}";
+    }
+
+    private void PreviewSelectedTheme()
+    {
+        if (_pickerSelected < 0 || _pickerSelected >= _pickerItems.Count)
+        {
+            return;
+        }
+
+        string id = _pickerItems[_pickerSelected].Key;
+        if (id.Length > 0)
+        {
+            SetActiveTheme(id, persist: false, announce: false);
+        }
     }
 
     private void ActivatePickerItem()
@@ -3142,6 +3236,25 @@ public sealed partial class Editor
             Action<int?>? callback = _pluginSelectCallback;
             ClosePicker(cancelled: false);
             callback?.Invoke(value);
+            return;
+        }
+
+        if (_pickerKind == PickerKind.Palette)
+        {
+            int index = item.Value;
+            Action? action = index >= 0 && index < _paletteCommands.Count
+                ? _paletteCommands[index].Action
+                : null;
+            ClosePicker(cancelled: false);
+            action?.Invoke();
+            return;
+        }
+
+        if (_pickerKind == PickerKind.Themes)
+        {
+            string themeId = item.Key;
+            ClosePicker(cancelled: false);
+            SetActiveTheme(themeId, persist: true, announce: true);
             return;
         }
 
@@ -3389,8 +3502,7 @@ public sealed partial class Editor
                 return;
 
             case "help":
-                ClearMessage();
-                SetMessage("i insert | Esc normal | / find | n/p next/prev match | Ctrl+B sidebar | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang :fmt :cfg :rcfg | Tab completes | u/Ctrl+R undo");
+                ShowHelpReminder();
                 return;
         }
 
@@ -3660,6 +3772,14 @@ public sealed partial class Editor
 
         _config = config;
         _languages = LanguageRegistry.LoadUserGrammars();
+
+        string activeThemeId = _theme.Id;
+        _themes = ThemeRegistry.LoadDefault(out string themeError);
+        Theme? activeTheme = _themes.Find(activeThemeId);
+        _theme = activeTheme ?? _themes.ActiveTheme;
+        _themes.SetActiveTheme(_theme);
+        _forceFullRedraw = true;
+
         ResetLsp();
         RefreshLanguage();
         FirePluginEvent("buffer_opened", CurrentBufferData());
@@ -3667,6 +3787,10 @@ public sealed partial class Editor
         if (_languages.Errors.Count > 0)
         {
             SetError($"grammar: {_languages.Errors[0]}");
+        }
+        else if (themeError.Length > 0)
+        {
+            SetError($"theme: {themeError}");
         }
         else
         {
@@ -5527,17 +5651,9 @@ public sealed partial class Editor
                 x = 0;
             }
 
-            var style = new Style();
-            if (line == current)
-            {
-                style.Fg = 15;
-                style.Bold = true;
-            }
-            else
-            {
-                style.Fg = 8;
-                style.Dim = true;
-            }
+            Style style = line == current
+                ? _theme.CurrentLineNumberStyle
+                : _theme.MutedStyle;
 
             _screen.PutInt(_editorLeft + x, row, number, style, digits);
         }
@@ -5692,7 +5808,7 @@ public sealed partial class Editor
     private void RenderSelectionRange(long selectionStart, long selectionEnd,
         bool linewise, long firstLine, int rows, int gutter)
     {
-        var style = new Style { Fg = 15, Bg = 4 };
+        var style = _theme.SelectionStyle;
         long total = _document.LineCount;
 
         for (int row = 0; row < rows; ++row)
@@ -5767,8 +5883,8 @@ public sealed partial class Editor
             return;
         }
 
-        var matchStyle = new Style { Fg = 0, Bg = 3 };
-        var currentStyle = new Style { Fg = 0, Bg = 11, Bold = true };
+        var matchStyle = _theme.MatchStyle;
+        var currentStyle = _theme.CurrentMatchStyle;
 
         for (int i = 0; i < _findMatches.Count; ++i)
         {
@@ -5848,42 +5964,30 @@ public sealed partial class Editor
             return;
         }
 
-        var style = new Style();
+        Style style;
         if (_prompt != PromptKind.None)
         {
-            style.Fg = 15;
-            style.Bg = 5;
-            style.Bold = true;
+            style = _theme.PromptStatusStyle;
         }
         else if (_mode == Mode.Insert)
         {
-            style.Fg = 0;
-            style.Bg = 2;
-            style.Bold = true;
+            style = _theme.InsertStatusStyle;
         }
         else if (_mode == Mode.Select)
         {
-            style.Fg = 0;
-            style.Bg = 3;
-            style.Bold = true;
+            style = _theme.SelectStatusStyle;
         }
         else if (_mode == Mode.PluginPrompt)
         {
-            style.Fg = 0;
-            style.Bg = 6;
-            style.Bold = true;
+            style = _theme.CommandStatusStyle;
         }
         else if (_mode == Mode.Command)
         {
-            style.Fg = 0;
-            style.Bg = 6;
-            style.Bold = true;
+            style = _theme.CommandStatusStyle;
         }
         else
         {
-            style.Fg = 15;
-            style.Bg = 4;
-            style.Bold = true;
+            style = _theme.StatusStyle;
         }
 
         _screen.Fill(0, (int)y, _columns, 1, ' ', style);
@@ -5934,7 +6038,7 @@ public sealed partial class Editor
         if (diagnosticWidth > 0)
         {
             var diagnosticStyle = style;
-            diagnosticStyle.Fg = 9;
+            diagnosticStyle.Fg = _theme.Error;
             diagnosticStyle.Bold = true;
             _screen.PutString(diagnosticX, (int)y, diagnostic,
                 diagnosticStyle, diagnosticWidth);
@@ -5955,7 +6059,7 @@ public sealed partial class Editor
             return;
         }
 
-        var baseStyle = new Style();
+        var baseStyle = _theme.BaseStyle;
         _screen.Fill(0, (int)y, _columns, 1, ' ', baseStyle);
 
         if (_mode == Mode.PluginPrompt)
@@ -5966,7 +6070,7 @@ public sealed partial class Editor
 
         if (_mode == Mode.Command)
         {
-            var promptStyle = new Style { Fg = 14, Bold = true };
+            var promptStyle = _theme.AccentStyle;
             _screen.Put(BottomLinePadding, (int)y, ':', promptStyle);
 
             string line = _commandLine.ToString();
@@ -5996,7 +6100,7 @@ public sealed partial class Editor
                 _ => string.Empty
             };
 
-            var style = new Style { Fg = 11, Bold = true };
+            var style = _theme.WarningStyle;
             _screen.PutString(BottomLinePadding, (int)y, text, style,
                 _columns - BottomLinePadding);
             return;
@@ -6004,12 +6108,7 @@ public sealed partial class Editor
 
         if (_message.Length > 0)
         {
-            var style = new Style();
-            if (_messageIsError)
-            {
-                style.Fg = 9;
-                style.Bold = true;
-            }
+            var style = _messageIsError ? _theme.ErrorStyle : _theme.TextStyle;
             _screen.PutString(BottomLinePadding, (int)y, _message, style,
                 _columns - BottomLinePadding);
         }
@@ -6061,9 +6160,9 @@ public sealed partial class Editor
             return;
         }
 
-        var fillStyle = new Style();
-        var borderStyle = new Style { Fg = 8 };
-        var titleStyle = new Style { Fg = 14, Bold = true };
+        var fillStyle = _theme.BaseStyle;
+        var borderStyle = _theme.BorderStyle;
+        var titleStyle = _theme.AccentStyle;
 
         _screen.Fill(x, y, width, height, ' ', fillStyle);
 
@@ -6178,14 +6277,14 @@ public sealed partial class Editor
 
         if (_completionItems.Count == 0)
         {
-            var emptyStyle = new Style { Fg = 11 };
+            var emptyStyle = _theme.WarningStyle;
             _screen.PutString(x + 2, y + 1, _completionStatus, emptyStyle,
                 width - 4);
             return;
         }
 
-        var selectedStyle = new Style { Fg = 15, Bold = true, Reverse = true };
-        var itemStyle = new Style { Fg = 15 };
+        var selectedStyle = _theme.SelectedItemStyle;
+        var itemStyle = _theme.TextStyle;
 
         for (int row = 0; row < rows; ++row)
         {
@@ -6222,7 +6321,7 @@ public sealed partial class Editor
                 DrawBox(descriptionX, descriptionY, descriptionWidth,
                     descriptionHeight, descriptionTitle);
 
-                var descriptionStyle = new Style { Fg = 15 };
+                var descriptionStyle = _theme.TextStyle;
                 for (int row = 0; row < descriptionLines.Count; ++row)
                 {
                     _screen.PutString(descriptionX + 2,
@@ -6272,8 +6371,8 @@ public sealed partial class Editor
 
         DrawBox(x, y, width, height, "SPACE");
 
-        var keyStyle = new Style { Fg = 14, Bold = true };
-        var labelStyle = new Style { Fg = 15 };
+        var keyStyle = _theme.AccentStyle;
+        var labelStyle = _theme.TextStyle;
 
         for (int i = 0; i < SpaceMenuItems.Length; ++i)
         {
@@ -6308,9 +6407,9 @@ public sealed partial class Editor
         int y = Math.Max(0, available - height);
         DrawBox(x, y, width, height, "Find");
 
-        var promptStyle = new Style { Fg = 14, Bold = true };
-        var queryStyle = new Style { Fg = 15 };
-        var statusStyle = new Style { Fg = 14 };
+        var promptStyle = _theme.AccentStyle;
+        var queryStyle = _theme.TextStyle;
+        var statusStyle = _theme.AccentStyle;
 
         _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
 
@@ -6380,7 +6479,7 @@ public sealed partial class Editor
         int y = Math.Max(0, (available - totalHeight) / 2);
         string title = _pickerKind switch
         {
-            PickerKind.Files => "Open file",
+            PickerKind.Files => _pickerTitle.Length > 0 ? _pickerTitle : "Open file",
             PickerKind.Plugin => _pluginSelectTitle.Length > 0
                 ? _pluginSelectTitle
                 : "Select",
@@ -6388,14 +6487,16 @@ public sealed partial class Editor
             PickerKind.Problems => _problemsWorkspace
                 ? "Workspace diagnostics"
                 : "Document diagnostics",
+            PickerKind.Palette => "Command palette",
+            PickerKind.Themes => "Select theme",
             _ => "Search across files"
         };
 
         DrawBox(x, y, width, height, title);
 
-        var promptStyle = new Style { Fg = 14, Bold = true };
-        var queryStyle = new Style { Fg = 15 };
-        var selectedStyle = new Style { Fg = 15, Bold = true, Reverse = true };
+        var promptStyle = _theme.AccentStyle;
+        var queryStyle = _theme.TextStyle;
+        var selectedStyle = _theme.SelectedItemStyle;
 
         _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
 
@@ -6425,7 +6526,9 @@ public sealed partial class Editor
             }
 
             int screenRow = y + 2 + row;
-            Style style = index == _pickerSelected ? selectedStyle : new Style();
+            Style style = index == _pickerSelected
+                ? selectedStyle
+                : _theme.TextStyle;
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
             _screen.PutString(x + 2, screenRow, _pickerItems[index].Display, style,
                 width - 4);
@@ -6441,7 +6544,7 @@ public sealed partial class Editor
                 : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
         }
 
-        var statusStyle = new Style { Fg = 14 };
+        var statusStyle = _theme.AccentStyle;
         _screen.PutString(x + 2, y + height - 1, $" {status} ", statusStyle, width - 4);
 
         if (previewHeight > 0)
@@ -6475,9 +6578,9 @@ public sealed partial class Editor
 
         DrawBox(x, y, width, height, title);
 
-        var style = new Style { Fg = 15 };
-        var dimStyle = new Style { Fg = 8, Dim = true };
-        var errorStyle = new Style { Fg = 9, Bold = true };
+        var style = _theme.TextStyle;
+        var dimStyle = _theme.MutedStyle;
+        var errorStyle = _theme.ErrorStyle;
         int contentRows = Math.Max(0, height - 2);
         int contentWidth = Math.Max(0, width - 4);
 
@@ -6612,7 +6715,7 @@ public sealed partial class Editor
         int y = Math.Max(0, (available - height) / 2);
         DrawBox(x, y, width, height, $"{_hoverTitle}");
 
-        var style = new Style { Fg = 15 };
+        var style = _theme.TextStyle;
         int contentRows = Math.Max(0, height - 2);
         int contentWidth = Math.Max(0, width - 4);
 
@@ -6645,7 +6748,7 @@ public sealed partial class Editor
     private void Render()
     {
         _screen.Resize(_columns, _rows);
-        _screen.Clear();
+        _screen.Clear(_theme.BaseStyle);
 
         UpdateEditorLeft();
         if (!_freeScroll)

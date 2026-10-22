@@ -167,6 +167,7 @@ internal static class Program
               d / D, Delete    Delete the character or selection
               u / Ctrl+R       Undo / redo
               :                Enter command mode
+              Ctrl+P           Open the command palette
               /                Search inside the current file
               Space            Open the space menu
               Space /          Search across files

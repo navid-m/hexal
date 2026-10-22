@@ -4,6 +4,7 @@ using Hexal.Core;
 using Hexal.Languages;
 using Hexal.Lsp;
 using Hexal.Scripting;
+using Hexal.Ui;
 using Hexal.Util;
 
 namespace Hexal.Tests;
@@ -34,6 +35,7 @@ internal static class Program
         TestFormatterRunner();
         TestLspPositions();
         TestLanguageGrammars();
+        TestThemes();
         TestPluginConfigStore();
         TestLuaLspRuntime();
         TestHexalPaths();
@@ -918,6 +920,64 @@ internal static class Program
             "constant token");
     }
 
+    private static void TestThemes()
+    {
+        const string json = """
+            {
+                "id": "test-theme",
+                "name": "Test Theme",
+                "description": "Theme parser fixture.",
+                "colors": {
+                    "foreground": "#112233",
+                    "background": "black",
+                    "muted": 245,
+                    "accent": "bright-cyan",
+                    "selection": { "fg": "#ffffff", "bg": 4 },
+                    "syntax": { "keyword": "#ff00aa" }
+                }
+            }
+            """;
+
+        Check(Theme.TryParse(json, "test-theme.json", out Theme? theme,
+                out string error),
+            $"parse theme ({error})");
+        Check(theme is not null, "theme parsed");
+        if (theme is null)
+        {
+            return;
+        }
+
+        CheckEqual(theme.Id, "test-theme", "theme id", "test-theme");
+        CheckEqual(theme.Name, "Test Theme", "theme name", "Test Theme");
+        Check(Theme.IsTrueColor(theme.Foreground), "hex foreground is true colour");
+        CheckEqual(Theme.Red(theme.Foreground), (byte)0x11, "theme red", "0x11");
+        CheckEqual(Theme.Green(theme.Foreground), (byte)0x22, "theme green", "0x22");
+        CheckEqual(Theme.Blue(theme.Foreground), (byte)0x33, "theme blue", "0x33");
+        CheckEqual(theme.Background, 0u, "named background", "0");
+        CheckEqual(theme.Muted, 245u, "numeric muted", "245");
+        CheckEqual(theme.Accent, 14u, "named accent", "14");
+        CheckEqual(theme.SelectionForeground, Theme.Rgb(255, 255, 255),
+            "selection fg", "#ffffff");
+        CheckEqual(theme.SelectionBackground, 4u, "selection bg", "4");
+        CheckEqual(theme.Keyword, Theme.Rgb(255, 0, 170), "keyword", "#ff00aa");
+
+        Check(!Theme.TryParse(
+                "{\"colors\": {\"foreground\": \"not-a-colour\"}}",
+                "bad.json", out _, out error),
+            "reject invalid colour");
+        Check(error.Length > 0, "invalid colour reports error");
+
+        using var directory = new TempDir();
+        File.WriteAllText(directory.Path("one.json"), json);
+        File.WriteAllText(directory.Path("two.json"),
+            "{\"id\": \"two\", \"name\": \"Two\"}");
+        var registry = new ThemeRegistry();
+        registry.LoadDirectory(directory.Path("."));
+        CheckEqual(registry.Themes.Count, 2, "theme registry count", "2");
+        Check(registry.Find("two") is not null, "theme registry find");
+        Check(registry.Find("missing") is null, "theme registry missing");
+    }
+
     private static void TestPluginConfigStore()
     {
         using var directory = new TempDir();
@@ -1268,6 +1328,12 @@ internal static class Program
             binary.Path("."), home.Path("."), "grammars");
         CheckEqual(portable, portableDirectory, "portable grammar path",
             "binary data path");
+
+        string themeFallback = HexalPaths.ResolveDataDirectory(
+            binary.Path("."), home.Path("."), "themes");
+        CheckEqual(themeFallback,
+            System.IO.Path.Combine(home.Path("."), ".hexal", "data", "themes"),
+            "fallback theme path", "home data path");
     }
 
     private static long ExpectedLineStart(byte[] text, long line)

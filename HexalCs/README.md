@@ -105,6 +105,7 @@ It covers:
 - project file enumeration, ignored directories and content search offsets
 - `.hexdef` parsing, extension detection and incremental tokenization of
   keywords, types, constants, strings, numbers and multiline comments
+- theme colour parsing, named/ANSI/true-colour values and directory loading
 
 ## Usage
 
@@ -142,6 +143,7 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `d` / `D`, `Delete` | Delete the character/selection under the cursor |
 | `u` / `Ctrl+R` | Undo / redo |
 | `:` | Open the Ex command line |
+| `Ctrl+P` | Open the command palette |
 | `/` | Search inside the current file (case insensitive) |
 | `Space` | Open the space menu (bottom-right) |
 | `Space` `/` | Search across project files |
@@ -163,6 +165,23 @@ Both pickers filter as you type; use Up/Down (or
 PageUp/PageDown) to select and Enter to open the result. File pickers start
 from the current working directory and skip common build and VCS directories.
 Search results open the file at the matching line.
+
+### Command palette
+
+Press `Ctrl+P` in NORMAL, SELECT or INSERT mode to open the searchable command
+palette. Type to fuzzy-filter commands and use Up/Down (or PageUp/PageDown) to
+select one; `Enter` runs it and `Esc` closes the palette. Built-in entries
+include opening files and project search, opening the configuration file and the
+`~/.hexal` directory, toggling the sidebar, formatting, saving, diagnostics and
+the theme selector. Commands registered by Lua plugins appear under `Plugin:`.
+
+### Theme selector
+
+The palette's **Open theme selector** command lists every theme found in
+`data/themes/`. Type to filter by name or description, move with the arrow keys
+to preview a theme live, press `Enter` to keep it and `Esc` to restore the
+previous theme. The choice is saved in `~/.hexal/theme` and restored on the next
+start. `:rcfg` also reloads themes.
 
 ### In-file search
 
@@ -192,7 +211,7 @@ Pasting without a clipboard helper reports an error.
 | `:e! <file>` | Open a file, discarding unsaved changes |
 | `:fmt` | Format the current buffer with its language formatter |
 | `:cfg` | Open the active configuration file |
-| `:rcfg` | Reload configuration and language definitions |
+| `:rcfg` | Reload configuration, grammars and themes |
 | `:help` | Show a short key reminder |
 
 `:w`/`:wq` return immediately. The status bar shows `[saving]` while the worker
@@ -224,21 +243,23 @@ Hexal prefers a portable layout beside the executable:
 ~/Applications/Hexal/hexal
 ~/Applications/Hexal/data/grammars/
 ~/Applications/Hexal/data/plugins/
+~/Applications/Hexal/data/themes/
 ```
 
-If `data/grammars` or `data/plugins` does not exist there, that category falls
-back independently to:
+If `data/grammars`, `data/plugins` or `data/themes` does not exist there, that
+category falls back independently to:
 
 ```text
 ~/.hexal/data/grammars/
 ~/.hexal/data/plugins/
+~/.hexal/data/themes/
 ```
 
 Path resolution and load results are appended to `~/.hexal/hexal.log`. When
 neither portable directory exists the log contains:
 
 ```text
-Could not find grammars and plugins relative to binary path, falling back to ~/.hexal directory
+Could not find grammars, plugins and themes relative to binary path, falling back to ~/.hexal directory
 ```
 
 ## Language grammars
@@ -319,14 +340,65 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
 
 The active configuration is `~/.hexal/.hexcfg` on every platform; a plain
 `~/.hexal/hexcfg` file is also accepted. `:cfg` opens the configuration file
-and creates it when missing, while `:rcfg` reloads the configuration and
-language definitions. Relative formatter paths are resolved against PATH.
+and creates it when missing, while `:rcfg` reloads the configuration, grammars,
+themes and language definitions. Relative formatter paths are resolved against
+PATH.
 
 Only visible lines are tokenized. Lexer states are cached per line, so block
 comments remain correct while scrolling without rescanning the document on
 every frame or edit. A viewport far from any cached state starts in the default
 state, keeping jumps into multi-million-line files proportional to the visible
 window.
+
+## Themes
+
+Themes are JSON files in `<binary>/data/themes/`, or
+`~/.hexal/data/themes/` when the portable directory is absent. Hexal ships with
+`hexal-dark`, `nord`, `gruvbox`, `solarized-light` and `mono`. To add a theme,
+copy one of those files, give it a unique `id`, and restart or run `:rcfg`.
+Malformed theme files are logged and skipped.
+
+Colours can be an ANSI palette index (`0`-`255`), a name such as `"bright-cyan"`
+or `"black"`, or a `"#RRGGBB"` true-colour value. Missing entries inherit the
+default palette.
+
+```json
+{
+    "id": "my-theme",
+    "name": "My Theme",
+    "description": "A short description shown in the theme selector.",
+    "colors": {
+        "foreground": "#d8dee9",
+        "background": "#2e3440",
+        "muted": "#616e88",
+        "accent": "#88c0d0",
+        "border": "#434c5e",
+        "error": "#bf616a",
+        "warning": "#ebcb8b",
+        "success": "#a3be8c",
+        "alert": { "fg": "#eceff4", "bg": "#bf616a" },
+        "selection": { "fg": "#eceff4", "bg": "#5e81ac" },
+        "status": { "fg": "#eceff4", "bg": "#4c566a" },
+        "insert": { "fg": "#2e3440", "bg": "#a3be8c" },
+        "select": { "fg": "#2e3440", "bg": "#ebcb8b" },
+        "prompt": { "fg": "#2e3440", "bg": "#88c0d0" },
+        "command": { "fg": "#2e3440", "bg": "#88c0d0" },
+        "match": { "fg": "#2e3440", "bg": "#ebcb8b" },
+        "currentMatch": { "fg": "#2e3440", "bg": "#a3be8c" },
+        "syntax": {
+            "keyword": "#b48ead",
+            "control": "#81a1c1",
+            "type": "#8fbcbb",
+            "constant": "#d08770",
+            "string": "#a3be8c",
+            "comment": "#616e88",
+            "number": "#d08770"
+        }
+    }
+}
+```
+
+The active theme id is stored in `~/.hexal/theme`.
 
 ## Lua plugins
 
@@ -551,7 +623,9 @@ HexalCs/Hexal/
   Ui/
     Screen.cs                cell grid and wide-character cells
     Renderer.cs              ANSI diff renderer
+    Theme.cs                 theme parsing, loading and colour application
     Editor.cs                modes, key handling, commands, async save state
+    EditorPalette.cs         command palette actions and theme picker
     EditorLanguages.cs       language selection and token styles
     EditorScripting.cs       Lua host implementation, prompts and selects
   Util/

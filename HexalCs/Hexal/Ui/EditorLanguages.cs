@@ -30,18 +30,18 @@ public sealed partial class Editor
         return true;
     }
 
-    private static Style TokenStyle(SyntaxTokenKind kind)
+    private Style TokenStyle(SyntaxTokenKind kind)
     {
         return kind switch
         {
-            SyntaxTokenKind.Keyword => new Style { Fg = 13 },
-            SyntaxTokenKind.ControlStatement => new Style { Fg = 12 },
-            SyntaxTokenKind.Type => new Style { Fg = 14 },
-            SyntaxTokenKind.Constant => new Style { Fg = 11 },
-            SyntaxTokenKind.StringLiteral => new Style { Fg = 11 },
-            SyntaxTokenKind.Comment => new Style { Fg = 10 },
-            SyntaxTokenKind.Number => new Style { Fg = 11 },
-            _ => new Style()
+            SyntaxTokenKind.Keyword => _theme.SyntaxStyle(_theme.Keyword),
+            SyntaxTokenKind.ControlStatement => _theme.SyntaxStyle(_theme.ControlStatement),
+            SyntaxTokenKind.Type => _theme.SyntaxStyle(_theme.Type),
+            SyntaxTokenKind.Constant => _theme.SyntaxStyle(_theme.Constant),
+            SyntaxTokenKind.StringLiteral => _theme.SyntaxStyle(_theme.StringLiteral),
+            SyntaxTokenKind.Comment => _theme.SyntaxStyle(_theme.Comment),
+            SyntaxTokenKind.Number => _theme.SyntaxStyle(_theme.Number),
+            _ => _theme.TextStyle
         };
     }
 }

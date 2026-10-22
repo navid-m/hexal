@@ -5,8 +5,8 @@ namespace Hexal.Ui;
 
 public struct Style : IEquatable<Style>
 {
-    public byte Fg;
-    public byte Bg;
+    public uint Fg;
+    public uint Bg;
     public bool Bold;
     public bool Dim;
     public bool Reverse;
@@ -137,11 +137,19 @@ public sealed class Screen
         // Repair any wide scalar that we are overwriting from the side.
         if (x > 0 && _cells[index].WideContinuation)
         {
-            _cells[index - 1] = new Cell { Ch = ' ', Style = new Style() };
+            _cells[index - 1] = new Cell
+            {
+                Ch = ' ',
+                Style = _cells[index - 1].Style
+            };
         }
         if (x + 1 < _width && _cells[index + 1].WideContinuation)
         {
-            _cells[index + 1] = new Cell { Ch = ' ', Style = new Style() };
+            _cells[index + 1] = new Cell
+            {
+                Ch = ' ',
+                Style = _cells[index + 1].Style
+            };
         }
 
         _cells[index] = new Cell { Ch = codePoint, Style = style, WideContinuation = false };

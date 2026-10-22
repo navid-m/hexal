@@ -221,7 +221,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
     private void RenderPluginPrompt(int row, Style baseStyle)
     {
-        var promptStyle = new Style { Fg = 14, Bold = true };
+        var promptStyle = _theme.AccentStyle;
         string label = _pluginPromptLabel;
         _screen.PutString(BottomLinePadding, row, label, promptStyle,
             _columns - BottomLinePadding);

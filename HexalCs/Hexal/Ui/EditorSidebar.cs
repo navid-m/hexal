@@ -1070,13 +1070,11 @@ public sealed partial class Editor
             return;
         }
 
-        var background = new Style();
-        var headerStyle = new Style
-        {
-            Fg = _sidebarFocused ? (byte)15 : (byte)8,
-            Bold = _sidebarFocused
-        };
-        var borderStyle = new Style { Fg = 8, Dim = true };
+        var background = _theme.BaseStyle;
+        var headerStyle = _sidebarFocused
+            ? _theme.AccentStyle
+            : _theme.MutedStyle;
+        var borderStyle = _theme.BorderStyle;
         _screen.Fill(0, 0, width, rows, ' ', background);
 
         _screen.Fill(0, 0, width, 1, ' ', headerStyle);
@@ -1088,16 +1086,16 @@ public sealed partial class Editor
 
         if (_sidebarNodes.Count == 0)
         {
-            var emptyStyle = new Style { Fg = 8, Dim = true };
+            var emptyStyle = _theme.MutedStyle;
             _screen.PutString(1, 1, "No files", emptyStyle, width - 2);
             return;
         }
 
         EnsureSidebarSelectionVisible();
         int listRows = SidebarListRows();
-        var selectedStyle = new Style { Fg = 15, Bg = 4, Bold = true };
-        var folderStyle = new Style { Fg = 14 };
-        var fileStyle = new Style { Fg = 15 };
+        var selectedStyle = _theme.SelectedItemStyle;
+        var folderStyle = _theme.SyntaxStyle(_theme.Accent);
+        var fileStyle = _theme.TextStyle;
 
         for (int row = 0; row < listRows; ++row)
         {
@@ -1160,8 +1158,8 @@ public sealed partial class Editor
 
         DrawBox(x, y, width, height, node.IsDirectory ? "Folder" : "File");
 
-        var selectedStyle = new Style { Fg = 15, Bg = 4, Bold = true };
-        var itemStyle = new Style { Fg = 15 };
+        var selectedStyle = _theme.SelectedItemStyle;
+        var itemStyle = _theme.TextStyle;
 
         for (int index = 0; index < items.Length; ++index)
         {

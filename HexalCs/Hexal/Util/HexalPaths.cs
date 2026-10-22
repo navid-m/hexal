@@ -13,6 +13,7 @@ public static class HexalPaths
     private static bool _resolved;
     private static string _grammarDirectory = string.Empty;
     private static string _pluginDirectory = string.Empty;
+    private static string _themeDirectory = string.Empty;
 
     public static string HomeDirectory
     {
@@ -76,6 +77,17 @@ public static class HexalPaths
         }
     }
 
+    public static string ThemeDirectory
+    {
+        get
+        {
+            EnsureResolved();
+            return _themeDirectory;
+        }
+    }
+
+    public static string ActiveThemePath => Path.Combine(HexalHomeDirectory, "theme");
+
     public static string ResolveDataDirectory(string binaryDirectory,
         string homeDirectory, string name)
     {
@@ -124,8 +136,10 @@ public static class HexalPaths
             string binaryData = BinaryDataDirectory;
             string portableGrammars = Path.Combine(binaryData, "grammars");
             string portablePlugins = Path.Combine(binaryData, "plugins");
+            string portableThemes = Path.Combine(binaryData, "themes");
             bool hasPortableGrammars = Directory.Exists(portableGrammars);
             bool hasPortablePlugins = Directory.Exists(portablePlugins);
+            bool hasPortableThemes = Directory.Exists(portableThemes);
 
             string homeData = FallbackDataDirectory;
             _grammarDirectory = hasPortableGrammars
@@ -134,12 +148,15 @@ public static class HexalPaths
             _pluginDirectory = hasPortablePlugins
                 ? portablePlugins
                 : Path.Combine(homeData, "plugins");
+            _themeDirectory = hasPortableThemes
+                ? portableThemes
+                : Path.Combine(homeData, "themes");
 
             Log($"Hexal binary directory: {BinaryDirectory}");
 
-            if (!hasPortableGrammars && !hasPortablePlugins)
+            if (!hasPortableGrammars && !hasPortablePlugins && !hasPortableThemes)
             {
-                Log("Could not find grammars and plugins relative to binary path, " +
+                Log("Could not find grammars, plugins and themes relative to binary path, " +
                     "falling back to ~/.hexal directory");
             }
             else
@@ -150,6 +167,9 @@ public static class HexalPaths
                 Log(hasPortablePlugins
                     ? $"Using plugins from binary-relative path: {_pluginDirectory}"
                     : $"Could not find plugins relative to binary path, falling back to {_pluginDirectory}");
+                Log(hasPortableThemes
+                    ? $"Using themes from binary-relative path: {_themeDirectory}"
+                    : $"Could not find themes relative to binary path, falling back to {_themeDirectory}");
             }
         }
     }
