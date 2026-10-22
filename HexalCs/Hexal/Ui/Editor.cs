@@ -5813,7 +5813,7 @@ public sealed partial class Editor
 
         var promptStyle = new Style { Fg = 14, Bold = true };
         var queryStyle = new Style { Fg = 15 };
-        var statusStyle = new Style { Fg = 11 };
+        var statusStyle = new Style { Fg = 14 };
 
         _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
 
