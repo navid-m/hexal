@@ -202,7 +202,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         // 1004 enables terminal focus reporting so the editor can check for
         // external file changes when the window regains focus. 1000/1006
         // enable button and wheel reporting using the extended SGR encoding.
-        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1006h"u8);
+        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1002h\x1b[?1006h"u8);
         _initialized = true;
         return true;
     }
@@ -211,7 +211,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
     {
         if (_initialized)
         {
-            Write("\x1b[?1000l\x1b[?1006l\x1b[?1004l\x1b[0m\x1b[?25h\x1b[?1049l"u8);
+            Write("\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[0m\x1b[?25h\x1b[?1049l"u8);
         }
 
         if (_output is not null)
@@ -601,6 +601,12 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             2 => MouseButton.Right,
             _ => MouseButton.None
         };
+
+        if (final != 'm' && (button & 32) != 0)
+        {
+            inputEvent.Key = Key.MouseMove;
+            return inputEvent;
+        }
 
         inputEvent.Key = final == 'm' ? Key.MouseUp : Key.MouseDown;
         return inputEvent;

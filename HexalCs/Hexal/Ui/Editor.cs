@@ -181,6 +181,8 @@ public sealed partial class Editor
     private long _preferredColumn;
     private bool _preferredColumnValid;
     private bool _freeScroll;
+    private bool _mouseDragging;
+    private long _mouseDragAnchor;
 
     private int _columns = 80;
     private int _rows = 24;
@@ -425,7 +427,7 @@ public sealed partial class Editor
             _freeScroll = false;
         }
 
-        if (inputEvent.Key is Key.MouseDown or Key.MouseUp or
+        if (inputEvent.Key is Key.MouseDown or Key.MouseUp or Key.MouseMove or
             Key.ScrollUp or Key.ScrollDown)
         {
             if (!_hoverVisible && !_spaceMenuOpen &&
@@ -1637,9 +1639,44 @@ public sealed partial class Editor
                 ScrollDocument(MouseScrollLines);
                 return;
             case Key.MouseDown:
-                if (inputEvent.MouseButton == MouseButton.Left)
+                _mouseDragging = false;
+                if (inputEvent.MouseButton == MouseButton.Left &&
+                    MoveCursorToScreen(inputEvent.MouseX, inputEvent.MouseY))
                 {
-                    MoveCursorToScreen(inputEvent.MouseX, inputEvent.MouseY);
+                    _mouseDragging = true;
+                    _mouseDragAnchor = _cursor;
+                }
+                return;
+            case Key.MouseMove:
+                if (_mouseDragging &&
+                    inputEvent.MouseButton == MouseButton.Left)
+                {
+                    ExtendMouseSelection(inputEvent.MouseX, inputEvent.MouseY);
+                }
+                return;
+            case Key.MouseUp:
+                if (_mouseDragging &&
+                    inputEvent.MouseButton == MouseButton.Left)
+                {
+                    bool extend = _mode == Mode.Select;
+                    if (!extend &&
+                        TryOffsetAtScreen(inputEvent.MouseX, inputEvent.MouseY,
+                            out long releaseOffset))
+                    {
+                        extend = releaseOffset != _mouseDragAnchor;
+                    }
+
+                    if (extend)
+                    {
+                        ExtendMouseSelection(inputEvent.MouseX, inputEvent.MouseY);
+                        if (_mode == Mode.Select && _selectionAnchor == _cursor)
+                        {
+                            _mode = Mode.Normal;
+                            _selectionLinewise = false;
+                        }
+                    }
+
+                    _mouseDragging = false;
                 }
                 return;
         }
@@ -1665,33 +1702,14 @@ public sealed partial class Editor
         ClearMessage();
     }
 
-    private void MoveCursorToScreen(int x, int y)
+    private bool MoveCursorToScreen(int x, int y)
     {
-        int rows = TextRows();
-        if (rows <= 0 || y < 0 || y >= rows)
+        if (!TryOffsetAtScreen(x, y, out long offset))
         {
-            return;
+            return false;
         }
 
-        long line = _topLine + y;
-        if (line < 0 || line >= _document.LineCount)
-        {
-            return;
-        }
-
-        int gutter = GutterWidth();
-        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-        long visual = 0;
-        if (x > gutter)
-        {
-            visual = _leftColumn + (x - gutter);
-        }
-
-        int local = UnicodeUtil.ByteOffsetForVisualColumn(
-            _lineBuffer.AsSpan(0, length), visual, TabWidth);
-        long start = _document.LineStart(line);
-        long end = _document.LineEnd(line);
-        _cursor = Math.Clamp(start + local, start, end);
+        _cursor = offset;
 
         if (_mode == Mode.Select)
         {
@@ -1706,6 +1724,56 @@ public sealed partial class Editor
         _document.BreakUndoGroup();
         SnapCursor();
         ClearMessage();
+        return true;
+    }
+
+    private void ExtendMouseSelection(int x, int y)
+    {
+        if (!TryOffsetAtScreen(x, y, out long offset))
+        {
+            return;
+        }
+
+        if (_mode != Mode.Select)
+        {
+            _mode = Mode.Select;
+            _selectionLinewise = false;
+            _extraSelections.Clear();
+        }
+
+        _selectionAnchor = _mouseDragAnchor;
+        _cursor = offset;
+        _preferredColumnValid = false;
+        _freeScroll = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+        ClearMessage();
+    }
+
+    private bool TryOffsetAtScreen(int x, int y, out long offset)
+    {
+        offset = 0;
+        int rows = TextRows();
+        if (rows <= 0 || y < 0 || y >= rows)
+        {
+            return false;
+        }
+
+        long line = _topLine + y;
+        if (line < 0 || line >= _document.LineCount)
+        {
+            return false;
+        }
+
+        int gutter = GutterWidth();
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        long visual = x > gutter ? _leftColumn + (x - gutter) : 0;
+        int local = UnicodeUtil.ByteOffsetForVisualColumn(
+            _lineBuffer.AsSpan(0, length), visual, TabWidth);
+        long start = _document.LineStart(line);
+        long end = _document.LineEnd(line);
+        offset = Math.Clamp(start + local, start, end);
+        return true;
     }
 
     private void HandlePrompt(InputEvent inputEvent)

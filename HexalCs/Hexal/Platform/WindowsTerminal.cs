@@ -31,6 +31,7 @@ internal sealed partial class WindowsTerminal : ITerminal
     private const ushort WindowBufferSizeEventType = 0x0004;
     private const ushort FocusEventType = 0x0010;
 
+    private const uint MouseMoved = 0x0001;
     private const uint MouseWheeled = 0x0004;
     private const uint MouseHorizontalWheeled = 0x0008;
     private const uint LeftButtonPressed = 0x0001;
@@ -449,7 +450,19 @@ internal sealed partial class WindowsTerminal : ITerminal
             return true;
         }
 
-        bool leftDown = (mouse.ButtonState & LeftButtonPressed) != 0;
+        uint buttons = mouse.ButtonState;
+        bool leftDown = (buttons & LeftButtonPressed) != 0;
+        if ((mouse.EventFlags & MouseMoved) != 0)
+        {
+            if (_mouseLeftDown && leftDown)
+            {
+                inputEvent.Key = Key.MouseMove;
+                inputEvent.MouseButton = MouseButton.Left;
+                return true;
+            }
+            return false;
+        }
+
         if (leftDown && !_mouseLeftDown)
         {
             _mouseLeftDown = true;

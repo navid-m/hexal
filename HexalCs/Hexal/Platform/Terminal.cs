@@ -23,6 +23,7 @@ public enum Key
     Insert,
     MouseDown,
     MouseUp,
+    MouseMove,
     ScrollUp,
     ScrollDown,
     F1,
