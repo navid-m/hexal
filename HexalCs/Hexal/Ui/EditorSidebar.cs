@@ -1080,7 +1080,6 @@ public sealed partial class Editor
         _screen.Fill(0, 0, width, rows, ' ', background);
 
         _screen.Fill(0, 0, width, 1, ' ', headerStyle);
-        _screen.PutString(1, 0, "EXPLORER", headerStyle, width - 2);
 
         for (int row = 0; row < rows; ++row)
         {
