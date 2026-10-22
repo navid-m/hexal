@@ -50,7 +50,7 @@ public sealed class SyntaxHighlighter
         }
 
         bool startInBlock = ResolveLineStart(line);
-        TokenizeLine(text, startInBlock, tokens, out bool endInBlock);
+        TokenizeLine(_language, text, startInBlock, tokens, out bool endInBlock);
 
         if (_cache.Count >= MaxCacheEntries)
         {
@@ -123,7 +123,7 @@ public sealed class SyntaxHighlighter
         {
             int length = _document.CopyLineText(current, ref _lineBuffer, out _);
             ReadOnlySpan<byte> currentText = _lineBuffer.AsSpan(0, length);
-            TokenizeLine(currentText, state, null, out bool endInBlock);
+            TokenizeLine(_language!, currentText, state, null, out bool endInBlock);
             _cache[current] = new CachedLine
             {
                 Signature = Signature(currentText),
@@ -136,10 +136,23 @@ public sealed class SyntaxHighlighter
         return state;
     }
 
-    private void TokenizeLine(ReadOnlySpan<byte> text, bool startInBlock,
+    /// <summary>
+    /// Tokenizes one line of arbitrary text using a grammar. This is used for
+    /// content that is not backed by a <see cref="Document"/>, such as code
+    /// blocks in hover popups. Callers must pass the previous line's end state
+    /// so multi-line constructs remain correct.
+    /// </summary>
+    public static void GetLineTokens(LanguageDefinition language,
+        ReadOnlySpan<byte> text, bool startInBlock, List<SyntaxToken> tokens,
+        out bool endInBlock)
+    {
+        TokenizeLine(language, text, startInBlock, tokens, out endInBlock);
+    }
+
+    private static void TokenizeLine(LanguageDefinition language,
+        ReadOnlySpan<byte> text, bool startInBlock,
         List<SyntaxToken>? tokens, out bool endInBlock)
     {
-        LanguageDefinition language = _language!;
         bool inBlock = startInBlock;
         int offset = 0;
 

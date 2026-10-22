@@ -910,6 +910,15 @@ internal static class Program
                         contents = { kind = "markdown", value = "hover-doc" },
                     }
                 end)
+                server:register("textDocument/definition", function(params, ctx)
+                    return {
+                        uri = "file:///test.tst",
+                        range = {
+                            start = { line = 0, character = 2 },
+                            ["end"] = { line = 0, character = 5 },
+                        },
+                    }
+                end)
             end)
 
             local test = require("hexal.testing.lsp")
@@ -923,6 +932,12 @@ internal static class Program
             })
             assert(result and result.contents and result.contents.value == "hover-doc",
                 "hover result missing")
+            local definition = client:request("textDocument/definition", {
+                textDocument = { uri = "file:///test.tst" },
+                position = { line = 0, character = 1 },
+            })
+            assert(definition and definition.uri == "file:///test.tst" and
+                definition.range.start.character == 2, "definition result missing")
 
             diagnostics.publish("file:///test.tst", {
                 {
@@ -1068,6 +1083,23 @@ internal static class Program
             }
         }
         Check(hoverSeen, "in-process lua lsp hover event");
+
+        Check(lsp.RequestDefinition(sourcePath, 0, 1),
+            "request lua lsp definition");
+        lsp.Pump();
+        bool definitionSeen = false;
+        while (lsp.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (lspEvent.Kind == LspEventKind.Definition &&
+                lspEvent.Locations.Count == 1 &&
+                lspEvent.Locations[0].Uri == "file:///test.tst" &&
+                lspEvent.Locations[0].Line == 0 &&
+                lspEvent.Locations[0].Character == 2)
+            {
+                definitionSeen = true;
+            }
+        }
+        Check(definitionSeen, "in-process lua lsp definition event");
     }
 
     private sealed class FakeHost : IEditorApi

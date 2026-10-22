@@ -330,6 +330,37 @@ public sealed class LspManager : IDisposable
     }
 
     /// <summary>
+    /// Requests the definition of the symbol at a zero-based line and UTF-16
+    /// column. The result may live in another file.
+    /// </summary>
+    public bool RequestDefinition(string documentPath, int line, int character)
+    {
+        lock (_stateLock)
+        {
+            if (!CanRequestForPathLocked(documentPath))
+            {
+                return false;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["textDocument"] = new JsonObject
+                {
+                    ["uri"] = _documentUri
+                },
+                ["position"] = new JsonObject
+                {
+                    ["line"] = line,
+                    ["character"] = character
+                }
+            };
+
+            SendRequestLocked("textDocument/definition", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Requests code actions for the cursor position. Diagnostics for the
     /// current line are passed as context, as required by the specification.
     /// </summary>
@@ -1001,6 +1032,21 @@ public sealed class LspManager : IDisposable
                 return;
             }
 
+            case "textDocument/definition":
+            case "textDocument/declaration":
+            case "textDocument/typeDefinition":
+            {
+                List<LspLocation> locations = ParseLocations(result);
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Definition,
+                    ServerName = serverName,
+                    Method = method,
+                    Locations = locations
+                });
+                return;
+            }
+
             case "textDocument/codeAction":
             case "codeAction/resolve":
             {
@@ -1189,6 +1235,73 @@ public sealed class LspManager : IDisposable
                 }
                 break;
         }
+    }
+
+    private static List<LspLocation> ParseLocations(JsonElement result)
+    {
+        var locations = new List<LspLocation>();
+        ParseLocations(result, locations);
+        return locations;
+    }
+
+    private static void ParseLocations(JsonElement result, List<LspLocation> locations)
+    {
+        if (result.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement item in result.EnumerateArray())
+            {
+                ParseLocations(item, locations);
+            }
+            return;
+        }
+
+        if (result.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        // LocationLink uses targetUri/targetRange, while Location uses
+        // uri/range. Servers may return either shape (or an array of both).
+        string uri = string.Empty;
+        if (result.TryGetProperty("uri", out JsonElement uriElement) &&
+            uriElement.ValueKind == JsonValueKind.String)
+        {
+            uri = uriElement.GetString() ?? string.Empty;
+        }
+        else if (result.TryGetProperty("targetUri", out JsonElement targetUri) &&
+                 targetUri.ValueKind == JsonValueKind.String)
+        {
+            uri = targetUri.GetString() ?? string.Empty;
+        }
+
+        if (uri.Length == 0)
+        {
+            return;
+        }
+
+        JsonElement range;
+        if (!result.TryGetProperty("range", out range) &&
+            !result.TryGetProperty("targetSelectionRange", out range) &&
+            !result.TryGetProperty("targetRange", out range))
+        {
+            return;
+        }
+
+        if (range.ValueKind != JsonValueKind.Object ||
+            !range.TryGetProperty("start", out JsonElement start) ||
+            start.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        int line = start.TryGetProperty("line", out JsonElement lineElement)
+            ? lineElement.GetInt32()
+            : 0;
+        int character = start.TryGetProperty("character", out JsonElement characterElement)
+            ? characterElement.GetInt32()
+            : 0;
+
+        locations.Add(new LspLocation(uri, line, character));
     }
 
     private static List<LspCodeAction> ParseCodeActions(JsonElement result)

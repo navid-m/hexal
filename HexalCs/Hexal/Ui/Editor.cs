@@ -111,10 +111,11 @@ public sealed partial class Editor
     private bool _problemsWorkspace;
 
     private bool _hoverVisible;
-    private readonly List<string> _hoverLines = new();
+    private readonly List<HoverLine> _hoverLines = new();
     private string _hoverTitle = "Hover";
     private int _hoverTop;
     private bool _hoverRequestPending;
+    private bool _definitionRequestPending;
     private bool _codeActionRequestPending;
 
     private sealed class Selection
@@ -133,6 +134,29 @@ public sealed partial class Editor
             PreferredColumn = PreferredColumn,
             PreferredColumnValid = PreferredColumnValid
         };
+    }
+
+    private readonly record struct JumpLocation(
+        string? Path,
+        long Line,
+        long Column);
+
+    private readonly struct HoverSegment
+    {
+        public HoverSegment(string text, SyntaxTokenKind kind)
+        {
+            Text = text;
+            Kind = kind;
+        }
+
+        public string Text { get; }
+
+        public SyntaxTokenKind Kind { get; }
+    }
+
+    private sealed class HoverLine
+    {
+        public readonly List<HoverSegment> Segments = new();
     }
 
     private long _cursor;
@@ -157,7 +181,8 @@ public sealed partial class Editor
     private readonly List<string> _commandHistory = new();
     private int _commandHistoryIndex = -1;
 
-    private readonly List<long> _jumpHistory = new();
+    private readonly List<JumpLocation> _jumpHistory = new();
+    private readonly List<JumpLocation> _jumpForward = new();
     private bool _pendingG;
 
     private byte[] _lineBuffer = Array.Empty<byte>();
@@ -512,7 +537,6 @@ public sealed partial class Editor
         }
 
         _pendingG = false;
-        _jumpHistory.Clear();
         _extraSelections.Clear();
 
         long line = Math.Clamp(oldLine, 0, _document.LineCount - 1);
@@ -638,6 +662,14 @@ public sealed partial class Editor
                 else if (character is 'p' or 'P')
                 {
                     MoveToPreviousLocation();
+                }
+                else if (character is 'n' or 'N')
+                {
+                    MoveToNextLocation();
+                }
+                else if (character is 'd' or 'D')
+                {
+                    GoToDefinition();
                 }
             }
             return;
@@ -835,6 +867,10 @@ public sealed partial class Editor
                 else if (character is 'p' or 'P')
                 {
                     MoveToPreviousLocation();
+                }
+                else if (character is 'n' or 'N')
+                {
+                    MoveToNextLocation();
                 }
             }
             return;
@@ -2566,7 +2602,6 @@ public sealed partial class Editor
         _preferredColumnValid = false;
         _selectionLinewise = false;
         _extraSelections.Clear();
-        _jumpHistory.Clear();
         _pendingG = false;
         _mode = Mode.Normal;
         _commandLine.Clear();
@@ -2959,11 +2994,96 @@ public sealed partial class Editor
             return;
         }
 
-        _cursor = _jumpHistory[^1];
+        JumpLocation target = _jumpHistory[^1];
         _jumpHistory.RemoveAt(_jumpHistory.Count - 1);
+        _jumpForward.Add(CurrentJumpLocation());
+        NavigateToLocation(target);
+    }
+
+    private void MoveToNextLocation()
+    {
+        if (_jumpForward.Count == 0)
+        {
+            SetMessage("No next location.");
+            return;
+        }
+
+        JumpLocation target = _jumpForward[^1];
+        _jumpForward.RemoveAt(_jumpForward.Count - 1);
+        _jumpHistory.Add(CurrentJumpLocation());
+        NavigateToLocation(target);
+    }
+
+    private JumpLocation CurrentJumpLocation()
+    {
+        long line = _document.LineOfOffset(_cursor);
+        long start = _document.LineStart(line);
+        return new JumpLocation(_document.Path, line, _cursor - start);
+    }
+
+    private void NavigateToLocation(JumpLocation location)
+    {
+        if (location.Path is null)
+        {
+            if (_document.Path is not null)
+            {
+                SetError("The previous location is no longer open.");
+                return;
+            }
+
+            MoveToLineColumn(location.Line, location.Column);
+            return;
+        }
+
+        if (_document.Path is not null &&
+            SamePath(_document.Path, location.Path))
+        {
+            MoveToLineColumn(location.Line, location.Column);
+            return;
+        }
+
+        // Opening another file reuses the editor's single-buffer machinery.
+        // RequestOpen asks before discarding unsaved changes.
+        RequestOpen(location.Path, force: false, location.Line, location.Column);
+    }
+
+    private void MoveToLineColumn(long line, long column)
+    {
+        if (_document.LineCount <= 0)
+        {
+            return;
+        }
+
+        line = Math.Clamp(line, 0, _document.LineCount - 1);
+        long start = _document.LineStart(line);
+        long end = _document.LineEnd(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        int local = (int)Math.Clamp(column, 0, length);
+
+        // Positions can come from an older revision or from another file, so
+        // make sure the cursor lands on a UTF-8 scalar boundary.
+        while (local < length && (_lineBuffer[local] & 0xC0) == 0x80)
+        {
+            ++local;
+        }
+
+        _cursor = Math.Clamp(start + local, start, end);
         _preferredColumnValid = false;
         _document.BreakUndoGroup();
         SnapCursor();
+    }
+
+    private static bool SamePath(string left, string right)
+    {
+        try
+        {
+            return PathsEqual(Path.GetFullPath(left), Path.GetFullPath(right));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            return PathsEqual(left, right);
+        }
     }
 
     private void RecordJump(long from)
@@ -2972,12 +3092,18 @@ public sealed partial class Editor
         {
             return;
         }
-        if (_jumpHistory.Count > 0 && _jumpHistory[^1] == from)
+
+        long line = _document.LineOfOffset(from);
+        long start = _document.LineStart(line);
+        var location = new JumpLocation(_document.Path, line, from - start);
+
+        if (_jumpHistory.Count > 0 && _jumpHistory[^1] == location)
         {
             return;
         }
 
-        _jumpHistory.Add(from);
+        _jumpHistory.Add(location);
+        _jumpForward.Clear();
         if (_jumpHistory.Count > 200)
         {
             _jumpHistory.RemoveAt(0);
@@ -4871,8 +4997,21 @@ public sealed partial class Editor
                 break;
             }
 
-            _screen.PutString(x + 2, y + 1 + row, _hoverLines[index], style,
-                contentWidth);
+            int column = 0;
+            foreach (HoverSegment segment in _hoverLines[index].Segments)
+            {
+                if (column >= contentWidth)
+                {
+                    break;
+                }
+
+                Style segmentStyle = segment.Kind == SyntaxTokenKind.Default
+                    ? style
+                    : TokenStyle(segment.Kind);
+                _screen.PutString(x + 2 + column, y + 1 + row, segment.Text,
+                    segmentStyle, contentWidth - column);
+                column += (int)UnicodeUtil.ColumnWidth(segment.Text);
+            }
         }
     }
 

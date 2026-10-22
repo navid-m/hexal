@@ -51,6 +51,15 @@ public sealed record LspDocumentDiagnostics(
     string Uri,
     IReadOnlyList<LspDiagnostic> Diagnostics);
 
+/// <summary>
+/// A target returned by a definition-like request. Positions use the LSP
+/// coordinate system: zero-based lines and UTF-16 code units.
+/// </summary>
+public sealed record LspLocation(
+    string Uri,
+    int Line,
+    int Character);
+
 public enum LspEventKind
 {
     Started,
@@ -59,6 +68,7 @@ public enum LspEventKind
     Error,
     Stopped,
     Hover,
+    Definition,
     CodeActions,
     CodeActionResolved,
     WorkspaceDiagnostics
@@ -74,6 +84,8 @@ public sealed class LspEvent
     public string Text { get; init; } = string.Empty;
     public IReadOnlyList<LspDiagnostic> Diagnostics { get; init; } =
         Array.Empty<LspDiagnostic>();
+    public IReadOnlyList<LspLocation> Locations { get; init; } =
+        Array.Empty<LspLocation>();
     public IReadOnlyList<LspCodeAction> CodeActions { get; init; } =
         Array.Empty<LspCodeAction>();
     public IReadOnlyList<LspDocumentDiagnostics> DocumentDiagnostics { get; init; } =

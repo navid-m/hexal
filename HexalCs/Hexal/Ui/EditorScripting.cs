@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Hexal.Core;
+using Hexal.Languages;
 using Hexal.Lsp;
 using Hexal.Platform;
 using Hexal.Scripting;
@@ -321,6 +322,21 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                         ShowHoverPopup(lspEvent.Text);
                     }
                     break;
+                case LspEventKind.Definition:
+                    if (!_definitionRequestPending)
+                    {
+                        break;
+                    }
+                    _definitionRequestPending = false;
+                    if (lspEvent.Locations.Count == 0)
+                    {
+                        SetMessage("No definition found.");
+                    }
+                    else
+                    {
+                        NavigateToDefinition(lspEvent.Locations[0]);
+                    }
+                    break;
                 case LspEventKind.CodeActions:
                     if (!_codeActionRequestPending)
                     {
@@ -386,6 +402,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _pluginStatus.Remove("lsp");
         _lspDirty = false;
         _hoverRequestPending = false;
+        _definitionRequestPending = false;
         _codeActionRequestPending = false;
     }
 
@@ -452,6 +469,48 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         SetMessage("Requesting hover information...");
     }
 
+    private void GoToDefinition()
+    {
+        if (!EnsureLspReady("go to definition"))
+        {
+            return;
+        }
+
+        (int line, int character) = CursorLspPosition();
+        if (!_lsp.RequestDefinition(_document.Path!, line, character))
+        {
+            SetError("No LSP configured");
+            return;
+        }
+
+        _definitionRequestPending = true;
+        SetMessage("Requesting definition...");
+    }
+
+    private void NavigateToDefinition(LspLocation location)
+    {
+        string path = LspManager.UriToPath(location.Uri);
+        if (string.IsNullOrEmpty(path))
+        {
+            SetError("The language server returned an invalid definition location.");
+            return;
+        }
+
+        long column = LspColumnToByteOffset(path, location.Line,
+            location.Character);
+
+        if (_document.Path is not null && SamePath(_document.Path, path))
+        {
+            RecordJump(_cursor);
+            MoveToLineColumn(location.Line, column);
+        }
+        else
+        {
+            RecordJump(_cursor);
+            RequestOpen(path, force: false, location.Line, column);
+        }
+    }
+
     private void ShowCodeActions()
     {
         if (!EnsureLspReady("code actions"))
@@ -502,16 +561,50 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _hoverLines.Clear();
 
         int width = Math.Max(20, Math.Min(_columns - 6, 88));
+        int contentWidth = Math.Max(1, width - 4);
+        string? codeInfo = null;
+        char fenceChar = '\0';
+        int fenceLength = 0;
+        bool inCode = false;
+        bool codeStartInBlock = false;
+
         foreach (string rawLine in text.Replace("\r\n", "\n").Replace('\r', '\n')
                      .Split('\n'))
         {
-            if (rawLine.Length == 0)
+            bool isFence = TryHoverFence(rawLine, out char currentFence,
+                out int currentLength, out string info);
+
+            if (inCode)
             {
-                _hoverLines.Add(string.Empty);
+                if (isFence && currentFence == fenceChar &&
+                    currentLength >= fenceLength && info.Length == 0)
+                {
+                    inCode = false;
+                    continue;
+                }
+
+                AddHoverCodeLine(rawLine, ResolveHoverLanguage(codeInfo),
+                    contentWidth, _hoverLines, ref codeStartInBlock);
                 continue;
             }
 
-            WrapHoverLine(rawLine, width - 4, _hoverLines);
+            if (isFence)
+            {
+                inCode = true;
+                fenceChar = currentFence;
+                fenceLength = currentLength;
+                codeInfo = info;
+                codeStartInBlock = false;
+                continue;
+            }
+
+            if (rawLine.Length == 0)
+            {
+                _hoverLines.Add(new HoverLine());
+                continue;
+            }
+
+            WrapHoverLine(rawLine, contentWidth, _hoverLines);
         }
 
         if (_hoverLines.Count == 0)
@@ -526,8 +619,195 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         ClearMessage();
     }
 
+    private static bool TryHoverFence(string line, out char fence,
+        out int count, out string info)
+    {
+        fence = '\0';
+        count = 0;
+        info = string.Empty;
+
+        int offset = 0;
+        while (offset < line.Length && char.IsWhiteSpace(line[offset]))
+        {
+            ++offset;
+        }
+
+        if (offset >= line.Length || (line[offset] != '`' && line[offset] != '~'))
+        {
+            return false;
+        }
+
+        char marker = line[offset];
+        while (offset < line.Length && line[offset] == marker)
+        {
+            ++count;
+            ++offset;
+        }
+
+        if (count < 3)
+        {
+            count = 0;
+            return false;
+        }
+
+        fence = marker;
+        info = line[offset..].Trim();
+        return true;
+    }
+
+    private LanguageDefinition? ResolveHoverLanguage(string? info)
+    {
+        if (string.IsNullOrWhiteSpace(info))
+        {
+            return null;
+        }
+
+        string id = info.Trim();
+        if (id.Length >= 2 && id[0] == '{' && id[^1] == '}')
+        {
+            id = id[1..^1].Trim();
+        }
+
+        int separator = -1;
+        for (int index = 0; index < id.Length; ++index)
+        {
+            if (id[index] is ' ' or '\t' or ',')
+            {
+                separator = index;
+                break;
+            }
+        }
+        if (separator >= 0)
+        {
+            id = id[..separator];
+        }
+
+        id = id.Trim('.').ToLowerInvariant();
+        id = id switch
+        {
+            "cs" or "c#" => "csharp",
+            "c++" or "cxx" or "cc" or "hpp" => "cpp",
+            "py" => "python",
+            "golang" => "go",
+            "pyx" => "cython",
+            _ => id
+        };
+
+        return _languages.Find(id);
+    }
+
+    private static void AddHoverCodeLine(string line, LanguageDefinition? language,
+        int width, List<HoverLine> destination, ref bool startInBlock)
+    {
+        if (line.Length == 0)
+        {
+            destination.Add(new HoverLine());
+            return;
+        }
+
+        byte[] text = Encoding.UTF8.GetBytes(line);
+        var tokens = new List<SyntaxToken>();
+        bool endInBlock = startInBlock;
+        if (language is not null)
+        {
+            SyntaxHighlighter.GetLineTokens(language, text, startInBlock, tokens,
+                out endInBlock);
+        }
+        startInBlock = endInBlock;
+
+        var current = new HoverLine();
+        int offset = 0;
+        int tokenIndex = 0;
+        int rowWidth = 0;
+        int visual = 0;
+
+        while (offset < text.Length)
+        {
+            int runeStart = offset;
+            while (tokenIndex < tokens.Count && tokens[tokenIndex].End <= runeStart)
+            {
+                ++tokenIndex;
+            }
+
+            SyntaxTokenKind kind = SyntaxTokenKind.Default;
+            if (tokenIndex < tokens.Count &&
+                tokens[tokenIndex].Start <= runeStart)
+            {
+                kind = tokens[tokenIndex].Kind;
+            }
+
+            UnicodeUtil.Decode(text, offset, out Rune rune, out int byteLength);
+            offset += byteLength;
+
+            uint codePoint = (uint)rune.Value;
+            string output;
+            int cellWidth;
+
+            if (codePoint == '\t')
+            {
+                cellWidth = TabWidth - (visual % TabWidth);
+                output = new string(' ', cellWidth);
+            }
+            else
+            {
+                cellWidth = UnicodeUtil.DisplayWidth(codePoint);
+                if (cellWidth == 0)
+                {
+                    if (codePoint < 0x20 || codePoint == 0x7F)
+                    {
+                        output = "\uFFFD";
+                        cellWidth = 1;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    output = rune.ToString();
+                }
+            }
+
+            if (rowWidth > 0 && rowWidth + cellWidth > width)
+            {
+                destination.Add(current);
+                current = new HoverLine();
+                rowWidth = 0;
+                visual = 0;
+            }
+
+            AddHoverSegment(current, output, kind);
+            rowWidth += cellWidth;
+            visual += cellWidth;
+        }
+
+        if (current.Segments.Count > 0)
+        {
+            destination.Add(current);
+        }
+    }
+
+    private static void AddHoverSegment(HoverLine line, string text,
+        SyntaxTokenKind kind)
+    {
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        if (line.Segments.Count > 0 && line.Segments[^1].Kind == kind)
+        {
+            HoverSegment previous = line.Segments[^1];
+            line.Segments[^1] = new HoverSegment(previous.Text + text, kind);
+            return;
+        }
+
+        line.Segments.Add(new HoverSegment(text, kind));
+    }
+
     private static void WrapHoverLine(string line, int width,
-        List<string> destination)
+        List<HoverLine> destination)
     {
         width = Math.Max(1, width);
         int offset = 0;
@@ -549,7 +829,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 take = 1;
             }
 
-            destination.Add(line.Substring(offset, take).TrimEnd());
+            var hoverLine = new HoverLine();
+            hoverLine.Segments.Add(new HoverSegment(
+                line.Substring(offset, take).TrimEnd(), SyntaxTokenKind.Default));
+            destination.Add(hoverLine);
             offset += take;
             while (offset < line.Length && line[offset] == ' ')
             {
