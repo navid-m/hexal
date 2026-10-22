@@ -10,6 +10,7 @@ namespace Hexal.Ui;
 public sealed partial class Editor
 {
     private const int TabWidth = 4;
+    private const int BottomLinePadding = 1;
 
     private static readonly byte[] Lf = { (byte)'\n' };
     private static readonly byte[] CrLf = { (byte)'\r', (byte)'\n' };
@@ -4117,13 +4118,14 @@ public sealed partial class Editor
         if (_mode == Mode.Command)
         {
             var promptStyle = new Style { Fg = 14, Bold = true };
-            _screen.Put(0, (int)y, ':', promptStyle);
+            _screen.Put(BottomLinePadding, (int)y, ':', promptStyle);
 
             string line = _commandLine.ToString();
-            _screen.PutString(1, (int)y, line, baseStyle, _columns - 1);
+            _screen.PutString(BottomLinePadding + 1, (int)y, line, baseStyle,
+                _columns - BottomLinePadding - 1);
 
             long visual = UnicodeUtil.VisualColumn(line, _commandCursor, 1);
-            long x = 1 + visual;
+            long x = BottomLinePadding + 1 + visual;
             if (x < _columns)
             {
                 Style cursorStyle = _screen.At((int)x, (int)y).Style;
@@ -4140,7 +4142,8 @@ public sealed partial class Editor
                 : $"Unsaved changes. Discard and open '{_pendingOpen}'? (y/N)";
 
             var style = new Style { Fg = 11, Bold = true };
-            _screen.PutString(0, (int)y, text, style, _columns);
+            _screen.PutString(BottomLinePadding, (int)y, text, style,
+                _columns - BottomLinePadding);
             return;
         }
 
@@ -4152,7 +4155,8 @@ public sealed partial class Editor
                 style.Fg = 9;
                 style.Bold = true;
             }
-            _screen.PutString(0, (int)y, _message, style, _columns);
+            _screen.PutString(BottomLinePadding, (int)y, _message, style,
+                _columns - BottomLinePadding);
         }
     }
 

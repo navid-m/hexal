@@ -217,18 +217,20 @@ public sealed partial class Editor : IEditorApi, IDisposable
     {
         var promptStyle = new Style { Fg = 14, Bold = true };
         string label = _pluginPromptLabel;
-        _screen.PutString(0, row, label, promptStyle, _columns);
+        _screen.PutString(BottomLinePadding, row, label, promptStyle,
+            _columns - BottomLinePadding);
 
         long labelWidth = UnicodeUtil.ColumnWidth(label);
         string text = _pluginPromptText.ToString();
-        int remaining = _columns - (int)labelWidth;
+        int remaining = _columns - BottomLinePadding - (int)labelWidth;
         if (remaining > 0)
         {
-            _screen.PutString((int)labelWidth, row, text, baseStyle, remaining);
+            _screen.PutString(BottomLinePadding + (int)labelWidth, row, text,
+                baseStyle, remaining);
         }
 
         long cursorColumn = UnicodeUtil.VisualColumn(text, _pluginPromptCursor, 1);
-        long cursorX = labelWidth + cursorColumn;
+        long cursorX = BottomLinePadding + labelWidth + cursorColumn;
         if (cursorX >= 0 && cursorX < _columns)
         {
             Style cursorStyle = _screen.At((int)cursorX, row).Style;
