@@ -153,6 +153,8 @@ public sealed class LuaPluginManager : IDisposable
 
     public bool HasCommand(string name) => _commands.ContainsKey(name);
 
+    public IEnumerable<string> CommandNames => _commands.Keys;
+
     public bool TryExecuteCommand(string name, IReadOnlyList<string> args,
         out string error)
     {

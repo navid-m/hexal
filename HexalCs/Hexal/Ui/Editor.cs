@@ -41,6 +41,13 @@ public sealed partial class Editor
         Problems
     }
 
+    private enum CompletionKind
+    {
+        None,
+        Commands,
+        Files
+    }
+
     private static readonly (char Key, string Label)[] SpaceMenuItems =
     {
         ('/', "Search across files"),
@@ -52,6 +59,11 @@ public sealed partial class Editor
         ('A', "LSP code actions"),
         ('D', "Workspace diagnostics"),
         ('d', "Document diagnostics")
+    };
+
+    private static readonly string[] BuiltinCommands =
+    {
+        "e", "w", "wq", "q", "lang", "help"
     };
 
     private readonly ITerminal _terminal;
@@ -180,6 +192,18 @@ public sealed partial class Editor
     private int _commandCursor;
     private readonly List<string> _commandHistory = new();
     private int _commandHistoryIndex = -1;
+
+    private bool _completionVisible;
+    private CompletionKind _completionKind;
+    private readonly List<string> _completionItems = new();
+    private int _completionSelected;
+    private int _completionTop;
+    private string _completionPrefix = string.Empty;
+    private string _completionSuffix = string.Empty;
+    private char _completionQuote;
+    private string _completionStatus = string.Empty;
+    private List<string>? _completionFiles;
+    private string _completionFilesRoot = string.Empty;
 
     private readonly List<JumpLocation> _jumpHistory = new();
     private readonly List<JumpLocation> _jumpForward = new();
@@ -1071,44 +1095,41 @@ public sealed partial class Editor
         switch (inputEvent.Key)
         {
             case Key.Escape:
+                if (_completionVisible)
+                {
+                    CloseCompletion();
+                    return;
+                }
                 _mode = Mode.Normal;
+                CloseCompletion();
                 _commandLine.Clear();
                 _commandCursor = 0;
                 _commandHistoryIndex = -1;
                 return;
             case Key.Enter:
-            {
-                string line = _commandLine.ToString();
-                _mode = Mode.Normal;
-                _commandLine.Clear();
-                _commandCursor = 0;
-                _commandHistoryIndex = -1;
-
-                if (line.Length > 0 &&
-                    (_commandHistory.Count == 0 || _commandHistory[^1] != line))
+                if (_completionVisible && _completionItems.Count > 0)
                 {
-                    _commandHistory.Add(line);
-                    if (_commandHistory.Count > 100)
-                    {
-                        _commandHistory.RemoveAt(0);
-                    }
-                }
-
-                ExParseResult parsed = ExCommandParser.Parse(line);
-                if (!parsed.Ok)
-                {
-                    SetError(parsed.Error);
+                    AcceptCompletion();
                     return;
                 }
-                if (parsed.Command.Name.Length == 0)
-                {
-                    return;
-                }
-
-                ExecuteParsedCommand(parsed.Command, force: false);
+                SubmitCommandLine();
                 return;
-            }
+            case Key.Tab:
+                if (_completionVisible)
+                {
+                    MoveCompletionSelection(1, wrap: true);
+                    return;
+                }
+                TryOpenCompletion();
+                return;
+            case Key.BackTab:
+                if (_completionVisible)
+                {
+                    MoveCompletionSelection(-1, wrap: true);
+                }
+                return;
             case Key.Backspace:
+                CloseCompletion();
                 if (_commandCursor > 0)
                 {
                     string text = _commandLine.ToString();
@@ -1118,6 +1139,7 @@ public sealed partial class Editor
                 }
                 return;
             case Key.Delete:
+                CloseCompletion();
                 if (_commandCursor < _commandLine.Length)
                 {
                     string text = _commandLine.ToString();
@@ -1127,24 +1149,35 @@ public sealed partial class Editor
                 return;
             case Key.Left:
             {
+                CloseCompletion();
                 string text = _commandLine.ToString();
                 _commandCursor = UnicodeUtil.PreviousBoundary(text, _commandCursor);
                 return;
             }
             case Key.Right:
             {
+                CloseCompletion();
                 string text = _commandLine.ToString();
                 _commandCursor = UnicodeUtil.NextBoundary(text, _commandCursor);
                 return;
             }
             case Key.Home:
+                CloseCompletion();
                 _commandCursor = 0;
                 return;
             case Key.End:
+                CloseCompletion();
                 _commandCursor = _commandLine.Length;
                 return;
             case Key.Up:
             case Key.Down:
+                if (_completionVisible)
+                {
+                    MoveCompletionSelection(inputEvent.Key == Key.Up ? -1 : 1,
+                        wrap: false);
+                    return;
+                }
+
                 if (_commandHistory.Count == 0)
                 {
                     return;
@@ -1190,10 +1223,384 @@ public sealed partial class Editor
 
         if (inputEvent.Key == Key.Character && !inputEvent.Alt)
         {
+            CloseCompletion();
             string inserted = inputEvent.Character.ToString();
             _commandLine.Insert(_commandCursor, inserted);
             _commandCursor += inserted.Length;
         }
+    }
+
+    private void SubmitCommandLine()
+    {
+        CloseCompletion();
+
+        string line = _commandLine.ToString();
+        _mode = Mode.Normal;
+        _commandLine.Clear();
+        _commandCursor = 0;
+        _commandHistoryIndex = -1;
+
+        if (line.Length > 0 &&
+            (_commandHistory.Count == 0 || _commandHistory[^1] != line))
+        {
+            _commandHistory.Add(line);
+            if (_commandHistory.Count > 100)
+            {
+                _commandHistory.RemoveAt(0);
+            }
+        }
+
+        ExParseResult parsed = ExCommandParser.Parse(line);
+        if (!parsed.Ok)
+        {
+            SetError(parsed.Error);
+            return;
+        }
+        if (parsed.Command.Name.Length == 0)
+        {
+            return;
+        }
+
+        ExecuteParsedCommand(parsed.Command, force: false);
+    }
+
+    private bool TryOpenCompletion()
+    {
+        string line = _commandLine.ToString();
+        int cursor = Math.Clamp(_commandCursor, 0, line.Length);
+
+        int firstStart = 0;
+        while (firstStart < line.Length && char.IsWhiteSpace(line[firstStart]))
+        {
+            ++firstStart;
+        }
+
+        int firstEnd = firstStart;
+        while (firstEnd < line.Length && !char.IsWhiteSpace(line[firstEnd]))
+        {
+            ++firstEnd;
+        }
+
+        string command = line[firstStart..firstEnd];
+        bool fileCommand = IsFileCompletionCommand(command);
+        bool atOrInsideCommand = cursor <= firstEnd;
+        bool commandHasArguments = firstEnd < line.Length &&
+                                   line[firstEnd..].Trim().Length > 0;
+
+        if (atOrInsideCommand &&
+            (!fileCommand || cursor < firstEnd || commandHasArguments))
+        {
+            int filterEnd = Math.Clamp(cursor, firstStart, firstEnd);
+            string filter = line[firstStart..filterEnd];
+            List<string> items = FilterCommands(filter);
+            return OpenCompletion(CompletionKind.Commands, items,
+                line[..firstStart], line[firstEnd..], '\0', filter);
+        }
+
+        if (fileCommand)
+        {
+            int argumentStart = firstEnd;
+            while (argumentStart < line.Length &&
+                   char.IsWhiteSpace(line[argumentStart]))
+            {
+                ++argumentStart;
+            }
+
+            if (cursor < argumentStart)
+            {
+                cursor = argumentStart;
+            }
+
+            char quote = '\0';
+            int tokenStart = argumentStart;
+            int tokenEnd = cursor;
+
+            if (argumentStart < line.Length &&
+                (line[argumentStart] == '"' || line[argumentStart] == '\''))
+            {
+                quote = line[argumentStart];
+                tokenStart = argumentStart + 1;
+                int closing = line.IndexOf(quote, tokenStart);
+                tokenEnd = closing >= 0 ? closing : Math.Max(tokenStart, cursor);
+            }
+
+            tokenStart = Math.Clamp(tokenStart, 0, line.Length);
+            tokenEnd = Math.Clamp(tokenEnd, tokenStart, line.Length);
+
+            string filter = line[tokenStart..tokenEnd];
+            List<string> items = FilterFiles(CompletionFiles(), filter);
+            string prefix = line[..tokenStart];
+
+            // ":e" has no separator yet; add one when the completion is
+            // accepted so the result is ":e <path>" rather than ":e<path>".
+            if (tokenStart == firstEnd && firstEnd == line.Length)
+            {
+                prefix += ' ';
+            }
+
+            return OpenCompletion(CompletionKind.Files, items,
+                prefix, line[tokenEnd..], quote, filter);
+        }
+
+        SetMessage("No completions available.");
+        return true;
+    }
+
+    private bool OpenCompletion(CompletionKind kind, List<string> items,
+        string prefix, string suffix, char quote, string filter)
+    {
+        _completionVisible = true;
+        _completionKind = kind;
+        _completionItems.Clear();
+        _completionItems.AddRange(items);
+        _completionSelected = 0;
+        _completionTop = 0;
+        _completionPrefix = prefix;
+        _completionSuffix = suffix;
+        _completionQuote = quote;
+        _completionStatus = items.Count > 0
+            ? string.Empty
+            : filter.Length == 0
+                ? "No completions available"
+                : $"No matches for '{filter}'";
+        ClearMessage();
+        return true;
+    }
+
+    private void CloseCompletion()
+    {
+        _completionVisible = false;
+        _completionKind = CompletionKind.None;
+        _completionItems.Clear();
+        _completionSelected = 0;
+        _completionTop = 0;
+        _completionPrefix = string.Empty;
+        _completionSuffix = string.Empty;
+        _completionQuote = '\0';
+        _completionStatus = string.Empty;
+    }
+
+    private void MoveCompletionSelection(int delta, bool wrap)
+    {
+        int count = _completionItems.Count;
+        if (count == 0)
+        {
+            return;
+        }
+
+        int index = _completionSelected + delta;
+        if (wrap)
+        {
+            index = ((index % count) + count) % count;
+        }
+        else
+        {
+            index = Math.Clamp(index, 0, count - 1);
+        }
+
+        _completionSelected = index;
+        int rows = CompletionMaxRows();
+        if (_completionSelected < _completionTop)
+        {
+            _completionTop = _completionSelected;
+        }
+        else if (_completionSelected >= _completionTop + rows)
+        {
+            _completionTop = _completionSelected - rows + 1;
+        }
+
+        int maxTop = Math.Max(0, count - rows);
+        _completionTop = Math.Clamp(_completionTop, 0, maxTop);
+    }
+
+    private void AcceptCompletion()
+    {
+        if (!_completionVisible || _completionItems.Count == 0 ||
+            _completionSelected < 0 || _completionSelected >= _completionItems.Count)
+        {
+            return;
+        }
+
+        string selected = _completionItems[_completionSelected];
+        CompletionKind kind = _completionKind;
+        string inserted = kind == CompletionKind.Files
+            ? CompletionPathForCommand(selected)
+            : selected;
+
+        if (kind == CompletionKind.Files)
+        {
+            if (_completionQuote == '\0')
+            {
+                if (NeedsPathQuotes(inserted))
+                {
+                    inserted = QuoteCompletionPath(inserted);
+                }
+            }
+            else
+            {
+                if (_completionQuote == '"')
+                {
+                    inserted = inserted.Replace("\"", "\\\"");
+                }
+
+                if (_completionSuffix.Length == 0 ||
+                    _completionSuffix[0] != _completionQuote)
+                {
+                    inserted += _completionQuote;
+                }
+            }
+        }
+
+        string line = _completionPrefix + inserted + _completionSuffix;
+        int cursor = _completionPrefix.Length + inserted.Length;
+        CloseCompletion();
+        _commandLine.Clear();
+        _commandLine.Append(line);
+        _commandCursor = Math.Clamp(cursor, 0, _commandLine.Length);
+
+        // File completion is usually the last part of the command, so accept
+        // and run it in one step. Command names stay in command mode so the
+        // user can add arguments (for example, :e <file>).
+        if (kind == CompletionKind.Files)
+        {
+            SubmitCommandLine();
+        }
+    }
+
+    private static bool IsFileCompletionCommand(string command)
+        => command is "e" or "w";
+
+    private string CompletionPathForCommand(string relativePath)
+    {
+        try
+        {
+            string fullPath = Path.GetFullPath(
+                Path.Combine(ProjectRoot(), relativePath));
+            return Path.GetRelativePath(Directory.GetCurrentDirectory(), fullPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException or IOException or
+                                   UnauthorizedAccessException)
+        {
+            return relativePath;
+        }
+    }
+
+    private static bool NeedsPathQuotes(string path)
+    {
+        foreach (char character in path)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string QuoteCompletionPath(string path)
+        => "\"" + path.Replace("\"", "\\\"") + "\"";
+
+    private List<string> FilterCommands(string filter)
+    {
+        var names = new List<string>(BuiltinCommands);
+        if (_plugins is not null)
+        {
+            names.AddRange(_plugins.CommandNames);
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var matches = new List<(int Score, string Name)>();
+        foreach (string name in names)
+        {
+            if (name.Length == 0 || !seen.Add(name))
+            {
+                continue;
+            }
+
+            int score = FuzzyScore(name, filter);
+            if (score < int.MaxValue)
+            {
+                matches.Add((score, name));
+            }
+        }
+
+        matches.Sort((left, right) =>
+        {
+            int comparison = left.Score.CompareTo(right.Score);
+            return comparison != 0
+                ? comparison
+                : string.Compare(left.Name, right.Name,
+                    StringComparison.OrdinalIgnoreCase);
+        });
+
+        var result = new List<string>(matches.Count);
+        foreach ((int _, string name) in matches)
+        {
+            result.Add(name);
+        }
+        return result;
+    }
+
+    private List<string> FilterFiles(IReadOnlyList<string> files, string filter)
+    {
+        if (filter.Length == 0)
+        {
+            return new List<string>(files);
+        }
+
+        var matches = new List<(int Score, string Path)>();
+        foreach (string path in files)
+        {
+            int score = FuzzyScore(path, filter);
+            if (score < int.MaxValue)
+            {
+                matches.Add((score, path));
+            }
+        }
+
+        matches.Sort((left, right) =>
+        {
+            int comparison = left.Score.CompareTo(right.Score);
+            return comparison != 0
+                ? comparison
+                : string.Compare(left.Path, right.Path,
+                    StringComparison.OrdinalIgnoreCase);
+        });
+
+        var result = new List<string>(matches.Count);
+        foreach ((int _, string path) in matches)
+        {
+            result.Add(path);
+        }
+        return result;
+    }
+
+    private List<string> CompletionFiles()
+    {
+        string root = ProjectRoot();
+        if (_pickerFilesLoaded && _pickerRoot.Length > 0 &&
+            SamePath(_pickerRoot, root))
+        {
+            return _pickerFiles;
+        }
+
+        if (_completionFiles is not null && _completionFilesRoot.Length > 0 &&
+            SamePath(_completionFilesRoot, root))
+        {
+            return _completionFiles;
+        }
+
+        _completionFiles = FileSearch.EnumerateFiles(root,
+            FileSearch.DefaultMaxFiles, CancellationToken.None);
+        _completionFilesRoot = root;
+        return _completionFiles;
+    }
+
+    private int CompletionMaxRows()
+    {
+        int available = (int)Math.Max(0, CommandRow());
+        return Math.Max(1, Math.Min(9, available - 2));
     }
 
     private void HandlePrompt(InputEvent inputEvent)
@@ -2320,7 +2727,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | u/Ctrl+R undo");
+                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | Tab completes | u/Ctrl+R undo");
                 return;
         }
 
@@ -4675,6 +5082,98 @@ public sealed partial class Editor
         }
     }
 
+    private void RenderCompletion()
+    {
+        if (!_completionVisible)
+        {
+            return;
+        }
+
+        int available = (int)Math.Max(0, CommandRow());
+        if (available < 3 || _columns < 10)
+        {
+            return;
+        }
+
+        int rows = _completionItems.Count == 0
+            ? 1
+            : Math.Min(_completionItems.Count, CompletionMaxRows());
+        if (rows < 1)
+        {
+            return;
+        }
+
+        if (_completionSelected < _completionTop)
+        {
+            _completionTop = _completionSelected;
+        }
+        else if (_completionSelected >= _completionTop + rows)
+        {
+            _completionTop = _completionSelected - rows + 1;
+        }
+
+        int maxTop = Math.Max(0, _completionItems.Count - rows);
+        _completionTop = Math.Clamp(_completionTop, 0, maxTop);
+
+        string title = _completionKind == CompletionKind.Files
+            ? $"Files {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}"
+            : $"Commands {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}";
+
+        int desiredWidth = Math.Max(title.Length + 4,
+            _completionStatus.Length + 4);
+        for (int row = 0; row < rows; ++row)
+        {
+            int index = _completionTop + row;
+            if (index >= _completionItems.Count)
+            {
+                break;
+            }
+            desiredWidth = Math.Max(desiredWidth,
+                _completionItems[index].Length + 4);
+        }
+
+        int x = BottomLinePadding;
+        int width = Math.Min(_columns - 2, Math.Max(16, desiredWidth));
+        if (width < 10)
+        {
+            return;
+        }
+        if (x + width >= _columns)
+        {
+            x = Math.Max(0, _columns - width - 1);
+        }
+
+        int height = rows + 2;
+        int y = Math.Max(0, available - height);
+        DrawBox(x, y, width, height, title);
+
+        if (_completionItems.Count == 0)
+        {
+            var emptyStyle = new Style { Fg = 11 };
+            _screen.PutString(x + 2, y + 1, _completionStatus, emptyStyle,
+                width - 4);
+            return;
+        }
+
+        var selectedStyle = new Style { Fg = 15, Bold = true, Reverse = true };
+        var itemStyle = new Style { Fg = 15 };
+
+        for (int row = 0; row < rows; ++row)
+        {
+            int index = _completionTop + row;
+            if (index >= _completionItems.Count)
+            {
+                break;
+            }
+
+            int screenRow = y + 1 + row;
+            Style style = index == _completionSelected ? selectedStyle : itemStyle;
+            _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
+            _screen.PutString(x + 2, screenRow, _completionItems[index], style,
+                width - 4);
+        }
+    }
+
     private void RenderSpaceMenu()
     {
         if (!_spaceMenuOpen)
@@ -5049,6 +5548,7 @@ public sealed partial class Editor
 
         RenderStatusLine();
         RenderBottomLine();
+        RenderCompletion();
         RenderSpaceMenu();
         RenderPicker();
         RenderHover();
