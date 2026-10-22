@@ -419,6 +419,9 @@ Shift+C
     Helix's "copy selection on next line". Repeating the shortcut adds
     one cursor per line below the existing cursors.
 
+,
+    Keep only the primary cursor and remove all additional cursors.
+
 
 ------------------------------
 INSERT MODE
@@ -1042,6 +1045,7 @@ PHASE 2: MODAL EDITING
     - GG, GE, GP.
     - Ctrl+C.
     - Shift+C multi-cursor selection.
+    - , to keep only the primary cursor.
     - Selection rendering.
     - Navigation history.
 

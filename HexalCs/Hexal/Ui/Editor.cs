@@ -776,6 +776,9 @@ public sealed partial class Editor
             case 'C':
                 AddCursorBelow();
                 return;
+            case ',':
+                KeepPrimarySelection();
+                return;
             default:
                 return;
         }
@@ -911,6 +914,9 @@ public sealed partial class Editor
                 return;
             case 'C':
                 AddCursorBelow();
+                return;
+            case ',':
+                KeepPrimarySelection();
                 return;
             case 'u':
                 CancelSelection();
@@ -2255,7 +2261,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | :w :wq :q :e :lang | u/Ctrl+R undo");
+                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | , keep cursor | :w :wq :q :e :lang | u/Ctrl+R undo");
                 return;
         }
 
@@ -3263,6 +3269,13 @@ public sealed partial class Editor
         }
 
         SetSelections(results);
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private void KeepPrimarySelection()
+    {
+        _extraSelections.Clear();
         _document.BreakUndoGroup();
         ClearMessage();
     }
