@@ -1,6 +1,7 @@
 *hexal_test*
 build/
 build-*/
+dist/
 out/
 cmake-build-*/
 *.o
