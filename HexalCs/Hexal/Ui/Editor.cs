@@ -3086,18 +3086,48 @@ public sealed partial class Editor
     private void DeleteAtCursor()
     {
         long line = CursorLine();
+        long begin = _document.LineStart(line);
         long end = _document.LineEnd(line);
         if (_cursor >= end)
         {
+            if (end == begin)
+            {
+                DeleteEmptyLine(line);
+            }
             return;
         }
 
         _document.BreakUndoGroup();
-        long begin = _document.LineStart(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         int local = (int)(_cursor - begin);
         int next = UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
         _document.Erase(_cursor, next - local);
+        _preferredColumnValid = false;
+        SnapCursor();
+    }
+
+    private void DeleteEmptyLine(long line)
+    {
+        long start = _document.LineStart(line);
+        _document.BreakUndoGroup();
+
+        if (line + 1 < _document.LineCount)
+        {
+            long nextStart = _document.LineStart(line + 1);
+            _document.Erase(start, nextStart - start);
+            _cursor = start;
+        }
+        else if (line > 0)
+        {
+            long previousEnd = _document.LineEnd(line - 1);
+            _document.Erase(previousEnd, start - previousEnd);
+            _cursor = previousEnd;
+        }
+        else
+        {
+            return;
+        }
+
         _preferredColumnValid = false;
         SnapCursor();
     }
@@ -4543,7 +4573,7 @@ public sealed partial class Editor
 
         int x = (_columns - width) / 2;
         int y = Math.Max(0, (available - height) / 2);
-        DrawBox(x, y, width, height, $"{_hoverTitle} (Esc to close)");
+        DrawBox(x, y, width, height, $"{_hoverTitle}");
 
         var style = new Style { Fg = 15 };
         int contentRows = Math.Max(0, height - 2);
