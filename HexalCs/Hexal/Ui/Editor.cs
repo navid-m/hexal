@@ -365,6 +365,7 @@ public sealed partial class Editor
             // report completion. Idle with no work uses a blocking read and
             // consumes no CPU.
             bool busy = _saveOperation is not null || _pickerTask is not null ||
+                        _pickerPreviewTask is not null ||
                         _lsp.IsRunning || _lspDirty;
             int timeout = busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
