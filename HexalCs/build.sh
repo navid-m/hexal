@@ -162,7 +162,7 @@ publish_release() {
     else
         gh release create latest "$archive" \
             --repo "$RELEASE_REPO" \
-            --title "Hexal latest builds" \
+            --title "Hexal Latest" \
             --notes "Automated newest build for macOS arm64, Linux x64 and Windows x64." \
             --latest
     fi
