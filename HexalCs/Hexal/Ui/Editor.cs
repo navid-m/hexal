@@ -69,6 +69,17 @@ public sealed partial class Editor
         "e", "w", "wq", "q", "lang", "help"
     };
 
+    private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["e"] = "Open a file in the current buffer.",
+            ["w"] = "Write the current buffer to disk, optionally to a new path.",
+            ["wq"] = "Write the current buffer, then quit when saving finishes.",
+            ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
+            ["lang"] = "Set the language grammar for the current buffer.",
+            ["help"] = "Show a short reminder of the available keys."
+        };
+
     private readonly ITerminal _terminal;
     private readonly Renderer _renderer = new();
     private readonly Screen _screen = new();
@@ -1574,6 +1585,75 @@ public sealed partial class Editor
 
     private static string QuoteCompletionPath(string path)
         => "\"" + path.Replace("\"", "\\\"") + "\"";
+
+    private string CommandDescription(string name)
+    {
+        if (BuiltinCommandDescriptions.TryGetValue(name, out string? description))
+        {
+            return description;
+        }
+
+        if (_plugins is not null &&
+            _plugins.TryGetCommandDescription(name, out description))
+        {
+            return description.Length > 0 ? description : "Plugin command.";
+        }
+
+        return string.Empty;
+    }
+
+    private static List<string> WrapText(string text, int width)
+    {
+        var lines = new List<string>();
+        if (width <= 0 || text.Length == 0)
+        {
+            return lines;
+        }
+
+        var current = new StringBuilder();
+        foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string remaining = word;
+            while (remaining.Length > width)
+            {
+                if (current.Length > 0)
+                {
+                    lines.Add(current.ToString());
+                    current.Clear();
+                }
+
+                lines.Add(remaining[..width]);
+                remaining = remaining[width..];
+            }
+
+            if (remaining.Length == 0)
+            {
+                continue;
+            }
+
+            if (current.Length == 0)
+            {
+                current.Append(remaining);
+            }
+            else if (current.Length + 1 + remaining.Length <= width)
+            {
+                current.Append(' ').Append(remaining);
+            }
+            else
+            {
+                lines.Add(current.ToString());
+                current.Clear();
+                current.Append(remaining);
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            lines.Add(current.ToString());
+        }
+
+        return lines;
+    }
 
     private List<string> FilterCommands(string filter)
     {
@@ -5681,8 +5761,8 @@ public sealed partial class Editor
             ? $"Files {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}"
             : $"Commands {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}";
 
-        int desiredWidth = Math.Max(title.Length + 4,
-            _completionStatus.Length + 4);
+        int desiredWidth = Math.Max(title.Length + 6,
+            _completionStatus.Length + 6);
         for (int row = 0; row < rows; ++row)
         {
             int index = _completionTop + row;
@@ -5694,8 +5774,29 @@ public sealed partial class Editor
                 _completionItems[index].Length + 4);
         }
 
+        string description = string.Empty;
+        string descriptionTitle = "Description";
+        if (_completionKind == CompletionKind.Commands &&
+            _completionItems.Count > 0)
+        {
+            int selectedIndex = Math.Clamp(_completionSelected, 0,
+                _completionItems.Count - 1);
+            string commandName = _completionItems[selectedIndex];
+            description = CommandDescription(commandName);
+            if (description.Length == 0)
+            {
+                description = "No description available.";
+            }
+            descriptionTitle = $" :{commandName} ";
+        }
+
         int x = BottomLinePadding;
         int width = Math.Min(_columns - 2, Math.Max(16, desiredWidth));
+        if (description.Length > 0 && _columns - 2 >= 16 + 1 + 20)
+        {
+            int maxWidthWithDescription = _columns - 2 - 21;
+            width = Math.Min(width, maxWidthWithDescription);
+        }
         if (width < 10)
         {
             return;
@@ -5733,6 +5834,36 @@ public sealed partial class Editor
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
             _screen.PutString(x + 2, screenRow, _completionItems[index], style,
                 width - 4);
+        }
+
+        if (description.Length > 0)
+        {
+            int descriptionX = x + width + 1;
+            int descriptionWidth = Math.Min(56, _columns - descriptionX - 1);
+            if (descriptionWidth >= 16)
+            {
+                List<string> descriptionLines = WrapText(description,
+                    descriptionWidth - 4);
+                int maxDescriptionRows = Math.Max(1, available - 2);
+                if (descriptionLines.Count > maxDescriptionRows)
+                {
+                    descriptionLines.RemoveRange(maxDescriptionRows,
+                        descriptionLines.Count - maxDescriptionRows);
+                }
+
+                int descriptionHeight = descriptionLines.Count + 2;
+                int descriptionY = Math.Max(0, available - descriptionHeight);
+                DrawBox(descriptionX, descriptionY, descriptionWidth,
+                    descriptionHeight, descriptionTitle);
+
+                var descriptionStyle = new Style { Fg = 15 };
+                for (int row = 0; row < descriptionLines.Count; ++row)
+                {
+                    _screen.PutString(descriptionX + 2,
+                        descriptionY + 1 + row, descriptionLines[row],
+                        descriptionStyle, descriptionWidth - 4);
+                }
+            }
         }
     }
 

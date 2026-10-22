@@ -155,6 +155,18 @@ public sealed class LuaPluginManager : IDisposable
 
     public IEnumerable<string> CommandNames => _commands.Keys;
 
+    public bool TryGetCommandDescription(string name, out string description)
+    {
+        if (_commands.TryGetValue(name, out PluginCommand? command))
+        {
+            description = command.Description;
+            return true;
+        }
+
+        description = string.Empty;
+        return false;
+    }
+
     public bool TryExecuteCommand(string name, IReadOnlyList<string> args,
         out string error)
     {
