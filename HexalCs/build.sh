@@ -15,10 +15,12 @@ OUTPUT_ROOT="dist"
 MODE="aot"
 RID=""
 OBFUSCATE=1
+PUBLISH=0
+RELEASE_REPO="${HEXAL_RELEASE_REPO:-navid-m/hexal-dist}"
 
 usage() {
     cat <<'EOF'
-Usage: ./build.sh [-s | -a] [-r RID] [-o DIR] [-n] [-h]
+Usage: ./build.sh [-s | -a | -p] [-r RID] [-o DIR] [-n] [-h]
 
   (no options)  NativeAOT publish for the current platform. The native
                 binary contains no managed IL, so it is not obfuscated.
@@ -28,9 +30,13 @@ Usage: ./build.sh [-s | -a] [-r RID] [-o DIR] [-n] [-h]
                 builds (not AOT), obfuscated, with one folder per platform:
                   osx-arm64, linux-x64, win-x64
                 and pack them into a single zip archive.
+  -p            Like -a, then upload the zip as the latest release of
+                navid-m/hexal-dist with the gh CLI. The download URL is
+                always:
+                  https://github.com/navid-m/hexal-dist/releases/latest/download/hexal-all-platforms.zip
   -r RID        Runtime identifier for -s / the default build
                 (default: detected from the host).
-  -o DIR        Output directory for -s / -a artifacts (default: dist).
+  -o DIR        Output directory for -s / -a / -p artifacts (default: dist).
   -n            Skip obfuscation (single-file modes only; for local testing).
   -h            Show this help.
 
@@ -39,6 +45,7 @@ Examples:
   ./build.sh -s            # obfuscated single-file build for this machine
   ./build.sh -a            # obfuscated builds for macOS arm64, Linux x64
                            # and Windows x64, all in one zip
+  ./build.sh -p            # same as -a, then publish the zip to GitHub
 EOF
 }
 
@@ -128,10 +135,47 @@ PY
     echo "Created $archive"
 }
 
-while getopts ":sar:o:nh" option; do
+publish_release() {
+    archive=$1
+
+    [ -f "$archive" ] || die "missing release archive: $archive"
+
+    if ! command -v gh >/dev/null 2>&1; then
+        die "-p requires the GitHub CLI (https://cli.github.com/)"
+    fi
+    if ! gh auth status >/dev/null 2>&1; then
+        die "gh is not authenticated; run 'gh auth login' first"
+    fi
+
+    # Keep one rolling "latest" release so the release download URL stays
+    # stable. Re-uploading with --clobber replaces the previous archive while
+    # --latest keeps GitHub's /releases/latest redirect pointing here.
+    echo "Publishing $archive to $RELEASE_REPO..."
+    if gh release view latest --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+        gh release upload latest "$archive" \
+            --repo "$RELEASE_REPO" \
+            --clobber
+        gh release edit latest \
+            --repo "$RELEASE_REPO" \
+            --notes "Automated newest build for macOS arm64, Linux x64 and Windows x64." \
+            --latest
+    else
+        gh release create latest "$archive" \
+            --repo "$RELEASE_REPO" \
+            --title "Hexal latest builds" \
+            --notes "Automated newest build for macOS arm64, Linux x64 and Windows x64." \
+            --latest
+    fi
+
+    echo "Release updated:"
+    echo "  https://github.com/$RELEASE_REPO/releases/latest/download/hexal-all-platforms.zip"
+}
+
+while getopts ":sapnr:o:h" option; do
     case "$option" in
         s) MODE="single" ;;
         a) MODE="all" ;;
+        p) MODE="all"; PUBLISH=1 ;;
         r) RID=$OPTARG ;;
         o) OUTPUT_ROOT=$OPTARG ;;
         n) OBFUSCATE=0 ;;
@@ -147,7 +191,11 @@ if [ "$#" -ne 0 ]; then
 fi
 
 if [ "$MODE" = "all" ] && [ -n "$RID" ]; then
-    die "-a publishes every supported platform; -r is only valid with -s"
+    die "-a and -p publish every supported platform; -r is only valid with -s"
+fi
+
+if [ "$PUBLISH" -eq 1 ] && [ "$MODE" != "all" ]; then
+    die "-p builds and uploads all platforms; it cannot be combined with -s"
 fi
 
 if [ "$MODE" = "aot" ]; then
@@ -198,3 +246,7 @@ echo "Published:"
 for folder in $folders; do
     echo "  $OUTPUT_ROOT/$folder"
 done
+
+if [ "$PUBLISH" -eq 1 ]; then
+    publish_release "$OUTPUT_ROOT/hexal-all-platforms.zip"
+fi
