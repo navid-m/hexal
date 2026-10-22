@@ -12,6 +12,7 @@ public sealed partial class Editor
     private const int TabWidth = 4;
     private const int BottomLinePadding = 1;
     private const int MouseScrollLines = 3;
+    private const int PickerPreviewDebounceMs = 80;
     private const int MaxFindMatches = 50000;
 
     private static readonly byte[] Lf = { (byte)'\n' };
@@ -131,6 +132,8 @@ public sealed partial class Editor
     private CancellationTokenSource? _pickerPreviewCancellation;
     private Task<PickerPreviewResult>? _pickerPreviewTask;
     private long _pickerPreviewGeneration;
+    private string _pickerPreviewPendingPath = string.Empty;
+    private long _pickerPreviewPendingAt;
 
     private readonly List<LspCodeAction> _codeActions = new();
     private bool _pendingCodeActionResolve;
@@ -364,10 +367,11 @@ public sealed partial class Editor
             // Pending background work needs a periodic wake-up so the UI can
             // report completion. Idle with no work uses a blocking read and
             // consumes no CPU.
+            bool previewPending = _pickerPreviewPendingPath.Length > 0;
             bool busy = _saveOperation is not null || _pickerTask is not null ||
-                        _pickerPreviewTask is not null ||
+                        _pickerPreviewTask is not null || previewPending ||
                         _lsp.IsRunning || _lspDirty;
-            int timeout = busy ? 50 : -1;
+            int timeout = previewPending ? 16 : busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
                 break;
@@ -2310,6 +2314,7 @@ public sealed partial class Editor
         _pickerPreviewPath = string.Empty;
         _pickerPreviewStatus = string.Empty;
         _pickerPreviewBinary = false;
+        _pickerPreviewPendingPath = string.Empty;
         _pendingG = false;
         _document.BreakUndoGroup();
         ClearMessage();
@@ -2350,6 +2355,7 @@ public sealed partial class Editor
         _pickerPreviewLines.Clear();
         _pickerPreviewPath = string.Empty;
         _pickerPreviewStatus = string.Empty;
+        _pickerPreviewPendingPath = string.Empty;
         _codeActions.Clear();
         _pendingCodeActionResolve = false;
         _pluginSelectTitle = string.Empty;
@@ -2727,10 +2733,18 @@ public sealed partial class Editor
             (_pickerPreviewLoading || _pickerPreviewStatus.Length > 0 ||
              _pickerPreviewLines.Count > 0))
         {
+            _pickerPreviewPendingPath = string.Empty;
             return;
         }
 
-        StartPickerPreviewLoad(item.Path);
+        if (PathsEqual(_pickerPreviewPendingPath, item.Path))
+        {
+            return;
+        }
+
+        CancelPickerPreview();
+        _pickerPreviewPendingPath = item.Path;
+        _pickerPreviewPendingAt = Environment.TickCount64;
     }
 
     private void StartPickerPreviewLoad(string path)
@@ -2761,10 +2775,30 @@ public sealed partial class Editor
         _pickerPreviewCancellation = null;
         _pickerPreviewTask = null;
         _pickerPreviewLoading = false;
+        _pickerPreviewPendingPath = string.Empty;
     }
 
     private bool PollPickerPreview()
     {
+        if (_pickerPreviewPendingPath.Length > 0)
+        {
+            if (Environment.TickCount64 - _pickerPreviewPendingAt <
+                PickerPreviewDebounceMs)
+            {
+                return false;
+            }
+
+            string pendingPath = _pickerPreviewPendingPath;
+            _pickerPreviewPendingPath = string.Empty;
+            if (_pickerKind == PickerKind.Files &&
+                _pickerSelected >= 0 && _pickerSelected < _pickerItems.Count &&
+                PathsEqual(_pickerItems[_pickerSelected].Path, pendingPath))
+            {
+                StartPickerPreviewLoad(pendingPath);
+                return true;
+            }
+        }
+
         Task<PickerPreviewResult>? task = _pickerPreviewTask;
         if (task is null || !task.IsCompleted)
         {
