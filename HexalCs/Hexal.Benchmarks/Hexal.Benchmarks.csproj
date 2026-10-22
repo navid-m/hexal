@@ -7,6 +7,7 @@
     <AssemblyName>hexal-benchmarks</AssemblyName>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>

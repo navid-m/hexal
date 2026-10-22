@@ -6,7 +6,8 @@
     <RootNamespace>Hexal</RootNamespace>
     <AssemblyName>hexal</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-
+    <SelfContained>true</SelfContained>
+    
     <!-- The editor is a single-threaded, latency-sensitive console application. -->
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
