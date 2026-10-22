@@ -29,7 +29,8 @@ public sealed partial class Editor
     {
         None,
         Quit,
-        Open
+        Open,
+        SidebarDelete
     }
 
     private enum PickerKind
@@ -435,8 +436,26 @@ public sealed partial class Editor
                 _pickerKind == PickerKind.None &&
                 _mode is Mode.Normal or Mode.Insert or Mode.Select)
             {
-                HandleEditorMouse(inputEvent);
+                if (_sidebarVisible && inputEvent.MouseX < SidebarWidth())
+                {
+                    HandleSidebarMouse(inputEvent);
+                }
+                else
+                {
+                    HandleEditorMouse(inputEvent);
+                }
             }
+            return _running;
+        }
+
+        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
+            inputEvent.Character.Value is 'b' or 'B' &&
+            _pickerKind == PickerKind.None &&
+            _prompt == PromptKind.None &&
+            !_spaceMenuOpen &&
+            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        {
+            ToggleSidebar();
             return _running;
         }
 
@@ -494,6 +513,10 @@ public sealed partial class Editor
             else if (_mode == Mode.Select)
             {
                 HandleSelect(inputEvent);
+            }
+            else if (_sidebarFocused && _sidebarVisible)
+            {
+                HandleSidebar(inputEvent);
             }
             else
             {
@@ -1753,8 +1776,9 @@ public sealed partial class Editor
     private bool TryOffsetAtScreen(int x, int y, out long offset)
     {
         offset = 0;
+        int localX = x - _editorLeft;
         int rows = TextRows();
-        if (rows <= 0 || y < 0 || y >= rows)
+        if (localX < 0 || rows <= 0 || y < 0 || y >= rows)
         {
             return false;
         }
@@ -1767,7 +1791,9 @@ public sealed partial class Editor
 
         int gutter = GutterWidth();
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-        long visual = x > gutter ? _leftColumn + (x - gutter) : 0;
+        long visual = localX > gutter
+            ? _leftColumn + (localX - gutter)
+            : 0;
         int local = UnicodeUtil.ByteOffsetForVisualColumn(
             _lineBuffer.AsSpan(0, length), visual, TabWidth);
         long start = _document.LineStart(line);
@@ -1782,6 +1808,7 @@ public sealed partial class Editor
         {
             _prompt = PromptKind.None;
             ClearPendingOpen();
+            ClearPendingSidebarDelete();
             SetMessage("Cancelled.");
             return;
         }
@@ -1809,6 +1836,13 @@ public sealed partial class Editor
                 ClearPendingOpen();
                 OpenPathAt(path, line, column);
             }
+            else if (kind == PromptKind.SidebarDelete)
+            {
+                string path = _pendingSidebarDeletePath;
+                bool isDirectory = _pendingSidebarDeleteDirectory;
+                ClearPendingSidebarDelete();
+                DeleteSidebarPath(path, isDirectory);
+            }
             return;
         }
 
@@ -1816,6 +1850,7 @@ public sealed partial class Editor
         {
             _prompt = PromptKind.None;
             ClearPendingOpen();
+            ClearPendingSidebarDelete();
             SetMessage("Cancelled.");
         }
     }
@@ -2900,7 +2935,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | Tab completes | u/Ctrl+R undo");
+                SetMessage("i insert | Esc normal | Ctrl+B sidebar | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | Tab completes | u/Ctrl+R undo");
                 return;
         }
 
@@ -4617,7 +4652,9 @@ public sealed partial class Editor
         }
 
         int gutter = GutterWidth();
-        int textWidth = _columns > gutter ? _columns - gutter : 1;
+        int textWidth = _columns > _editorLeft + gutter
+            ? _columns - _editorLeft - gutter
+            : 1;
         long column = CursorVisualColumn();
 
         if (column < _leftColumn)
@@ -4642,7 +4679,8 @@ public sealed partial class Editor
     {
         int digits = DigitCount(_document.LineCount);
         int gutter = digits + 1;
-        if (_columns < gutter + 10)
+        int available = _columns - _editorLeft;
+        if (available < gutter + 10)
         {
             return 0;
         }
@@ -4669,6 +4707,11 @@ public sealed partial class Editor
         if (_prompt != PromptKind.None)
         {
             return "CONFIRM";
+        }
+
+        if (_sidebarFocused && _sidebarVisible && _mode == Mode.Normal)
+        {
+            return "SIDEBAR";
         }
 
         return _mode switch
@@ -4760,19 +4803,19 @@ public sealed partial class Editor
                 style.Dim = true;
             }
 
-            _screen.PutInt(x, row, number, style, digits);
+            _screen.PutInt(_editorLeft + x, row, number, style, digits);
         }
     }
 
     private void RenderTextLines(long firstLine, int rows, int gutter)
     {
-        if (rows == 0 || _columns <= gutter)
+        if (rows == 0 || _columns <= _editorLeft + gutter)
         {
             return;
         }
 
         long total = _document.LineCount;
-        int textWidth = _columns - gutter;
+        int textWidth = _columns - _editorLeft - gutter;
 
         for (int row = 0; row < rows; ++row)
         {
@@ -4846,13 +4889,13 @@ public sealed partial class Editor
                     long visible = nextVisual - _leftColumn;
                     for (long i = 0; i < visible && i < textWidth; ++i)
                     {
-                        _screen.Put(gutter + (int)i, row, ' ', textStyle);
+                        _screen.Put(_editorLeft + gutter + (int)i, row, ' ', textStyle);
                     }
                     visual = nextVisual;
                     continue;
                 }
 
-                long screenX = gutter + (visual - _leftColumn);
+                long screenX = _editorLeft + gutter + (visual - _leftColumn);
                 if (screenX >= _columns)
                 {
                     break;
@@ -4892,7 +4935,8 @@ public sealed partial class Editor
 
     private void RenderSelection(long firstLine, int rows, int gutter)
     {
-        if (_mode != Mode.Select || rows <= 0 || _columns <= gutter)
+        if (_mode != Mode.Select || rows <= 0 ||
+            _columns <= _editorLeft + gutter)
         {
             return;
         }
@@ -4933,7 +4977,7 @@ public sealed partial class Editor
             {
                 if (selectionStart < nextLineStart && selectionEnd > lineStart)
                 {
-                    for (int x = gutter; x < _columns; ++x)
+                    for (int x = _editorLeft + gutter; x < _columns; ++x)
                     {
                         _screen.ApplyStyle(x, row, style);
                     }
@@ -4950,9 +4994,9 @@ public sealed partial class Editor
                 if (selectionStart == lineStart && selectionEnd > lineStart &&
                     lineEnd == lineStart)
                 {
-                    if (gutter < _columns)
+                    if (_editorLeft + gutter < _columns)
                     {
-                        _screen.ApplyStyle(gutter, row, style);
+                        _screen.ApplyStyle(_editorLeft + gutter, row, style);
                     }
                 }
                 continue;
@@ -4967,8 +5011,10 @@ public sealed partial class Editor
             long visualTo = UnicodeUtil.VisualColumn(
                 _lineBuffer.AsSpan(0, length), localTo, TabWidth);
 
-            long firstX = Math.Max(gutter, gutter + visualFrom - _leftColumn);
-            long lastX = Math.Min(_columns, gutter + visualTo - _leftColumn);
+            long firstX = Math.Max(_editorLeft + gutter,
+                _editorLeft + gutter + visualFrom - _leftColumn);
+            long lastX = Math.Min(_columns,
+                _editorLeft + gutter + visualTo - _leftColumn);
 
             for (long x = firstX; x < lastX; ++x)
             {
@@ -5000,7 +5046,7 @@ public sealed partial class Editor
             return;
         }
 
-        long x = gutter + (column - _leftColumn);
+        long x = _editorLeft + gutter + (column - _leftColumn);
         if (x >= _columns || row >= _rows)
         {
             return;
@@ -5157,9 +5203,15 @@ public sealed partial class Editor
 
         if (_prompt != PromptKind.None)
         {
-            string text = _prompt == PromptKind.Quit
-                ? "Unsaved changes. Quit without saving? (y/N)"
-                : $"Unsaved changes. Discard and open '{_pendingOpen}'? (y/N)";
+            string text = _prompt switch
+            {
+                PromptKind.Quit => "Unsaved changes. Quit without saving? (y/N)",
+                PromptKind.Open =>
+                    $"Unsaved changes. Discard and open '{_pendingOpen}'? (y/N)",
+                PromptKind.SidebarDelete =>
+                    $"Delete '{Path.GetFileName(_pendingSidebarDeletePath)}'? (y/N)",
+                _ => string.Empty
+            };
 
             var style = new Style { Fg = 11, Bold = true };
             _screen.PutString(BottomLinePadding, (int)y, text, style,
@@ -5692,6 +5744,7 @@ public sealed partial class Editor
         _screen.Resize(_columns, _rows);
         _screen.Clear();
 
+        UpdateEditorLeft();
         if (!_freeScroll)
         {
             EnsureCursorVisible();
@@ -5722,6 +5775,8 @@ public sealed partial class Editor
             RenderCursor(_topLine, rows, gutter);
         }
 
+        RenderSidebar();
+        RenderSidebarContextMenu();
         RenderStatusLine();
         RenderBottomLine();
         RenderCompletion();

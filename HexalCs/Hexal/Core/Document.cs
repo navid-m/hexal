@@ -58,6 +58,15 @@ public sealed class Document
 
     public bool HasFile => _path is not null;
 
+    /// <summary>
+    /// Updates the file associated with this buffer after an external rename.
+    /// The buffer contents and undo history are kept intact.
+    /// </summary>
+    public void ChangePath(string path)
+    {
+        _path = path;
+    }
+
     public bool IsDirty => _savedPose < 0 || _savedPose != _undo.Count;
 
     public string Eol => _eol;
