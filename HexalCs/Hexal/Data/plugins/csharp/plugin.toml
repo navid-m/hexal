@@ -1,4 +1,4 @@
 name = "C#"
-version = "1.0"
+version = "2.0"
 entry = "init.lua"
-description = "Language server association for C#"
+description = "Built-in C# language server implemented in Lua"
