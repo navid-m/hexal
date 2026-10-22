@@ -160,6 +160,7 @@ internal static class Program
               gp               Go to the previous location
               x / X            Select line; repeat to extend by one line
               v / V            Enter SELECT mode
+              %                Select the whole buffer
               d / D, Delete    Delete the character or selection
               u / Ctrl+R       Undo / redo
               :                Enter command mode

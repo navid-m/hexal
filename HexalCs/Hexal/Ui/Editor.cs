@@ -770,6 +770,9 @@ public sealed partial class Editor
             case 'V':
                 ForEachSelection(StartCharacterSelection);
                 return;
+            case '%':
+                SelectAll();
+                return;
             case 'x':
             case 'X':
                 ForEachSelection(StartLineSelection);
@@ -889,6 +892,9 @@ public sealed partial class Editor
 
         switch (inputEvent.Character.Value)
         {
+            case '%':
+                SelectAll();
+                return;
             case 'x':
             case 'X':
                 ForEachSelection(ExtendLineSelection);
@@ -2262,7 +2268,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | , keep cursor | :w :wq :q :e :lang | u/Ctrl+R undo");
+                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | u/Ctrl+R undo");
                 return;
         }
 
@@ -3170,6 +3176,24 @@ public sealed partial class Editor
         _selectionAnchor = _document.LineStart(CursorLine());
         _cursor = _selectionAnchor;
         _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    /// <summary>
+    /// Selects the whole buffer, entering SELECT mode if necessary. The cursor
+    /// moves to the end of the document so extending or shrinking the whole
+    /// buffer selection behaves like any other character-wise selection.
+    /// </summary>
+    private void SelectAll()
+    {
+        _mode = Mode.Select;
+        _selectionLinewise = false;
+        _selectionAnchor = 0;
+        _cursor = _document.Size;
+        _extraSelections.Clear();
+        _preferredColumnValid = false;
+        _pendingG = false;
         _document.BreakUndoGroup();
         ClearMessage();
     }
