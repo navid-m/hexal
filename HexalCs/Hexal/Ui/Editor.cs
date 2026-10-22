@@ -51,6 +51,7 @@ public sealed partial class Editor
     {
         None,
         Commands,
+        Arguments,
         Files
     }
 
@@ -69,7 +70,7 @@ public sealed partial class Editor
 
     private static readonly string[] BuiltinCommands =
     {
-        "e", "w", "wq", "q", "lang", "help"
+        "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -79,8 +80,13 @@ public sealed partial class Editor
             ["w"] = "Write the current buffer to disk, optionally to a new path.",
             ["wq"] = "Write the current buffer, then quit when saving finishes.",
             ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
+            ["fmt"] = "Format the current buffer with its language formatter.",
+            ["cfg"] = "Open (or create) the Hexal configuration file.",
+            ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
             ["lang"] = "Set the language grammar for the current buffer.",
-            ["help"] = "Show a short reminder of the available keys."
+            ["help"] = "Show a short reminder of the available keys.",
+            ["about"] = "Show information about Hexal itself.",
+            ["a"] = "Alias for :about."
         };
 
     private readonly ITerminal _terminal;
@@ -492,6 +498,12 @@ public sealed partial class Editor
 
         if (inputEvent.Key == Key.FocusOut)
         {
+            return _running;
+        }
+
+        if (_aboutVisible)
+        {
+            HandleAboutInput(inputEvent);
             return _running;
         }
 
@@ -1486,6 +1498,34 @@ public sealed partial class Editor
 
             return OpenCompletion(CompletionKind.Files, items,
                 prefix, line[tokenEnd..], quote, filter);
+        }
+
+        if (command is "lang")
+        {
+            int argumentStart = firstEnd;
+            while (argumentStart < line.Length &&
+                   char.IsWhiteSpace(line[argumentStart]))
+            {
+                ++argumentStart;
+            }
+
+            if (cursor < argumentStart)
+            {
+                cursor = argumentStart;
+            }
+
+            int tokenStart = Math.Clamp(argumentStart, 0, line.Length);
+            int tokenEnd = Math.Clamp(cursor, tokenStart, line.Length);
+            string filter = line[tokenStart..tokenEnd];
+
+            List<string> languages = _languages.Languages
+                .Select(language => language.Id)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return OpenCompletion(CompletionKind.Arguments,
+                FilterFiles(languages, filter), line[..tokenStart],
+                line[tokenEnd..], '\0', filter);
         }
 
         SetMessage("No completions available.");
@@ -3503,6 +3543,16 @@ public sealed partial class Editor
 
             case "help":
                 ShowHelpReminder();
+                return;
+
+            case "a":
+            case "about":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :about");
+                    return;
+                }
+                OpenAbout();
                 return;
         }
 
@@ -6222,9 +6272,15 @@ public sealed partial class Editor
         int maxTop = Math.Max(0, _completionItems.Count - rows);
         _completionTop = Math.Clamp(_completionTop, 0, maxTop);
 
-        string title = _completionKind == CompletionKind.Files
-            ? $"Files {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}"
-            : $"Commands {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}";
+        string title = _completionKind switch
+        {
+            CompletionKind.Files =>
+                $"Files {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}",
+            CompletionKind.Arguments =>
+                $"Values {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}",
+            _ =>
+                $"Commands {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}"
+        };
 
         int desiredWidth = Math.Max(title.Length + 6,
             _completionStatus.Length + 6);
@@ -6791,6 +6847,7 @@ public sealed partial class Editor
         RenderPicker();
         RenderFind();
         RenderHover();
+        RenderAbout();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

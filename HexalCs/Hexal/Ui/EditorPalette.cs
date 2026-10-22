@@ -57,6 +57,9 @@ public sealed partial class Editor
         AddPaletteCommand("Show key help",
             "Show a short reminder of the available keys.",
             ShowHelpReminder);
+        AddPaletteCommand("About Hexal",
+            "Show the Hexal title, author and ASCII branding.",
+            OpenAbout);
         AddPaletteCommand("Show LSP hover",
             "Show hover information at the cursor.",
             ShowHover);

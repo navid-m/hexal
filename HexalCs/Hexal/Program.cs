@@ -6,7 +6,7 @@ namespace Hexal;
 
 internal static class Program
 {
-    private const string Version = "0.1.0";
+    public const string Version = "0.1.0";
 
     public static int Main(string[] args) => RunHexal(args);
 
@@ -129,7 +129,7 @@ internal static class Program
     {
         Console.Out.Write(
             """
-            Hexal - modal text editor (MVP)
+            Hexal - modal text editor
 
             Usage:
               hexal [options] [file]
