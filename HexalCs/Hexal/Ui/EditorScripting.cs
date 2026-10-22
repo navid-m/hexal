@@ -696,7 +696,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         return _languages.Find(id);
     }
 
-    private static void AddHoverCodeLine(string line, LanguageDefinition? language,
+    private void AddHoverCodeLine(string line, LanguageDefinition? language,
         int width, List<HoverLine> destination, ref bool startInBlock)
     {
         if (line.Length == 0)

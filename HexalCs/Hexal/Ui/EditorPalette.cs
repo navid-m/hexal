@@ -296,6 +296,7 @@ public sealed partial class Editor
         ClearMessage();
         SetMessage(
             "Ctrl+P palette | i insert | Esc normal | / find | Ctrl+B sidebar | " +
-            "Ctrl+C comment | :w :wq :q :e :fmt :cfg | u/Ctrl+R undo");
+            "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
+            ":w :wq :q :e :fmt :cfg :s :t | u/Ctrl+R undo");
     }
 }

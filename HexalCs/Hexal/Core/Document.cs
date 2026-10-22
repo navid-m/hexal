@@ -17,6 +17,12 @@ public sealed class Document
     private const long Unreachable = -1;
 
     private static readonly byte[] BomBytes = { 0xEF, 0xBB, 0xBF };
+    private static readonly byte[] TabBytes = { (byte)'\t' };
+
+    public const int DefaultIndentWidth = 4;
+    public const int DefaultTabWidth = 4;
+    private const int MaxIndentWidth = 16;
+    private const int MaxTabWidth = 16;
 
     private enum GroupKind
     {
@@ -53,6 +59,8 @@ public sealed class Document
     private int _compositeDepth;
     private Group? _compositeGroup;
     private long _revision;
+    private int _indentWidth = DefaultIndentWidth;
+    private int _tabWidth = DefaultTabWidth;
 
     public string? Path => _path;
 
@@ -72,6 +80,99 @@ public sealed class Document
     public string Eol => _eol;
 
     public bool HasBom => _bom;
+
+    /// <summary>
+    /// The in-memory indentation style for this buffer. These settings are not
+    /// written to disk; they decide what the indent commands (<c>&gt;</c> and
+    /// <c>&lt;</c>) and the Tab key insert. See <see cref="SetIndentSpaces"/>
+    /// and <see cref="SetIndentTabs"/>.
+    /// </summary>
+    public bool UseTabs { get; private set; }
+
+    public int IndentWidth
+    {
+        get => _indentWidth;
+        set => _indentWidth = Math.Clamp(value, 1, MaxIndentWidth);
+    }
+
+    public int TabWidth
+    {
+        get => _tabWidth;
+        set => _tabWidth = Math.Clamp(value, 1, MaxTabWidth);
+    }
+
+    /// <summary>
+    /// Marks the buffer as space-indented and sets the number of spaces per
+    /// indent level.
+    /// </summary>
+    public void SetIndentSpaces(int width)
+    {
+        IndentWidth = width;
+        UseTabs = false;
+    }
+
+    /// <summary>
+    /// Marks the buffer as tab-indented. <paramref name="width"/> is the visual
+    /// width of a tab and also the number of columns removed by an unindent.
+    /// </summary>
+    public void SetIndentTabs(int width)
+    {
+        TabWidth = width;
+        IndentWidth = width;
+        UseTabs = true;
+    }
+
+    /// <summary>
+    /// The bytes inserted for one indent level: one tab or
+    /// <see cref="IndentWidth"/> spaces.
+    /// </summary>
+    public byte[] IndentUnit()
+    {
+        if (UseTabs)
+        {
+            return (byte[])TabBytes.Clone();
+        }
+
+        byte[] spaces = new byte[_indentWidth];
+        spaces.AsSpan().Fill((byte)' ');
+        return spaces;
+    }
+
+    /// <summary>
+    /// Returns how many bytes of leading whitespace form one indent level.
+    /// Tabs advance to the next tab stop and are consumed before any following
+    /// spaces, so a tab-indented line loses exactly one tab per unindent.
+    /// </summary>
+    public int UnindentLength(ReadOnlySpan<byte> text)
+    {
+        int offset = 0;
+        int columns = 0;
+
+        while (offset < text.Length && columns < _indentWidth)
+        {
+            if (text[offset] == (byte)'\t')
+            {
+                ++offset;
+                if (UseTabs)
+                {
+                    break;
+                }
+
+                columns += _tabWidth - (columns % _tabWidth);
+            }
+            else if (text[offset] == (byte)' ')
+            {
+                ++offset;
+                ++columns;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return offset;
+    }
 
     public long Size => _table.Size;
 

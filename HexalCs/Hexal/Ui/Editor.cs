@@ -9,7 +9,6 @@ namespace Hexal.Ui;
 
 public sealed partial class Editor
 {
-    private const int TabWidth = 4;
     private const int BottomLinePadding = 1;
     private const int MouseScrollLines = 3;
     private const int PickerPreviewDebounceMs = 80;
@@ -60,6 +59,7 @@ public sealed partial class Editor
         ('/', "Search across files"),
         ('f', "Open file picker"),
         ('y', "Yank selection to clipboard"),
+        ('X', "Cut selection to clipboard"),
         ('p', "Paste on the current line"),
         ('P', "Paste on a new line"),
         ('K', "LSP hover"),
@@ -70,7 +70,8 @@ public sealed partial class Editor
 
     private static readonly string[] BuiltinCommands =
     {
-        "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a"
+        "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
+        "s", "t"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -86,7 +87,9 @@ public sealed partial class Editor
             ["lang"] = "Set the language grammar for the current buffer.",
             ["help"] = "Show a short reminder of the available keys.",
             ["about"] = "Show information about Hexal itself.",
-            ["a"] = "Alias for :about."
+            ["a"] = "Alias for :about.",
+            ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
+            ["t"] = "Indent with tabs and set the visual tab width (:t <width>)."
         };
 
     private readonly ITerminal _terminal;
@@ -994,6 +997,12 @@ public sealed partial class Editor
             case 'X':
                 ForEachSelection(StartLineSelection);
                 return;
+            case '<':
+                IndentSelection(unindent: true);
+                return;
+            case '>':
+                IndentSelection(unindent: false);
+                return;
             case 'C':
                 AddCursorBelow();
                 return;
@@ -1127,6 +1136,12 @@ public sealed partial class Editor
             case 'D':
                 ForEachSelection(DeleteSelection, editing: true);
                 return;
+            case '<':
+                IndentSelection(unindent: true);
+                return;
+            case '>':
+                IndentSelection(unindent: false);
+                return;
             case 'h':
                 ForEachSelection(MoveLeft);
                 return;
@@ -1229,7 +1244,7 @@ public sealed partial class Editor
                 ForEachSelection(DeleteForward, editing: true);
                 return;
             case Key.Tab:
-                ForEachSelection(() => InsertCharacter(new Rune('\t')), editing: true);
+                ForEachSelection(InsertIndent, editing: true);
                 return;
         }
 
@@ -2107,6 +2122,10 @@ public sealed partial class Editor
             case 'y':
             case 'Y':
                 YankSelection();
+                return;
+            case 'x':
+            case 'X':
+                CutSelection();
                 return;
             case 'p':
                 PasteClipboard(newLine: false);
@@ -3541,6 +3560,14 @@ public sealed partial class Editor
                 FirePluginEvent("buffer_opened", CurrentBufferData());
                 return;
 
+            case "s":
+                SetIndentStyle(useTabs: false, arguments);
+                return;
+
+            case "t":
+                SetIndentStyle(useTabs: true, arguments);
+                return;
+
             case "help":
                 ShowHelpReminder();
                 return;
@@ -3576,6 +3603,40 @@ public sealed partial class Editor
         }
 
         SetError($"unknown command ':{command.Name}' (try :help)");
+    }
+
+    /// <summary>
+    /// Applies an indentation-style command. <c>:s [width]</c> registers the
+    /// buffer as space-indented; <c>:t [width]</c> registers it as
+    /// tab-indented and sets both the visual tab width and indent width.
+    /// </summary>
+    private void SetIndentStyle(bool useTabs, List<string> arguments)
+    {
+        string name = useTabs ? "t" : "s";
+        if (arguments.Count > 1)
+        {
+            SetError($"usage: :{name} [width]");
+            return;
+        }
+
+        int width = useTabs ? _document.TabWidth : _document.IndentWidth;
+        if (arguments.Count == 1 &&
+            (!int.TryParse(arguments[0], out width) || width < 1 || width > 16))
+        {
+            SetError($"invalid indent width '{arguments[0]}' (expected 1-16)");
+            return;
+        }
+
+        if (useTabs)
+        {
+            _document.SetIndentTabs(width);
+            SetMessage($"Indenting with tabs; tab width {_document.TabWidth}.");
+        }
+        else
+        {
+            _document.SetIndentSpaces(width);
+            SetMessage($"Indenting with {_document.IndentWidth} spaces.");
+        }
     }
 
     private static bool IsFutureCommand(string name)
@@ -4384,6 +4445,12 @@ public sealed partial class Editor
 
     private long CursorVisualColumn() => VisualColumnOfOffset(_cursor);
 
+    /// <summary>
+    /// Visual width of a tab in the current buffer. This is a document setting
+    /// so <c>:t &lt;width&gt;</c> can change it at runtime.
+    /// </summary>
+    private int TabWidth => _document.TabWidth;
+
     private int TextRows() => _rows > 2 ? _rows - 2 : 0;
 
     private long LineStartOfCursor() => _document.LineStart(CursorLine());
@@ -4662,6 +4729,20 @@ public sealed partial class Editor
         int length = UnicodeUtil.Encode(codePoint, text);
         _document.Insert(_cursor, text[..length]);
         _cursor += length;
+        SnapCursor();
+        _preferredColumnValid = false;
+        ClearMessage();
+    }
+
+    /// <summary>
+    /// Inserts one indent level using the buffer's registered style: a tab for
+    /// tab-indented buffers, or <see cref="Document.IndentWidth"/> spaces.
+    /// </summary>
+    private void InsertIndent()
+    {
+        byte[] unit = _document.IndentUnit();
+        _document.Insert(_cursor, unit);
+        _cursor += unit.Length;
         SnapCursor();
         _preferredColumnValid = false;
         ClearMessage();
@@ -4963,6 +5044,44 @@ public sealed partial class Editor
     }
 
     /// <summary>
+    /// Copies the active SELECT-mode range to the system clipboard, then
+    /// deletes it. The text is only removed after the copy succeeds so a
+    /// failed clipboard write cannot lose the selection.
+    /// </summary>
+    private void CutSelection()
+    {
+        if (_mode != Mode.Select)
+        {
+            SetMessage("Select text before cutting.");
+            return;
+        }
+
+        (long start, long end) = SelectionRange();
+        if (end <= start)
+        {
+            SetMessage("Nothing selected.");
+            return;
+        }
+
+        byte[] text = _document.Range(start, end - start);
+        if (!Clipboard.TryCopy(_terminal, text, out string error))
+        {
+            SetError(error);
+            return;
+        }
+
+        _document.BreakUndoGroup();
+        _document.Erase(start, end - start);
+        _cursor = Math.Clamp(start, 0, _document.Size);
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
+        _mode = Mode.Normal;
+        _preferredColumnValid = false;
+        SnapCursor();
+        SetMessage("Cut selection to the system clipboard.");
+    }
+
+    /// <summary>
     /// Inserts the system clipboard at each cursor. When a SELECT-mode range
     /// is active the pasted text replaces it, matching normal editor paste
     /// behaviour, and the cursor ends after the inserted text. With
@@ -5249,6 +5368,66 @@ public sealed partial class Editor
             PreferredColumnValid = true
         };
         return true;
+    }
+
+    /// <summary>
+    /// Indents or unindents every line touched by the active selection, or the
+    /// current line when nothing is selected. One indent level is a tab or the
+    /// buffer's configured number of spaces. All affected lines form a single
+    /// undo step and the selection is preserved.
+    /// </summary>
+    private void IndentSelection(bool unindent)
+    {
+        var lines = new SortedSet<long>();
+        bool selecting = _mode == Mode.Select;
+        foreach (Selection selection in CaptureAllSelections())
+        {
+            AddTouchedLines(lines, selection, selecting);
+        }
+
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var changes = new List<(long Offset, long Remove, byte[] Insert)>();
+        byte[] unit = _document.IndentUnit();
+
+        foreach (long line in lines)
+        {
+            long lineStart = _document.LineStart(line);
+            if (!unindent)
+            {
+                changes.Add((lineStart, 0, unit));
+                continue;
+            }
+
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            int remove = _document.UnindentLength(_lineBuffer.AsSpan(0, length));
+            if (remove > 0)
+            {
+                changes.Add((lineStart, remove, Array.Empty<byte>()));
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            SetMessage("Already at the left margin.");
+            return;
+        }
+
+        _document.BreakUndoGroup();
+        _document.BeginCompositeEdit();
+        try
+        {
+            ApplyCommentChanges(changes);
+        }
+        finally
+        {
+            _document.EndCompositeEdit();
+        }
+
+        ClearMessage();
     }
 
     private void ToggleComment()
@@ -6674,7 +6853,7 @@ public sealed partial class Editor
         }
     }
 
-    private static string ExpandPreviewLine(string line)
+    private string ExpandPreviewLine(string line)
     {
         var builder = new StringBuilder(line.Length + 8);
         int column = 0;

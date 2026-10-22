@@ -25,6 +25,7 @@ internal static class Program
         TestCommandParsing();
         TestDocumentLinesAndSaving();
         TestDocumentOpenNewFileAndBom();
+        TestDocumentIndentSettings();
         TestUndoRedo();
         TestCompositeUndo();
         TestSaveFailureLeavesOriginal();
@@ -489,6 +490,41 @@ internal static class Program
                     new byte[] { 0xEF, 0xBB, 0xBF, (byte)'h', (byte)'i', (byte)'\n' }),
                 "BOM preserved on save");
         }
+    }
+
+    private static void TestDocumentIndentSettings()
+    {
+        var document = new Document();
+
+        Check(!document.UseTabs, "documents default to spaces");
+        CheckEqual(document.IndentWidth, 4, "default indent width", "4");
+        CheckEqual(document.TabWidth, 4, "default tab width", "4");
+        CheckEqual(Text(document.IndentUnit()), "    ", "default indent unit",
+            "four spaces");
+
+        document.SetIndentTabs(8);
+        Check(document.UseTabs, "tabs registered");
+        CheckEqual(document.TabWidth, 8, "tab width set", "8");
+        CheckEqual(document.IndentWidth, 8, "tab mode indent width", "8");
+        CheckEqual(Text(document.IndentUnit()), "\t", "tab indent unit", "one tab");
+        CheckEqual(document.UnindentLength("\t    x"u8), 1,
+            "tab-indented line loses one tab", "1");
+        CheckEqual(document.UnindentLength("  x"u8), 2,
+            "tab mode still unindents spaces", "2");
+
+        document.SetIndentSpaces(4);
+        Check(!document.UseTabs, "spaces registered");
+        CheckEqual(document.TabWidth, 8, "space mode keeps visual tab width", "8");
+        CheckEqual(document.IndentWidth, 4, "space indent width set", "4");
+        CheckEqual(Text(document.IndentUnit()), "    ", "space indent unit",
+            "four spaces");
+        CheckEqual(document.UnindentLength("      x"u8), 4,
+            "space indentation trims one level", "4");
+        CheckEqual(document.UnindentLength("\tx"u8), 1,
+            "a leading tab counts as one level", "1");
+
+        document.SetIndentSpaces(0);
+        CheckEqual(document.IndentWidth, 1, "indent width is clamped", "1");
     }
 
     private static void TestUndoRedo()
