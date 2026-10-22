@@ -113,9 +113,28 @@ public sealed partial class Editor
     private bool _hoverRequestPending;
     private bool _codeActionRequestPending;
 
+    private sealed class Selection
+    {
+        public long Cursor;
+        public long Anchor;
+        public bool Linewise;
+        public long PreferredColumn;
+        public bool PreferredColumnValid;
+
+        public Selection Clone() => new()
+        {
+            Cursor = Cursor,
+            Anchor = Anchor,
+            Linewise = Linewise,
+            PreferredColumn = PreferredColumn,
+            PreferredColumnValid = PreferredColumnValid
+        };
+    }
+
     private long _cursor;
     private long _selectionAnchor;
     private bool _selectionLinewise;
+    private readonly List<Selection> _extraSelections = new();
     private long _topLine;
     private long _leftColumn;
     private long _preferredColumn;
@@ -490,6 +509,7 @@ public sealed partial class Editor
 
         _pendingG = false;
         _jumpHistory.Clear();
+        _extraSelections.Clear();
 
         long line = Math.Clamp(oldLine, 0, _document.LineCount - 1);
         long lineStart = _document.LineStart(line);
@@ -582,7 +602,7 @@ public sealed partial class Editor
             }
             else if (character == 'c')
             {
-                SetMessage("Use :q to quit.");
+                ToggleComment();
             }
             else if (character == 'w')
             {
@@ -605,11 +625,11 @@ public sealed partial class Editor
                 uint character = (uint)inputEvent.Character.Value;
                 if (character is 'g' or 'G')
                 {
-                    MoveToDocumentStart(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentStart(recordJump: true));
                 }
                 else if (character is 'e' or 'E')
                 {
-                    MoveToDocumentEnd(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentEnd(recordJump: true));
                 }
                 else if (character is 'p' or 'P')
                 {
@@ -622,41 +642,41 @@ public sealed partial class Editor
         switch (inputEvent.Key)
         {
             case Key.Left:
-                MoveLeft();
+                ForEachSelection(MoveLeft);
                 return;
             case Key.Right:
-                MoveRight();
+                ForEachSelection(MoveRight);
                 return;
             case Key.Up:
-                MoveVertical(-1);
+                ForEachSelection(() => MoveVertical(-1));
                 return;
             case Key.Down:
-                MoveVertical(1);
+                ForEachSelection(() => MoveVertical(1));
                 return;
             case Key.PageUp:
-                MovePage(-1);
+                ForEachSelection(() => MovePage(-1));
                 return;
             case Key.PageDown:
-                MovePage(1);
+                ForEachSelection(() => MovePage(1));
                 return;
             case Key.Home:
                 if (inputEvent.Ctrl)
                 {
-                    MoveToDocumentStart(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentStart(recordJump: true));
                 }
                 else
                 {
-                    MoveTo(LineStartOfCursor(), recordJump: false);
+                    ForEachSelection(() => MoveTo(LineStartOfCursor(), recordJump: false));
                 }
                 return;
             case Key.End:
                 if (inputEvent.Ctrl)
                 {
-                    MoveToDocumentEnd(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentEnd(recordJump: true));
                 }
                 else
                 {
-                    MoveTo(LineEndOfCursor(), recordJump: false);
+                    ForEachSelection(() => MoveTo(LineEndOfCursor(), recordJump: false));
                 }
                 return;
             case Key.Escape:
@@ -666,7 +686,7 @@ public sealed partial class Editor
                 ClearMessage();
                 return;
             case Key.Delete:
-                DeleteAtCursor();
+                ForEachSelection(DeleteAtCursor, editing: true);
                 return;
         }
 
@@ -693,46 +713,50 @@ public sealed partial class Editor
                 EnterInsert();
                 return;
             case 'a':
-            {
-                long end = LineEndOfCursor();
-                if (_cursor < end)
+                ForEachSelection(() =>
                 {
-                    long line = CursorLine();
-                    long begin = _document.LineStart(line);
-                    int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-                    int local = (int)(_cursor - begin);
-                    _cursor = begin +
-                              UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
-                }
-                EnterInsert();
+                    long end = LineEndOfCursor();
+                    if (_cursor < end)
+                    {
+                        long line = CursorLine();
+                        long begin = _document.LineStart(line);
+                        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+                        int local = (int)(_cursor - begin);
+                        _cursor = begin +
+                                  UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
+                    }
+                    EnterInsert();
+                });
                 return;
-            }
             case 'A':
-                _cursor = LineEndOfCursor();
-                _preferredColumnValid = false;
-                EnterInsert();
+                ForEachSelection(() =>
+                {
+                    _cursor = LineEndOfCursor();
+                    _preferredColumnValid = false;
+                    EnterInsert();
+                });
                 return;
             case 'o':
-                InsertNewlineBelow();
+                ForEachSelection(InsertNewlineBelow, editing: true);
                 return;
             case 'O':
-                InsertNewlineAbove();
+                ForEachSelection(InsertNewlineAbove, editing: true);
                 return;
             case 'h':
-                MoveLeft();
+                ForEachSelection(MoveLeft);
                 return;
             case 'l':
-                MoveRight();
+                ForEachSelection(MoveRight);
                 return;
             case 'j':
-                MoveVertical(1);
+                ForEachSelection(() => MoveVertical(1));
                 return;
             case 'k':
-                MoveVertical(-1);
+                ForEachSelection(() => MoveVertical(-1));
                 return;
             case 'd':
             case 'D':
-                DeleteAtCursor();
+                ForEachSelection(DeleteAtCursor, editing: true);
                 return;
             case 'u':
                 Undo();
@@ -743,14 +767,14 @@ public sealed partial class Editor
                 return;
             case 'v':
             case 'V':
-                StartCharacterSelection();
+                ForEachSelection(StartCharacterSelection);
                 return;
             case 'x':
             case 'X':
-                StartLineSelection();
+                ForEachSelection(StartLineSelection);
                 return;
             case 'C':
-                SetMessage("Line commenting is planned for Phase 4 and is not in this MVP.");
+                AddCursorBelow();
                 return;
             default:
                 return;
@@ -771,6 +795,10 @@ public sealed partial class Editor
                 CancelSelection();
                 Redo();
             }
+            else if (inputEvent.Character.Value == 'c')
+            {
+                ToggleComment();
+            }
             return;
         }
 
@@ -788,11 +816,11 @@ public sealed partial class Editor
                 uint character = (uint)inputEvent.Character.Value;
                 if (character is 'g' or 'G')
                 {
-                    MoveToDocumentStart(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentStart(recordJump: true));
                 }
                 else if (character is 'e' or 'E')
                 {
-                    MoveToDocumentEnd(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentEnd(recordJump: true));
                 }
                 else if (character is 'p' or 'P')
                 {
@@ -805,48 +833,48 @@ public sealed partial class Editor
         switch (inputEvent.Key)
         {
             case Key.Left:
-                MoveLeft();
+                ForEachSelection(MoveLeft);
                 return;
             case Key.Right:
-                MoveRight();
+                ForEachSelection(MoveRight);
                 return;
             case Key.Up:
-                MoveVertical(-1);
+                ForEachSelection(() => MoveVertical(-1));
                 return;
             case Key.Down:
-                MoveVertical(1);
+                ForEachSelection(() => MoveVertical(1));
                 return;
             case Key.PageUp:
-                MovePage(-1);
+                ForEachSelection(() => MovePage(-1));
                 return;
             case Key.PageDown:
-                MovePage(1);
+                ForEachSelection(() => MovePage(1));
                 return;
             case Key.Home:
                 if (inputEvent.Ctrl)
                 {
-                    MoveToDocumentStart(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentStart(recordJump: true));
                 }
                 else
                 {
-                    MoveTo(LineStartOfCursor(), recordJump: false);
+                    ForEachSelection(() => MoveTo(LineStartOfCursor(), recordJump: false));
                 }
                 return;
             case Key.End:
                 if (inputEvent.Ctrl)
                 {
-                    MoveToDocumentEnd(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentEnd(recordJump: true));
                 }
                 else
                 {
-                    MoveTo(LineEndOfCursor(), recordJump: false);
+                    ForEachSelection(() => MoveTo(LineEndOfCursor(), recordJump: false));
                 }
                 return;
             case Key.Escape:
                 CancelSelection();
                 return;
             case Key.Delete:
-                DeleteSelection();
+                ForEachSelection(DeleteSelection, editing: true);
                 return;
         }
 
@@ -859,27 +887,30 @@ public sealed partial class Editor
         {
             case 'x':
             case 'X':
-                ExtendLineSelection();
+                ForEachSelection(ExtendLineSelection);
                 return;
             case 'd':
             case 'D':
-                DeleteSelection();
+                ForEachSelection(DeleteSelection, editing: true);
                 return;
             case 'h':
-                MoveLeft();
+                ForEachSelection(MoveLeft);
                 return;
             case 'l':
-                MoveRight();
+                ForEachSelection(MoveRight);
                 return;
             case 'j':
-                MoveVertical(1);
+                ForEachSelection(() => MoveVertical(1));
                 return;
             case 'k':
-                MoveVertical(-1);
+                ForEachSelection(() => MoveVertical(-1));
                 return;
             case 'g':
             case 'G':
                 _pendingG = true;
+                return;
+            case 'C':
+                AddCursorBelow();
                 return;
             case 'u':
                 CancelSelection();
@@ -914,60 +945,60 @@ public sealed partial class Editor
         switch (inputEvent.Key)
         {
             case Key.Left:
-                MoveLeft();
+                ForEachSelection(MoveLeft);
                 return;
             case Key.Right:
-                MoveRight();
+                ForEachSelection(MoveRight);
                 return;
             case Key.Up:
-                MoveVertical(-1);
+                ForEachSelection(() => MoveVertical(-1));
                 return;
             case Key.Down:
-                MoveVertical(1);
+                ForEachSelection(() => MoveVertical(1));
                 return;
             case Key.PageUp:
-                MovePage(-1);
+                ForEachSelection(() => MovePage(-1));
                 return;
             case Key.PageDown:
-                MovePage(1);
+                ForEachSelection(() => MovePage(1));
                 return;
             case Key.Home:
                 if (inputEvent.Ctrl)
                 {
-                    MoveToDocumentStart(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentStart(recordJump: true));
                 }
                 else
                 {
-                    MoveTo(LineStartOfCursor(), recordJump: false);
+                    ForEachSelection(() => MoveTo(LineStartOfCursor(), recordJump: false));
                 }
                 return;
             case Key.End:
                 if (inputEvent.Ctrl)
                 {
-                    MoveToDocumentEnd(recordJump: true);
+                    ForEachSelection(() => MoveToDocumentEnd(recordJump: true));
                 }
                 else
                 {
-                    MoveTo(LineEndOfCursor(), recordJump: false);
+                    ForEachSelection(() => MoveTo(LineEndOfCursor(), recordJump: false));
                 }
                 return;
             case Key.Enter:
-                InsertNewline();
+                ForEachSelection(InsertNewline, editing: true);
                 return;
             case Key.Backspace:
-                Backspace();
+                ForEachSelection(Backspace, editing: true);
                 return;
             case Key.Delete:
-                DeleteForward();
+                ForEachSelection(DeleteForward, editing: true);
                 return;
             case Key.Tab:
-                InsertCharacter(new Rune('\t'));
+                ForEachSelection(() => InsertCharacter(new Rune('\t')), editing: true);
                 return;
         }
 
         if (inputEvent.Key == Key.Character && !inputEvent.Ctrl && !inputEvent.Alt)
         {
-            InsertCharacter(inputEvent.Character);
+            ForEachSelection(() => InsertCharacter(inputEvent.Character), editing: true);
         }
     }
 
@@ -2224,7 +2255,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | :w :wq :q :e :lang | u/Ctrl+R undo | gg/ge/gp");
+                SetMessage("i insert | Esc normal | Ctrl+C comment | Shift+C add cursor | :w :wq :q :e :lang | u/Ctrl+R undo");
                 return;
         }
 
@@ -2503,6 +2534,7 @@ public sealed partial class Editor
         _leftColumn = 0;
         _preferredColumnValid = false;
         _selectionLinewise = false;
+        _extraSelections.Clear();
         _jumpHistory.Clear();
         _pendingG = false;
         _mode = Mode.Normal;
@@ -2556,7 +2588,10 @@ public sealed partial class Editor
         }
 
         _cursor = hint.Value;
+        _extraSelections.Clear();
         SnapCursor();
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
         _preferredColumnValid = false;
         _document.BreakUndoGroup();
         ClearMessage();
@@ -2573,7 +2608,10 @@ public sealed partial class Editor
         }
 
         _cursor = hint.Value;
+        _extraSelections.Clear();
         SnapCursor();
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
         _preferredColumnValid = false;
         _document.BreakUndoGroup();
         ClearMessage();
@@ -2583,16 +2621,182 @@ public sealed partial class Editor
     // NAVIGATION
     // -----------------------------------------------------------------------
 
-    private long CursorLine() => _document.LineOfOffset(_cursor);
-
-    private long CursorVisualColumn()
+    private Selection CapturePrimarySelection() => new()
     {
-        long line = CursorLine();
+        Cursor = _cursor,
+        Anchor = _selectionAnchor,
+        Linewise = _selectionLinewise,
+        PreferredColumn = _preferredColumn,
+        PreferredColumnValid = _preferredColumnValid
+    };
+
+    private void LoadSelection(Selection selection)
+    {
+        _cursor = selection.Cursor;
+        _selectionAnchor = selection.Anchor;
+        _selectionLinewise = selection.Linewise;
+        _preferredColumn = selection.PreferredColumn;
+        _preferredColumnValid = selection.PreferredColumnValid;
+    }
+
+    private List<Selection> CaptureAllSelections()
+    {
+        var selections = new List<Selection>(_extraSelections.Count + 1)
+        {
+            CapturePrimarySelection()
+        };
+        foreach (Selection selection in _extraSelections)
+        {
+            selections.Add(selection.Clone());
+        }
+        return selections;
+    }
+
+    private void SetSelections(IReadOnlyList<Selection> selections)
+    {
+        if (selections.Count == 0)
+        {
+            return;
+        }
+
+        Selection primary = selections[0];
+        _cursor = SnapOffset(primary.Cursor);
+        _selectionAnchor = SnapOffset(primary.Anchor);
+        _selectionLinewise = primary.Linewise;
+        _preferredColumn = primary.PreferredColumn;
+        _preferredColumnValid = primary.PreferredColumnValid;
+
+        _extraSelections.Clear();
+        var seen = new HashSet<long> { _cursor };
+        for (int i = 1; i < selections.Count; ++i)
+        {
+            Selection source = selections[i];
+            var selection = new Selection
+            {
+                Cursor = SnapOffset(source.Cursor),
+                Anchor = SnapOffset(source.Anchor),
+                Linewise = source.Linewise,
+                PreferredColumn = source.PreferredColumn,
+                PreferredColumnValid = source.PreferredColumnValid
+            };
+
+            if (seen.Add(selection.Cursor))
+            {
+                _extraSelections.Add(selection);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs an action once for every selection, restoring the primary and
+    /// secondary selections afterwards. Edits are applied from the highest
+    /// offset to the lowest so earlier edits remain valid.
+    /// </summary>
+    private void ForEachSelection(Action action, bool editing = false)
+    {
+        List<Selection> selections = CaptureAllSelections();
+        if (selections.Count == 1)
+        {
+            LoadSelection(selections[0]);
+            action();
+            return;
+        }
+
+        var results = new Selection[selections.Count];
+        int[] order = new int[selections.Count];
+        for (int i = 0; i < order.Length; ++i)
+        {
+            order[i] = i;
+        }
+
+        Mode modeBefore = _mode;
+        if (editing)
+        {
+            Array.Sort(order, (left, right) =>
+                selections[right].Cursor.CompareTo(selections[left].Cursor));
+            _document.BeginCompositeEdit();
+        }
+
+        try
+        {
+            foreach (int index in order)
+            {
+                LoadSelection(selections[index]);
+                _mode = modeBefore;
+                long revisionBefore = _document.Revision;
+                action();
+
+                if (editing && _document.Revision != revisionBefore)
+                {
+                    // This edit is at a lower offset than the selections
+                    // already processed, so shift their saved positions.
+                    long offset = _document.LastChangeOffset;
+                    long removed = _document.LastChangeRemoved;
+                    long inserted = _document.LastChangeInserted;
+                    for (int i = 0; i < results.Length; ++i)
+                    {
+                        Selection? result = results[i];
+                        if (result is null)
+                        {
+                            continue;
+                        }
+
+                        result.Cursor = AdjustOffset(result.Cursor, offset,
+                            removed, inserted);
+                        result.Anchor = AdjustOffset(result.Anchor, offset,
+                            removed, inserted);
+                    }
+                }
+
+                results[index] = CapturePrimarySelection();
+            }
+        }
+        finally
+        {
+            if (editing)
+            {
+                _document.EndCompositeEdit();
+            }
+        }
+
+        SetSelections(results);
+    }
+
+    private long SnapOffset(long offset)
+    {
+        if (offset > _document.Size)
+        {
+            offset = _document.Size;
+        }
+
+        long line = _document.LineOfOffset(offset);
+        long begin = _document.LineStart(line);
+        long end = _document.LineEnd(line);
+
+        if (offset < begin)
+        {
+            offset = begin;
+        }
+        else if (offset > end)
+        {
+            offset = end;
+        }
+
+        return offset;
+    }
+
+    private long VisualColumnOfOffset(long offset)
+    {
+        long line = _document.LineOfOffset(offset);
         long begin = _document.LineStart(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         return UnicodeUtil.VisualColumn(_lineBuffer.AsSpan(0, length),
-            (int)(_cursor - begin), TabWidth);
+            (int)(offset - begin), TabWidth);
     }
+
+    private long CursorLine() => _document.LineOfOffset(_cursor);
+
+    private long CursorVisualColumn() => VisualColumnOfOffset(_cursor);
 
     private int TextRows() => _rows > 2 ? _rows - 2 : 0;
 
@@ -2602,23 +2806,7 @@ public sealed partial class Editor
 
     private void SnapCursor()
     {
-        if (_cursor > _document.Size)
-        {
-            _cursor = _document.Size;
-        }
-
-        long line = _document.LineOfOffset(_cursor);
-        long begin = _document.LineStart(line);
-        long end = _document.LineEnd(line);
-
-        if (_cursor < begin)
-        {
-            _cursor = begin;
-        }
-        else if (_cursor > end)
-        {
-            _cursor = end;
-        }
+        _cursor = SnapOffset(_cursor);
     }
 
     private void MoveLeft()
@@ -2959,6 +3147,11 @@ public sealed partial class Editor
         _mode = Mode.Normal;
         _selectionLinewise = false;
         _selectionAnchor = _cursor;
+        foreach (Selection selection in _extraSelections)
+        {
+            selection.Linewise = false;
+            selection.Anchor = selection.Cursor;
+        }
         _pendingG = false;
         _document.BreakUndoGroup();
         ClearMessage();
@@ -2993,11 +3186,15 @@ public sealed partial class Editor
     /// the final line's terminator when one exists.
     /// </summary>
     private (long Start, long End) SelectionRange()
+        => SelectionRange(_selectionAnchor, _cursor, _selectionLinewise);
+
+    private (long Start, long End) SelectionRange(long anchor, long cursor,
+        bool linewise)
     {
-        if (_selectionLinewise)
+        if (linewise)
         {
-            long anchorLine = _document.LineOfOffset(_selectionAnchor);
-            long cursorLine = CursorLine();
+            long anchorLine = _document.LineOfOffset(anchor);
+            long cursorLine = _document.LineOfOffset(cursor);
             long firstLine = Math.Min(anchorLine, cursorLine);
             long lastLine = Math.Max(anchorLine, cursorLine);
             long start = _document.LineStart(firstLine);
@@ -3007,8 +3204,8 @@ public sealed partial class Editor
             return (start, end);
         }
 
-        long rangeStart = Math.Min(_selectionAnchor, _cursor);
-        long rangeEnd = Math.Max(_selectionAnchor, _cursor);
+        long rangeStart = Math.Min(anchor, cursor);
+        long rangeEnd = Math.Max(anchor, cursor);
 
         if (rangeEnd < _document.Size)
         {
@@ -3033,6 +3230,357 @@ public sealed partial class Editor
         }
 
         return (rangeStart, rangeEnd);
+    }
+
+    // -----------------------------------------------------------------------
+    // MULTI-CURSOR AND COMMENTS
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Adds a cursor on the next line at the same visual column, mirroring
+    /// Helix's "copy selection on next line". Repeated presses therefore add
+    /// one cursor per line below the existing block of cursors.
+    /// </summary>
+    private void AddCursorBelow()
+    {
+        List<Selection> selections = CaptureAllSelections();
+        var results = new List<Selection>(selections);
+        bool added = false;
+
+        foreach (Selection source in selections)
+        {
+            if (TryCreateSelectionBelow(source, out Selection created))
+            {
+                results.Add(created);
+                added = true;
+            }
+        }
+
+        if (!added)
+        {
+            SetMessage("Already at the last line.");
+            return;
+        }
+
+        SetSelections(results);
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private bool TryCreateSelectionBelow(Selection source, out Selection created)
+    {
+        created = null!;
+
+        long sourceLine = _document.LineOfOffset(source.Cursor);
+        if (sourceLine + 1 >= _document.LineCount)
+        {
+            return false;
+        }
+
+        long targetLine = sourceLine + 1;
+        long targetStart = _document.LineStart(targetLine);
+        int targetLength = _document.CopyLineText(targetLine, ref _lineBuffer, out _);
+        long cursorColumn = VisualColumnOfOffset(source.Cursor);
+
+        long targetCursor = targetStart + UnicodeUtil.ByteOffsetForVisualColumn(
+            _lineBuffer.AsSpan(0, targetLength), cursorColumn, TabWidth);
+        long targetAnchor = targetCursor;
+
+        if (_mode == Mode.Select && source.Anchor != source.Cursor &&
+            _document.LineOfOffset(source.Anchor) == sourceLine)
+        {
+            long anchorColumn = VisualColumnOfOffset(source.Anchor);
+            targetAnchor = targetStart + UnicodeUtil.ByteOffsetForVisualColumn(
+                _lineBuffer.AsSpan(0, targetLength), anchorColumn, TabWidth);
+        }
+
+        created = new Selection
+        {
+            Cursor = targetCursor,
+            Anchor = targetAnchor,
+            Linewise = source.Linewise,
+            PreferredColumn = cursorColumn,
+            PreferredColumnValid = true
+        };
+        return true;
+    }
+
+    private void ToggleComment()
+    {
+        string? lineComment = _language?.LineComment;
+        string blockStart = _language?.BlockCommentStart ?? string.Empty;
+        string blockEnd = _language?.BlockCommentEnd ?? string.Empty;
+
+        if (string.IsNullOrEmpty(lineComment) &&
+            (blockStart.Length == 0 || blockEnd.Length == 0))
+        {
+            SetError("No comment syntax is available for this language.");
+            return;
+        }
+
+        var lines = new SortedSet<long>();
+        bool selecting = _mode == Mode.Select;
+        foreach (Selection selection in CaptureAllSelections())
+        {
+            AddTouchedLines(lines, selection, selecting);
+        }
+
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        _document.BreakUndoGroup();
+        _document.BeginCompositeEdit();
+        try
+        {
+            if (!string.IsNullOrEmpty(lineComment))
+            {
+                ToggleLineComments(lines, lineComment);
+            }
+            else
+            {
+                ToggleBlockComments(lines, blockStart, blockEnd);
+            }
+        }
+        finally
+        {
+            _document.EndCompositeEdit();
+        }
+
+        ClearMessage();
+    }
+
+    private void AddTouchedLines(SortedSet<long> lines, Selection selection,
+        bool selecting)
+    {
+        if (!selecting || selection.Anchor == selection.Cursor)
+        {
+            lines.Add(_document.LineOfOffset(selection.Cursor));
+            return;
+        }
+
+        long start = Math.Min(selection.Anchor, selection.Cursor);
+        long end = Math.Max(selection.Anchor, selection.Cursor);
+        long firstLine;
+        long lastLine;
+
+        if (selection.Linewise)
+        {
+            firstLine = Math.Min(
+                _document.LineOfOffset(selection.Anchor),
+                _document.LineOfOffset(selection.Cursor));
+            lastLine = Math.Max(
+                _document.LineOfOffset(selection.Anchor),
+                _document.LineOfOffset(selection.Cursor));
+        }
+        else
+        {
+            firstLine = _document.LineOfOffset(start);
+            lastLine = end > start
+                ? _document.LineOfOffset(end - 1)
+                : firstLine;
+        }
+
+        for (long line = firstLine; line <= lastLine; ++line)
+        {
+            lines.Add(line);
+        }
+    }
+
+    private static int IndentLength(ReadOnlySpan<byte> text)
+    {
+        int offset = 0;
+        while (offset < text.Length &&
+               (text[offset] == (byte)' ' || text[offset] == (byte)'\t'))
+        {
+            ++offset;
+        }
+        return offset;
+    }
+
+    private static int TrimTrailingWhitespace(ReadOnlySpan<byte> text, int minimum)
+    {
+        int end = text.Length;
+        while (end > minimum &&
+               (text[end - 1] == (byte)' ' || text[end - 1] == (byte)'\t'))
+        {
+            --end;
+        }
+        return end;
+    }
+
+    private static bool StartsWith(ReadOnlySpan<byte> text,
+        ReadOnlySpan<byte> prefix)
+        => prefix.Length > 0 && text.Length >= prefix.Length &&
+           text[..prefix.Length].SequenceEqual(prefix);
+
+    private static bool EndsWith(ReadOnlySpan<byte> text,
+        ReadOnlySpan<byte> suffix)
+        => suffix.Length > 0 && text.Length >= suffix.Length &&
+           text[^suffix.Length..].SequenceEqual(suffix);
+
+    private void ToggleLineComments(SortedSet<long> lines, string marker)
+    {
+        byte[] markerBytes = Encoding.UTF8.GetBytes(marker);
+        bool allCommented = true;
+
+        foreach (long line in lines)
+        {
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
+            int indent = IndentLength(text);
+            if (!StartsWith(text[indent..], markerBytes))
+            {
+                allCommented = false;
+                break;
+            }
+        }
+
+        var changes = new List<(long Offset, long Remove, byte[] Insert)>();
+        foreach (long line in lines)
+        {
+            long lineStart = _document.LineStart(line);
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            int indent = IndentLength(_lineBuffer.AsSpan(0, length));
+
+            if (allCommented)
+            {
+                int remove = markerBytes.Length;
+                int after = indent + remove;
+                if (after < length && _lineBuffer[after] == (byte)' ')
+                {
+                    ++remove;
+                }
+                changes.Add((lineStart + indent, remove, Array.Empty<byte>()));
+            }
+            else
+            {
+                var insert = new List<byte>(markerBytes);
+                if (indent < length)
+                {
+                    insert.Add((byte)' ');
+                }
+                changes.Add((lineStart + indent, 0, insert.ToArray()));
+            }
+        }
+
+        ApplyCommentChanges(changes);
+    }
+
+    private void ToggleBlockComments(SortedSet<long> lines, string start,
+        string end)
+    {
+        byte[] startBytes = Encoding.UTF8.GetBytes(start);
+        byte[] endBytes = Encoding.UTF8.GetBytes(end);
+        bool allBlocked = true;
+
+        foreach (long line in lines)
+        {
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
+            int indent = IndentLength(text);
+            int contentEnd = TrimTrailingWhitespace(text, indent);
+            if (contentEnd <= indent ||
+                !StartsWith(text[indent..contentEnd], startBytes) ||
+                !EndsWith(text[indent..contentEnd], endBytes))
+            {
+                allBlocked = false;
+                break;
+            }
+        }
+
+        var changes = new List<(long Offset, long Remove, byte[] Insert)>();
+        foreach (long line in lines)
+        {
+            long lineStart = _document.LineStart(line);
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
+            int indent = IndentLength(text);
+            int contentEnd = TrimTrailingWhitespace(text, indent);
+
+            if (allBlocked)
+            {
+                int removeStart = startBytes.Length;
+                int afterStart = indent + removeStart;
+                if (afterStart < contentEnd && text[afterStart] == (byte)' ')
+                {
+                    ++removeStart;
+                }
+                changes.Add((lineStart + indent, removeStart, Array.Empty<byte>()));
+
+                long endOffset = lineStart + contentEnd - endBytes.Length;
+                int removeEnd = endBytes.Length;
+                if (endOffset > lineStart + indent + removeStart &&
+                    text[contentEnd - endBytes.Length - 1] == (byte)' ')
+                {
+                    --endOffset;
+                    ++removeEnd;
+                }
+                changes.Add((endOffset, removeEnd, Array.Empty<byte>()));
+            }
+            else if (contentEnd <= indent)
+            {
+                byte[] insert = Encoding.UTF8.GetBytes(start + " " + end);
+                changes.Add((lineStart + indent, 0, insert));
+            }
+            else
+            {
+                changes.Add((lineStart + indent, 0,
+                    Encoding.UTF8.GetBytes(start + " ")));
+                changes.Add((lineStart + contentEnd, 0,
+                    Encoding.UTF8.GetBytes(" " + end)));
+            }
+        }
+
+        ApplyCommentChanges(changes);
+    }
+
+    private void ApplyCommentChanges(
+        List<(long Offset, long Remove, byte[] Insert)> changes)
+    {
+        if (changes.Count == 0)
+        {
+            return;
+        }
+
+        changes.Sort((left, right) => right.Offset.CompareTo(left.Offset));
+        List<Selection> selections = CaptureAllSelections();
+
+        foreach ((long offset, long remove, byte[] insert) in changes)
+        {
+            if (remove == 0 && insert.Length == 0)
+            {
+                continue;
+            }
+
+            foreach (Selection selection in selections)
+            {
+                selection.Cursor = AdjustOffset(selection.Cursor, offset, remove,
+                    insert.Length);
+                selection.Anchor = AdjustOffset(selection.Anchor, offset, remove,
+                    insert.Length);
+            }
+
+            _document.Replace(offset, remove, insert);
+        }
+
+        SetSelections(selections);
+        _document.BreakUndoGroup();
+    }
+
+    private static long AdjustOffset(long position, long offset, long removed,
+        long inserted)
+    {
+        if (position < offset)
+        {
+            return position;
+        }
+        if (position >= offset + removed)
+        {
+            return position + inserted - removed;
+        }
+        return offset + Math.Min(position - offset, inserted);
     }
 
     private void EnsureCursorVisible()
@@ -3139,6 +3687,10 @@ public sealed partial class Editor
         if (_language is not null)
         {
             text += $"  [{_language.Name}]";
+        }
+        if (_extraSelections.Count > 0)
+        {
+            text += $"  [{_extraSelections.Count + 1} cursors]";
         }
         if (_saveOperation is not null)
         {
@@ -3339,12 +3891,21 @@ public sealed partial class Editor
             return;
         }
 
-        (long selectionStart, long selectionEnd) = SelectionRange();
-        if (selectionEnd <= selectionStart)
+        foreach (Selection selection in CaptureAllSelections())
         {
-            return;
+            (long selectionStart, long selectionEnd) = SelectionRange(
+                selection.Anchor, selection.Cursor, selection.Linewise);
+            if (selectionEnd > selectionStart)
+            {
+                RenderSelectionRange(selectionStart, selectionEnd,
+                    selection.Linewise, firstLine, rows, gutter);
+            }
         }
+    }
 
+    private void RenderSelectionRange(long selectionStart, long selectionEnd,
+        bool linewise, long firstLine, int rows, int gutter)
+    {
         var style = new Style { Fg = 15, Bg = 4 };
         long total = _document.LineCount;
 
@@ -3362,7 +3923,7 @@ public sealed partial class Editor
                 ? _document.LineStart(line + 1)
                 : _document.Size;
 
-            if (_selectionLinewise)
+            if (linewise)
             {
                 if (selectionStart < nextLineStart && selectionEnd > lineStart)
                 {
@@ -3412,14 +3973,22 @@ public sealed partial class Editor
 
     private void RenderCursor(long firstLine, int rows, int gutter)
     {
-        long line = CursorLine();
+        foreach (Selection selection in CaptureAllSelections())
+        {
+            RenderCursorAt(selection.Cursor, firstLine, rows, gutter);
+        }
+    }
+
+    private void RenderCursorAt(long cursor, long firstLine, int rows, int gutter)
+    {
+        long line = _document.LineOfOffset(cursor);
         if (line < firstLine || line >= firstLine + rows)
         {
             return;
         }
 
         int row = (int)(line - firstLine);
-        long column = CursorVisualColumn();
+        long column = VisualColumnOfOffset(cursor);
         if (column < _leftColumn)
         {
             return;

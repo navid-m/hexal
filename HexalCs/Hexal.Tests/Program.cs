@@ -25,6 +25,7 @@ internal static class Program
         TestDocumentLinesAndSaving();
         TestDocumentOpenNewFileAndBom();
         TestUndoRedo();
+        TestCompositeUndo();
         TestSaveFailureLeavesOriginal();
         TestFilesystemReadWrite();
         TestFileSearch();
@@ -563,6 +564,51 @@ internal static class Program
         CheckEqual(Text(branch.Text()), "abcZ", "undo replace text", "abcZ");
         Check(branch.Redo() is not null, "redo replace");
         CheckEqual(Text(branch.Text()), "XYZZ", "redo replace text", "XYZZ");
+    }
+
+    private static void TestCompositeUndo()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("composite.txt");
+        Check(WriteBytes(path, "0123456789"u8), "write composite file");
+
+        Document? loaded = Document.Open(path, out string error);
+        Check(loaded is not null, "open composite file");
+        if (loaded is null)
+        {
+            Console.Error.WriteLine(error);
+            return;
+        }
+
+        Document document = loaded;
+
+        // Composite edits are applied from the highest offset to the lowest by
+        // multi-cursor operations. They must undo and redo in application order.
+        document.BeginCompositeEdit();
+        document.Insert(5, "X"u8);
+        document.Insert(0, "Y"u8);
+        document.EndCompositeEdit();
+        CheckEqual(Text(document.Text()), "Y01234X56789",
+            "composite text", "Y01234X56789");
+
+        Check(document.Undo() is not null, "undo composite");
+        CheckEqual(Text(document.Text()), "0123456789",
+            "undo composite text", "0123456789");
+        Check(document.Redo() is not null, "redo composite");
+        CheckEqual(Text(document.Text()), "Y01234X56789",
+            "redo composite text", "Y01234X56789");
+
+        // Nested composite edits still form a single undo step.
+        document.BeginCompositeEdit();
+        document.BeginCompositeEdit();
+        document.Erase(0, 2);
+        document.EndCompositeEdit();
+        document.EndCompositeEdit();
+        CheckEqual(Text(document.Text()), "1234X56789",
+            "nested composite text", "1234X56789");
+        Check(document.Undo() is not null, "undo nested composite");
+        CheckEqual(Text(document.Text()), "Y01234X56789",
+            "undo nested composite text", "Y01234X56789");
     }
 
     private static void TestSaveFailureLeavesOriginal()

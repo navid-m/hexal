@@ -402,17 +402,22 @@ GE
 GP
     Move to the previous cursor location.
 
-Shift+C
-    Comment out the selected lines, or the current line if no
+Ctrl+C
+    Toggle comments on the selected lines, or the current line if no
     selection exists.
 
     Requirements:
         - Resolve the comment syntax from the active .hexdef.
         - Support line comments and block comments where configured.
         - Preserve indentation.
-        - Operate on all selected lines.
+        - Operate on all selected lines and all active cursors.
         - If no comment syntax is available, report an error.
         - Preserve selection and cursor position sensibly.
+
+Shift+C
+    Add a cursor on the next line at the same visual column, mirroring
+    Helix's "copy selection on next line". Repeating the shortcut adds
+    one cursor per line below the existing cursors.
 
 
 ------------------------------
@@ -1035,7 +1040,8 @@ PHASE 2: MODAL EDITING
     - LINE SELECT MODE.
     - I, V, X.
     - GG, GE, GP.
-    - Shift+C.
+    - Ctrl+C.
+    - Shift+C multi-cursor selection.
     - Selection rendering.
     - Navigation history.
 
@@ -1804,7 +1810,8 @@ Example:
       I                   Enter Insert Mode
       V                   Enter Select Mode
       X                   Select the current line
-      Shift+C             Comment out selected lines
+      Ctrl+C              Toggle comments on selected lines
+      Shift+C             Add a cursor on the next line
       GG                  Go to the first line
       GE                  Go to the last line
       GP                  Go to the previous location

@@ -50,6 +50,8 @@ public sealed class Document
     private bool _insertRunOpen;
     private bool _eraseRunOpen;
     private bool _restoring;
+    private int _compositeDepth;
+    private Group? _compositeGroup;
     private long _revision;
 
     public string? Path => _path;
@@ -71,6 +73,19 @@ public sealed class Document
     /// to detect changes without comparing document text.
     /// </summary>
     public long Revision => _revision;
+
+    /// <summary>
+    /// Details of the most recent single edit. Callers that batch edits with
+    /// <see cref="BeginCompositeEdit"/> use this to keep cursor positions in
+    /// sync after each edit.
+    /// </summary>
+    public bool HasLastChange { get; private set; }
+
+    public long LastChangeOffset { get; private set; }
+
+    public long LastChangeRemoved { get; private set; }
+
+    public long LastChangeInserted { get; private set; }
 
     public static Document? Open(string path, out string error)
     {
@@ -250,8 +265,10 @@ public sealed class Document
         PrepareForEdit();
         _table.Insert(offset, text);
         ++_revision;
+        RecordLastChange(offset, 0, text.Length);
 
-        if (_insertRunOpen && _undo.Count > 0 && !ContainsLineBreak(text))
+        if (_compositeDepth == 0 && _insertRunOpen && _undo.Count > 0 &&
+            !ContainsLineBreak(text))
         {
             Group group = _undo[^1];
             if (group.Kind == GroupKind.Insert && group.Changes.Count == 1)
@@ -291,6 +308,7 @@ public sealed class Document
         byte[] removed = _table.Range(offset, length);
         _table.Erase(offset, length);
         ++_revision;
+        RecordLastChange(offset, length, 0);
 
         if (_restoring)
         {
@@ -299,7 +317,8 @@ public sealed class Document
 
         PrepareForEdit();
 
-        if (_eraseRunOpen && _undo.Count > 0 && !ContainsLineBreak(removed))
+        if (_compositeDepth == 0 && _eraseRunOpen && _undo.Count > 0 &&
+            !ContainsLineBreak(removed))
         {
             Group group = _undo[^1];
             if (group.Kind == GroupKind.Erase && group.Changes.Count == 1)
@@ -355,6 +374,7 @@ public sealed class Document
             _table.Insert(offset, text);
         }
         ++_revision;
+        RecordLastChange(offset, length, text.Length);
 
         if (_restoring)
         {
@@ -378,6 +398,41 @@ public sealed class Document
     {
         _insertRunOpen = false;
         _eraseRunOpen = false;
+    }
+
+    /// <summary>
+    /// Groups all edits made until <see cref="EndCompositeEdit"/> into a single
+    /// undo step. Composite edits may be nested. This is used by multi-cursor
+    /// operations and comment toggling so one user action can be undone at once.
+    /// </summary>
+    public void BeginCompositeEdit()
+    {
+        if (_compositeDepth++ == 0)
+        {
+            _compositeGroup = new Group { Kind = GroupKind.Mixed };
+        }
+
+        BreakUndoGroup();
+    }
+
+    public void EndCompositeEdit()
+    {
+        if (_compositeDepth == 0)
+        {
+            return;
+        }
+
+        if (--_compositeDepth != 0)
+        {
+            return;
+        }
+
+        Group? group = _compositeGroup;
+        _compositeGroup = null;
+        if (group is not null && group.Changes.Count > 0)
+        {
+            PushGroup(group);
+        }
     }
 
     public long? Undo()
@@ -552,6 +607,14 @@ public sealed class Document
         return true;
     }
 
+    private void RecordLastChange(long offset, long removed, long inserted)
+    {
+        HasLastChange = true;
+        LastChangeOffset = offset;
+        LastChangeRemoved = removed;
+        LastChangeInserted = inserted;
+    }
+
     private void PrepareForEdit()
     {
         if (_redo.Count == 0)
@@ -573,6 +636,12 @@ public sealed class Document
 
     private void PushGroup(Group group)
     {
+        if (_compositeDepth > 0)
+        {
+            _compositeGroup?.Changes.AddRange(group.Changes);
+            return;
+        }
+
         _historyBytes += GroupBytes(group);
         _undo.Add(group);
         TrimHistory();
