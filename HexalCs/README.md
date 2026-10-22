@@ -317,7 +317,7 @@ Implemented API modules:
 | `hexal.keymap` | map, map_callback, unmap |
 | `hexal.ui` | message, warn, prompt, select, set_status |
 | `hexal.events` | on/off for buffer and editor lifecycle events |
-| `hexal.lsp` | start/stop language servers, diagnostics subscriptions; custom request/notify and navigation are reserved for future host support |
+| `hexal.lsp` | start/stop external servers, create Lua LSP servers, diagnostics subscriptions, custom methods and navigation |
 | `hexal.config` | per-plugin JSON settings under `~/.hexal/plugin-config/<id>.json` |
 
 Line and column values are zero-based. Columns count Unicode scalars, not bytes
@@ -350,6 +350,109 @@ objects. Servers are stopped and restarted when the buffer or language changes.
 If the executable is missing, the next candidate is attempted; absence of a
 server does not affect normal editing.
 
+### Lua language servers
+
+The same Lua plugin runtime can implement a complete LSP server. Hexal owns
+JSON-RPC framing, request correlation, initialization/shutdown sequencing,
+document synchronization, cancellation contexts, capability negotiation and
+the editor transport. Lua owns parsing, analysis and language intelligence.
+
+```lua
+local lsp = require("hexal.lsp")
+local diagnostics = require("hexal.lsp.diagnostics")
+
+local server = lsp.create_server({
+    name = "example-language",
+    version = "1.0.0",
+    filetypes = { "example" },
+    extensions = { ".example" },
+    root_markers = { ".git", "example.json" },
+})
+
+server:capabilities({
+    hover = true,
+    completion = true,
+    definition = true,
+    references = true,
+    document_symbols = true,
+    rename = true,
+    code_actions = true,
+    formatting = true,
+})
+
+server:on("document_changed", function(doc, ctx)
+    diagnostics.publish(doc.uri, {
+        -- Analyzer results go here.
+    })
+end)
+
+server:register("textDocument/hover", function(params, ctx)
+    local doc = ctx.documents:get(params.textDocument.uri)
+    if doc and doc:word_at(params.position) == "greet" then
+        return { contents = { kind = "markdown", value = "**greet(name)**" } }
+    end
+end)
+
+server:start()
+```
+
+Calling `server:start()` registers the server with Hexal. When the active
+buffer matches `filetypes` or `extensions`, the editor connects to it using the
+normal LSP client path, so hover, code actions, diagnostics, saves and
+incremental changes work without additional C# changes.
+
+The runtime exposes:
+
+| Module | Purpose |
+| --- | --- |
+| `hexal.lsp` | `create_server`, server lifecycle and handler registration |
+| `hexal.lsp.protocol` | JSON-RPC error codes, `make_error`, error detection |
+| `hexal.lsp.documents` | Documents, snapshots, virtual documents, ranges |
+| `hexal.lsp.workspace` | Root folders, configuration, files, watching, indexing |
+| `hexal.lsp.capabilities` | Client/server capabilities and dynamic registration |
+| `hexal.lsp.diagnostics` | Namespaced diagnostics, severities and change hooks |
+| `hexal.lsp.completion` | Items, lists, resolution and kind constants |
+| `hexal.lsp.symbols` | Locations, document/workspace symbols and kinds |
+| `hexal.lsp.edit` | Text edits, workspace edits and application |
+| `hexal.lsp.types` | LSP structure constructors and validation |
+| `hexal.lsp.uri` / `position` | URI and position/range utilities |
+| `hexal.lsp.semantic_tokens` | Legends, encoding, caching and invalidation |
+| `hexal.lsp.inlay_hint` / `signature_help` | Hint and signature structures |
+| `hexal.lsp.folding_range` / `code_lens` | Folding ranges and code lenses |
+| `hexal.async` | Coroutine tasks, sleep, await, debounce and scheduling |
+| `hexal.json` | JSON encoding/decoding with a `json.null` sentinel |
+| `hexal.fs` | Permission-aware filesystem helpers |
+| `hexal.log` | Trace/debug/info/warn/error logging |
+| `hexal.index` | In-memory incremental symbol/reference index |
+| `hexal.testing.lsp` | In-memory LSP client for server unit tests |
+| `hexal.debug` | Handler, document, capability and request introspection |
+
+Request handlers receive `(params, ctx)`; notifications and lifecycle events
+receive their event value and `ctx`. The context exposes `server`, `client`,
+`documents`, `workspace`, `request_id`, `method`, `cancelled`, `progress`,
+`initialization_options`, `settings` and `reject`.
+
+Lua handlers are single-threaded and run on the editor thread. File watching,
+timers and async callbacks are pumped by the editor loop; CPU-heavy work should
+use the optional `hexal.process` module. Filesystem reads and writes are allowed
+by default for local plugins but can be restricted per server:
+
+```lua
+permissions = {
+    read = true,
+    write = false,
+    process = false,
+    workspace_only = true,
+    roots = { "/path/to/project" },
+}
+```
+
+The in-process runtime targets the LSP 3.17 method set, supports UTF-8, UTF-16
+and UTF-32 position encodings (UTF-16 by default), and advertises methods only
+when the Lua server explicitly declares them through `server:capabilities` or
+raw capability structures.
+
+```
 Plugins run in isolated in-process Lua states. NLua's CLR package is not loaded,
 and only the documented `hexal.*` tables are exposed. An in-process Lua runtime
 is nevertheless **not a security boundary**; do not install untrusted plugins.

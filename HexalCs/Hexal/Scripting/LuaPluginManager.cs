@@ -26,6 +26,7 @@ public sealed class LuaPluginManager : IDisposable
         public Lua Lua = null!;
         public LuaTable Hexal = null!;
         public PluginConfigStore Config = null!;
+        public LuaLspCoordinator? Lsp;
         public bool Running;
     }
 
@@ -70,14 +71,48 @@ public sealed class LuaPluginManager : IDisposable
     private bool _disposed;
 
     public LuaPluginManager(IEditorApi host)
+        : this(host, DefaultPluginDirectory)
+    {
+    }
+
+    public LuaPluginManager(IEditorApi host, string pluginDirectory)
     {
         _host = host;
-        _pluginsDirectory = DefaultPluginDirectory;
+        _pluginsDirectory = pluginDirectory;
     }
 
     public IReadOnlyList<string> Errors => _errors;
 
     public int PluginCount => _plugins.Count;
+
+    public IReadOnlyList<LuaLspCoordinator> Coordinators =>
+        _plugins.Where(plugin => plugin.Lsp is not null)
+            .Select(plugin => plugin.Lsp!)
+            .ToArray();
+
+    public void Tick()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        foreach (LoadedPlugin plugin in _plugins)
+        {
+            plugin.Lsp?.Tick();
+        }
+    }
+
+    public void ActivateLuaLsp()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        foreach (LoadedPlugin plugin in _plugins)
+        {
+            plugin.Lsp?.ActivateServers();
+        }
+    }
 
     public static string DefaultPluginDirectory => HexalPaths.PluginDirectory;
 
@@ -330,6 +365,15 @@ public sealed class LuaPluginManager : IDisposable
         {
             try
             {
+                plugin.Lsp?.Dispose();
+            }
+            catch
+            {
+                // Coordinator teardown is best effort.
+            }
+
+            try
+            {
                 plugin.Lua.Dispose();
             }
             catch
@@ -446,6 +490,14 @@ public sealed class LuaPluginManager : IDisposable
                 : ex.Message;
             _errors.Add($"{id}: {message}");
             CleanupPlugin(id);
+            try
+            {
+                plugin.Lsp?.Dispose();
+            }
+            catch
+            {
+                // Ignore coordinator teardown for a failed plugin.
+            }
             try
             {
                 plugin.Lua?.Dispose();
@@ -798,6 +850,14 @@ public sealed class LuaPluginManager : IDisposable
         _ = config;
 
         lua.DoString(Prelude);
+
+        var coordinator = new LuaLspCoordinator(lua, plugin.Id, plugin.Directory)
+        {
+            ReportError = message => _host.ReportPluginError(plugin.Id, message),
+            Host = _host as ILuaLspHost
+        };
+        plugin.Lsp = coordinator;
+        LuaLspModuleBinder.Bind(lua, plugin.Hexal, coordinator);
     }
 
     private bool AddBinding(LoadedPlugin plugin, string keys, string? command,

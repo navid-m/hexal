@@ -8,6 +8,7 @@ public sealed class LspServerConfig
     public string Command { get; init; } = string.Empty;
     public IReadOnlyList<string> Arguments { get; init; } = Array.Empty<string>();
     public string LanguageId { get; init; } = string.Empty;
+    public ILspServerTransport? Transport { get; init; }
 }
 
 public sealed record LspDiagnostic(

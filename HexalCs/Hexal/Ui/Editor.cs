@@ -2372,6 +2372,8 @@ public sealed partial class Editor
     /// </summary>
     private bool PollBackgroundWork()
     {
+        _plugins?.Tick();
+        _lsp.Pump();
         bool redraw = PollSave();
         if (PollPicker())
         {

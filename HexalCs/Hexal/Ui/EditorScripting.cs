@@ -9,7 +9,7 @@ using NLua;
 
 namespace Hexal.Ui;
 
-public sealed partial class Editor : IEditorApi, IDisposable
+public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 {
     private LuaPluginManager? _plugins;
     private readonly LspManager _lsp = new();
@@ -51,6 +51,7 @@ public sealed partial class Editor : IEditorApi, IDisposable
             ["api_version"] = 1
         });
         _plugins.FireEvent("buffer_opened", CurrentBufferData());
+        _plugins.ActivateLuaLsp();
     }
 
     public void Dispose()
@@ -77,6 +78,10 @@ public sealed partial class Editor : IEditorApi, IDisposable
         IReadOnlyDictionary<string, object?>? data = null)
     {
         _plugins?.FireEvent(eventName, data);
+        if (string.Equals(eventName, "buffer_opened", StringComparison.Ordinal))
+        {
+            _plugins?.ActivateLuaLsp();
+        }
     }
 
     private void EmitInputEvents(Document documentBefore, long revisionBefore,
@@ -733,6 +738,62 @@ public sealed partial class Editor : IEditorApi, IDisposable
         byte[] text = document.LineText(line);
         int column = LspPositions.Utf16ColumnToByteOffset(text, utf16Character);
         return Math.Clamp(start + column, start, end);
+    }
+
+    // -----------------------------------------------------------------------
+    // ILuaLspHost
+    // -----------------------------------------------------------------------
+
+    public string? CurrentDocumentPath => _document.Path;
+
+    public string? CurrentLanguageId => _language?.Id;
+
+    public string? CurrentText => GetText();
+
+    public string? WorkspaceRoot => _workspaceRoot;
+
+    public bool StartLuaLsp(LuaLspServer server)
+    {
+        if (_document.Path is null || !server.Matches(_document.Path, _language?.Id))
+        {
+            return false;
+        }
+
+        if (_lsp.IsRunning &&
+            string.Equals(_lsp.ServerName, server.Name, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var transport = new LuaLspTransport(server);
+        var config = new LspServerConfig
+        {
+            Name = server.Name,
+            LanguageId = _language?.Id ?? server.Filetypes.FirstOrDefault() ?? string.Empty,
+            Transport = transport
+        };
+
+        _lspDirty = false;
+        if (_lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot,
+                out string error))
+        {
+            return true;
+        }
+
+        HexalPaths.Log($"Lua LSP '{server.Name}' could not start: {error}");
+        return false;
+    }
+
+    public void StopLuaLsp(string name)
+    {
+        if (_lsp.IsRunning &&
+            (string.IsNullOrEmpty(name) ||
+             string.Equals(_lsp.ServerName, name, StringComparison.Ordinal)))
+        {
+            _lsp.Stop();
+            _pluginStatus.Remove("lsp");
+            _lspDirty = false;
+        }
     }
 
     // -----------------------------------------------------------------------

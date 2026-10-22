@@ -23,6 +23,7 @@ public sealed class LspManager : IDisposable
         new(StringComparer.Ordinal);
 
     private Process? _process;
+    private ILspServerTransport? _transport;
     private Stream? _input;
     private CancellationTokenSource? _cancellation;
     private Task? _readerTask;
@@ -45,7 +46,7 @@ public sealed class LspManager : IDisposable
         {
             lock (_stateLock)
             {
-                return _process is not null;
+                return _process is not null || _transport is not null;
             }
         }
     }
@@ -76,7 +77,7 @@ public sealed class LspManager : IDisposable
         string? workspaceRoot, out string error)
     {
         error = string.Empty;
-        if (string.IsNullOrWhiteSpace(config.Command))
+        if (string.IsNullOrWhiteSpace(config.Command) && config.Transport is null)
         {
             error = "language server command is empty";
             return false;
@@ -90,9 +91,12 @@ public sealed class LspManager : IDisposable
 
         lock (_stateLock)
         {
-            if (_process is not null)
+            if (_process is not null || _transport is not null)
             {
-                if (_config is not null &&
+                bool sameTransport = config.Transport is null
+                    ? _transport is null
+                    : ReferenceEquals(_transport, config.Transport);
+                if (_config is not null && sameTransport &&
                     string.Equals(_config.Command, config.Command,
                         StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(_documentUri, PathToUri(documentPath),
@@ -101,6 +105,55 @@ public sealed class LspManager : IDisposable
                     return true;
                 }
                 StopLocked();
+            }
+
+            if (config.Transport is not null)
+            {
+                string transportPath;
+                try
+                {
+                    transportPath = Path.GetFullPath(documentPath);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                           PathTooLongException)
+                {
+                    error = ex.Message;
+                    return false;
+                }
+
+                string transportRoot = !string.IsNullOrWhiteSpace(workspaceRoot) &&
+                                       Directory.Exists(workspaceRoot)
+                    ? Path.GetFullPath(workspaceRoot)
+                    : Path.GetDirectoryName(transportPath) ?? ".";
+                _rootPath = transportRoot;
+                _rootUri = PathToUri(transportRoot, directory: true);
+                _documentUri = PathToUri(transportPath);
+                _config = config;
+                _currentText = text;
+                _version = 1;
+                _initialized = false;
+                _workspaceDiagnosticsSupported = false;
+                _pendingRequests.Clear();
+                _diagnostics.Clear();
+                _initializeId = Interlocked.Increment(ref _nextRequestId);
+                _transport = config.Transport;
+                _transport.Disconnected = () =>
+                {
+                    Enqueue(new LspEvent
+                    {
+                        Kind = LspEventKind.Stopped,
+                        ServerName = config.Name
+                    });
+                };
+
+                SendInitializeLocked();
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Started,
+                    ServerName = config.Name
+                });
+                HexalPaths.Log($"Lua LSP started: {config.Name} for {transportPath}");
+                return true;
             }
 
             string? executable = ExecutableFinder.Find(config.Command);
@@ -500,6 +553,42 @@ public sealed class LspManager : IDisposable
     public bool TryDequeueEvent(out LspEvent lspEvent)
         => _events.TryDequeue(out lspEvent!);
 
+    /// <summary>
+    /// Delivers messages from an in-process Lua server transport on the editor
+    /// thread. Lua code is never invoked from a background thread.
+    /// </summary>
+    public void Pump()
+    {
+        while (true)
+        {
+            ILspServerTransport? transport;
+            lock (_stateLock)
+            {
+                transport = _transport;
+            }
+            if (transport is null || !transport.TryReceive(out string message))
+            {
+                break;
+            }
+
+            try
+            {
+                HandleMessage(Encoding.UTF8.GetBytes(message));
+            }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or
+                                       InvalidOperationException or
+                                       ArgumentException)
+            {
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Error,
+                    ServerName = ServerName,
+                    Message = ex.Message
+                });
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -607,7 +696,7 @@ public sealed class LspManager : IDisposable
 
     private bool CanRequestForPathLocked(string documentPath)
     {
-        if (_process is null || !_initialized || _input is null)
+        if ((_process is null && _transport is null) || !_initialized)
         {
             return false;
         }
@@ -652,10 +741,32 @@ public sealed class LspManager : IDisposable
 
     private void SendMessage(JsonObject message)
     {
+        ILspServerTransport? transport;
         Stream? input;
         lock (_stateLock)
         {
+            transport = _transport;
             input = _input;
+        }
+
+        if (transport is not null)
+        {
+            try
+            {
+                transport.Send(message.ToJsonString());
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or
+                                       InvalidOperationException or
+                                       System.Text.Json.JsonException)
+            {
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Error,
+                    ServerName = ServerName,
+                    Message = ex.Message
+                });
+            }
+            return;
         }
 
         if (input is null)
@@ -812,7 +923,7 @@ public sealed class LspManager : IDisposable
     {
         lock (_stateLock)
         {
-            if (_process is null)
+            if (_process is null && _transport is null)
             {
                 return;
             }
@@ -1453,40 +1564,58 @@ public sealed class LspManager : IDisposable
 
     private void StopLocked()
     {
-        if (_process is null)
+        if (_process is null && _transport is null)
         {
             return;
         }
 
         _cancellation?.Cancel();
 
-        try
+        if (_process is not null)
         {
-            if (!_process.HasExited)
+            try
             {
-                _process.Kill(entireProcessTree: true);
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                }
             }
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or
-                                   System.ComponentModel.Win32Exception or
-                                   NotSupportedException)
-        {
-            // Best effort process cleanup.
-        }
+            catch (Exception ex) when (ex is InvalidOperationException or
+                                       System.ComponentModel.Win32Exception or
+                                       NotSupportedException)
+            {
+                // Best effort process cleanup.
+            }
 
-        try
-        {
-            _process.Dispose();
-        }
-        catch
-        {
-            // Ignore teardown failures.
+            try
+            {
+                _process.Dispose();
+            }
+            catch
+            {
+                // Ignore teardown failures.
+            }
         }
 
         _cancellation?.Dispose();
         _cancellation = null;
         _process = null;
         _input = null;
+
+        ILspServerTransport? transport = _transport;
+        _transport = null;
+        if (transport is not null)
+        {
+            try
+            {
+                transport.Dispose();
+            }
+            catch
+            {
+                // Transport teardown is best effort.
+            }
+        }
+
         _config = null;
         _initialized = false;
         _workspaceDiagnosticsSupported = false;

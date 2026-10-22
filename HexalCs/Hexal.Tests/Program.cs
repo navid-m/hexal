@@ -33,6 +33,7 @@ internal static class Program
         TestLspPositions();
         TestLanguageGrammars();
         TestPluginConfigStore();
+        TestLuaLspRuntime();
         TestHexalPaths();
 
         Console.Out.WriteLine($"{s_checks - s_failures} of {s_checks} checks passed");
@@ -856,6 +857,287 @@ internal static class Program
             "nested config value", "hexal");
         CheckEqual(loaded.Get("missing", "fallback") as string, "fallback",
             "config fallback", "fallback");
+    }
+
+    private static void TestLuaLspRuntime()
+    {
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "test-lsp");
+        Directory.CreateDirectory(plugin);
+
+        const string script = """
+            local lsp = require("hexal.lsp")
+            local diagnostics = require("hexal.lsp.diagnostics")
+            local types = require("hexal.lsp.types")
+            local json = require("hexal.json")
+            local uri = require("hexal.lsp.uri")
+
+            assert(uri.is_file("file:///tmp/x"), "dot module function failed")
+            assert(uri:is_file("file:///tmp/x"), "colon module function failed")
+            local server = lsp.create_server({
+                name = "test-lsp",
+                version = "1.0.0",
+                filetypes = { "test" },
+                extensions = { ".tst" },
+                root_markers = { ".git" },
+            })
+            assert(server, "server was not created")
+            local function step(name, fn)
+                local ok, err = pcall(fn)
+                assert(ok, name .. ": " .. tostring(err))
+            end
+            step("start", function() assert(server:start()) end)
+            step("state", function() assert(server:state() == "running") end)
+            step("caps", function() assert(server:capabilities({ hover = true, completion = true })) end)
+
+            step("on", function()
+                server:on("initialize", function(params, ctx)
+                    return {
+                        capabilities = server:advertised_capabilities(),
+                        serverInfo = { name = "test-lsp" },
+                    }
+                end)
+            end)
+
+            step("register", function()
+                server:register("textDocument/hover", function(params, ctx)
+                    local doc = ctx.documents.get(params.textDocument.uri)
+                    assert(doc, "document missing")
+                    assert(doc.text == "hello", "document text")
+                    assert(doc:word_at({ line = 0, character = 1 }) == "hello")
+                    return {
+                        contents = { kind = "markdown", value = "hover-doc" },
+                    }
+                end)
+            end)
+
+            local test = require("hexal.testing.lsp")
+            local client = test.create_client(server)
+            assert(client, "test client missing")
+            assert(client:initialize(), "initialize failed")
+            assert(client:open_document("file:///test.tst", "test", "hello"))
+            local result = client:request("textDocument/hover", {
+                textDocument = { uri = "file:///test.tst" },
+                position = { line = 0, character = 1 },
+            })
+            assert(result and result.contents and result.contents.value == "hover-doc",
+                "hover result missing")
+
+            diagnostics.publish("file:///test.tst", {
+                {
+                    range = {
+                        start = { line = 0, character = 0 },
+                        ["end"] = { line = 0, character = 5 },
+                    },
+                    severity = diagnostics.severity.ERROR,
+                    message = "bad",
+                },
+            })
+            local items = diagnostics.get("file:///test.tst")
+            assert(#items == 1, "diagnostics were not stored")
+
+            assert(type(json.encode({ a = 1 })) == "string")
+            assert(uri.to_path(uri.from_path("/tmp/hexal-test")) == "/tmp/hexal-test")
+            assert(types.position(1, 2).line == 1)
+            assert(type(require("hexal.async").run) == "function")
+            assert(type(require("hexal.fs").read_file) == "function")
+            assert(type(require("hexal.log").info) == "function")
+            assert(type(require("hexal.index").create) == "function")
+
+            local protocol = require("hexal.lsp.protocol")
+            server:register("example/reject", function(params, ctx)
+                return ctx:reject(protocol.error_codes.INVALID_PARAMS, "bad params")
+            end)
+            local rejected = client:request_raw("example/reject", {})
+            assert(not rejected.ok and rejected.error:find("bad params"),
+                "reject " .. tostring(rejected.ok) .. " " .. tostring(rejected.error))
+
+            server:register("textDocument/semanticTokens/full", function(params, ctx)
+                return {
+                    { line = 0, character = 0, length = 5, type = "variable" },
+                }
+            end)
+            local tokens = client:request("textDocument/semanticTokens/full", {
+                textDocument = { uri = "file:///test.tst" },
+            })
+            assert(tokens and #tokens.data == 5 and tokens.data[3] == 5)
+
+            local completion = require("hexal.lsp.completion")
+            local item = completion.item({
+                label = "greet",
+                kind = "FUNCTION",
+                insert_text = "greet()",
+            })
+            assert(item.label == "greet" and item.insertText == "greet()")
+            assert(item.kind == completion.kind.FUNCTION)
+            local listed = completion.list({ item })
+            assert(#listed.items == 1)
+
+            local types = require("hexal.lsp.types")
+            local edit = require("hexal.lsp.edit")
+            local textEdit = edit.text_edit(
+                types.range(types.position(0, 0), types.position(0, 1)), "H")
+            assert(textEdit.newText == "H")
+            local virtual = require("hexal.lsp.documents").create_virtual(
+                "untitled:test", "hello", "plaintext")
+            assert(virtual and virtual.text == "hello")
+            local ok, applyError = edit.apply_workspace_edit({
+                changes = { ["untitled:test"] = { textEdit } },
+            })
+            assert(ok, applyError)
+            assert(require("hexal.lsp.documents").get("untitled:test").text == "Hello")
+
+            local decoded = json.decode("[null,1]")
+            assert(decoded[1] == json.null and decoded[2] == 1)
+            local ran = false
+            require("hexal.async").run(function() ran = true end)
+            assert(ran)
+
+            local position = require("hexal.lsp.position")
+            local live = require("hexal.lsp.documents").get("file:///test.tst")
+            assert(position.position_to_offset(live, { line = 0, character = 5 }) == 5)
+            assert(position.offset_to_position(live, 5).character == 5)
+
+            local idx = require("hexal.index").create({})
+            idx:add_file("file:///symbols", {
+                { name = "greet", kind = 12, range = types.range(
+                    types.position(0, 0), types.position(0, 5)) },
+            })
+            local found = idx:query_symbols("greet", {})
+            assert(#found == 1 and found[1].name == "greet")
+
+            local caps = server:advertised_capabilities()
+            assert(caps.hoverProvider == true)
+
+            local outgoingResult = nil
+            local handle = server:send_request(
+                "workspace/configuration",
+                { items = { { section = "test" } } },
+                function(result, err)
+                    outgoingResult = result
+                end)
+            assert(handle:id() > 0 and handle:is_pending())
+            client:tick()
+            assert(outgoingResult ~= nil)
+            assert(not handle:is_pending())
+
+            hexal.ui.message("LUA_LSP_OK")
+            """;
+
+        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), script,
+            new UTF8Encoding(false));
+
+        var host = new FakeHost();
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+
+        if (manager.Errors.Count > 0)
+        {
+            Console.Error.WriteLine(string.Join("\n", manager.Errors));
+        }
+        CheckEqual(manager.Errors.Count, 0, "lua lsp errors", "0");
+        CheckEqual(manager.PluginCount, 1, "lua lsp plugin count", "1");
+        Check(host.Messages.Contains("LUA_LSP_OK"), "lua lsp script completed");
+        manager.Tick();
+
+        string sourcePath = directory.Path("sample.tst");
+        Check(WriteBytes(sourcePath, "hello"u8), "write lua lsp document");
+        LuaLspCoordinator coordinator = manager.Coordinators[0];
+        LuaLspServer server = coordinator.Servers[0];
+        using var lsp = new LspManager();
+        var transport = new LuaLspTransport(server);
+        Check(lsp.TryStart(new LspServerConfig
+        {
+            Name = server.Name,
+            LanguageId = "test",
+            Transport = transport
+        }, sourcePath, "hello", directory.Path("."), out string lspError),
+            $"start in-process lua lsp ({lspError})");
+        lsp.Pump();
+        Check(lsp.IsInitialized, "in-process lua lsp initialized");
+        Check(lsp.RequestHover(sourcePath, 0, 1), "request lua lsp hover");
+        lsp.Pump();
+        bool hoverSeen = false;
+        while (lsp.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (lspEvent.Kind == LspEventKind.Hover &&
+                lspEvent.Text.Contains("hover-doc", StringComparison.Ordinal))
+            {
+                hoverSeen = true;
+            }
+        }
+        Check(hoverSeen, "in-process lua lsp hover event");
+    }
+
+    private sealed class FakeHost : IEditorApi
+    {
+        public List<string> Messages { get; } = new();
+
+        public string CurrentBufferId => "[No Name]";
+
+        public string GetText() => string.Empty;
+
+        public string? GetLine(long line, out string error)
+        {
+            error = string.Empty;
+            return null;
+        }
+
+        public PluginCursor GetCursor() => new(0, 0);
+
+        public bool SetCursor(long line, long column, out string error)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        public PluginSelection? GetSelection() => null;
+
+        public bool InsertText(string text, out string error)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        public bool ReplaceRange(object? start, object? finish, string text,
+            out string error)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        public void ShowMessage(string text, bool warning) => Messages.Add(text);
+
+        public void SetPluginStatus(string key, string? text)
+        {
+        }
+
+        public void RequestPrompt(string label, Action<string?> callback) =>
+            callback(null);
+
+        public void RequestSelect(string title, IReadOnlyList<string> items,
+            Action<int?> callback) => callback(null);
+
+        public bool StartLsp(LspServerConfig config, out string error)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        public void StopLsp(string? name)
+        {
+        }
+
+        public bool ExecuteCommand(string name, IReadOnlyList<string> args,
+            out string error)
+        {
+            error = string.Empty;
+            return false;
+        }
+
+        public void ReportPluginError(string pluginId, string message) =>
+            Messages.Add($"error: {pluginId}: {message}");
     }
 
     private static void TestHexalPaths()
