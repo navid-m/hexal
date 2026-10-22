@@ -200,8 +200,9 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
 
         _output = Console.OpenStandardOutput();
         // 1004 enables terminal focus reporting so the editor can check for
-        // external file changes when the window regains focus.
-        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h"u8);
+        // external file changes when the window regains focus. 1000/1006
+        // enable button and wheel reporting using the extended SGR encoding.
+        Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1006h"u8);
         _initialized = true;
         return true;
     }
@@ -210,7 +211,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
     {
         if (_initialized)
         {
-            Write("\x1b[?1004l\x1b[0m\x1b[?25h\x1b[?1049l"u8);
+            Write("\x1b[?1000l\x1b[?1006l\x1b[?1004l\x1b[0m\x1b[?25h\x1b[?1049l"u8);
         }
 
         if (_output is not null)
@@ -523,6 +524,12 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             return true;
         }
 
+        if (csi && parameterLength > 0 && parameters[0] == '<')
+        {
+            inputEvent = DecodeMouse(parameters[1..parameterLength], final);
+            return true;
+        }
+
         if (!csi)
         {
             inputEvent.Key = final switch
@@ -559,6 +566,65 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             _ => Key.Unknown
         };
         return true;
+    }
+
+    private static InputEvent DecodeMouse(ReadOnlySpan<char> parameters, int final)
+    {
+        var inputEvent = new InputEvent();
+        int index = 0;
+        int button = ReadMouseNumber(parameters, ref index);
+        int x = ReadMouseNumber(parameters, ref index);
+        int y = ReadMouseNumber(parameters, ref index);
+
+        inputEvent.MouseX = Math.Max(0, x - 1);
+        inputEvent.MouseY = Math.Max(0, y - 1);
+        inputEvent.Shift = (button & 4) != 0;
+        inputEvent.Alt = (button & 8) != 0;
+        inputEvent.Ctrl = (button & 16) != 0;
+
+        int buttonNumber = button & 3;
+        if ((button & 64) != 0)
+        {
+            inputEvent.Key = buttonNumber switch
+            {
+                0 => Key.ScrollUp,
+                1 => Key.ScrollDown,
+                _ => Key.Unknown
+            };
+            return inputEvent;
+        }
+
+        inputEvent.MouseButton = buttonNumber switch
+        {
+            0 => MouseButton.Left,
+            1 => MouseButton.Middle,
+            2 => MouseButton.Right,
+            _ => MouseButton.None
+        };
+
+        inputEvent.Key = final == 'm' ? Key.MouseUp : Key.MouseDown;
+        return inputEvent;
+    }
+
+    private static int ReadMouseNumber(ReadOnlySpan<char> parameters, ref int index)
+    {
+        int value = 0;
+        bool found = false;
+
+        while (index < parameters.Length && parameters[index] >= '0' &&
+               parameters[index] <= '9')
+        {
+            value = (value * 10) + (parameters[index] - '0');
+            found = true;
+            ++index;
+        }
+
+        if (index < parameters.Length && parameters[index] == ';')
+        {
+            ++index;
+        }
+
+        return found ? value : 0;
     }
 
     private static void ApplyModifiers(ReadOnlySpan<char> parameters, ref InputEvent inputEvent)

@@ -21,6 +21,10 @@ public enum Key
     PageUp,
     PageDown,
     Insert,
+    MouseDown,
+    MouseUp,
+    ScrollUp,
+    ScrollDown,
     F1,
     F2,
     F3,
@@ -39,6 +43,14 @@ public enum Key
     Unknown
 }
 
+public enum MouseButton
+{
+    None,
+    Left,
+    Middle,
+    Right
+}
+
 public struct InputEvent
 {
     public Key Key;
@@ -46,6 +58,14 @@ public struct InputEvent
     public bool Ctrl;
     public bool Alt;
     public bool Shift;
+
+    /// <summary>Zero-based terminal column for mouse events.</summary>
+    public int MouseX;
+
+    /// <summary>Zero-based terminal row for mouse events.</summary>
+    public int MouseY;
+
+    public MouseButton MouseButton;
 }
 
 /// <summary>

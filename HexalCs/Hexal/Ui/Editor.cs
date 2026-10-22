@@ -11,6 +11,7 @@ public sealed partial class Editor
 {
     private const int TabWidth = 4;
     private const int BottomLinePadding = 1;
+    private const int MouseScrollLines = 3;
 
     private static readonly byte[] Lf = { (byte)'\n' };
     private static readonly byte[] CrLf = { (byte)'\r', (byte)'\n' };
@@ -179,6 +180,7 @@ public sealed partial class Editor
     private long _leftColumn;
     private long _preferredColumn;
     private bool _preferredColumnValid;
+    private bool _freeScroll;
 
     private int _columns = 80;
     private int _rows = 24;
@@ -363,7 +365,10 @@ public sealed partial class Editor
             }
 
             EmitInputEvents(documentBefore, revisionBefore, cursorBefore);
-            EnsureCursorVisible();
+            if (!_freeScroll)
+            {
+                EnsureCursorVisible();
+            }
             Render();
         }
 
@@ -412,6 +417,24 @@ public sealed partial class Editor
 
         if (inputEvent.Key == Key.FocusOut)
         {
+            return _running;
+        }
+
+        if (inputEvent.Key is not (Key.ScrollUp or Key.ScrollDown))
+        {
+            _freeScroll = false;
+        }
+
+        if (inputEvent.Key is Key.MouseDown or Key.MouseUp or
+            Key.ScrollUp or Key.ScrollDown)
+        {
+            if (!_hoverVisible && !_spaceMenuOpen &&
+                _prompt == PromptKind.None &&
+                _pickerKind == PickerKind.None &&
+                _mode is Mode.Normal or Mode.Insert or Mode.Select)
+            {
+                HandleEditorMouse(inputEvent);
+            }
             return _running;
         }
 
@@ -1601,6 +1624,88 @@ public sealed partial class Editor
     {
         int available = (int)Math.Max(0, CommandRow());
         return Math.Max(1, Math.Min(9, available - 2));
+    }
+
+    private void HandleEditorMouse(InputEvent inputEvent)
+    {
+        switch (inputEvent.Key)
+        {
+            case Key.ScrollUp:
+                ScrollDocument(-MouseScrollLines);
+                return;
+            case Key.ScrollDown:
+                ScrollDocument(MouseScrollLines);
+                return;
+            case Key.MouseDown:
+                if (inputEvent.MouseButton == MouseButton.Left)
+                {
+                    MoveCursorToScreen(inputEvent.MouseX, inputEvent.MouseY);
+                }
+                return;
+        }
+    }
+
+    private void ScrollDocument(int delta)
+    {
+        int rows = TextRows();
+        if (rows <= 0)
+        {
+            return;
+        }
+
+        long maxTop = Math.Max(0, _document.LineCount - rows);
+        long top = Math.Clamp(_topLine + delta, 0, maxTop);
+        if (top == _topLine)
+        {
+            return;
+        }
+
+        _topLine = top;
+        _freeScroll = true;
+        ClearMessage();
+    }
+
+    private void MoveCursorToScreen(int x, int y)
+    {
+        int rows = TextRows();
+        if (rows <= 0 || y < 0 || y >= rows)
+        {
+            return;
+        }
+
+        long line = _topLine + y;
+        if (line < 0 || line >= _document.LineCount)
+        {
+            return;
+        }
+
+        int gutter = GutterWidth();
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        long visual = 0;
+        if (x > gutter)
+        {
+            visual = _leftColumn + (x - gutter);
+        }
+
+        int local = UnicodeUtil.ByteOffsetForVisualColumn(
+            _lineBuffer.AsSpan(0, length), visual, TabWidth);
+        long start = _document.LineStart(line);
+        long end = _document.LineEnd(line);
+        _cursor = Math.Clamp(start + local, start, end);
+
+        if (_mode == Mode.Select)
+        {
+            _mode = Mode.Normal;
+            _selectionLinewise = false;
+        }
+
+        _selectionAnchor = _cursor;
+        _extraSelections.Clear();
+        _preferredColumnValid = false;
+        _freeScroll = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+        ClearMessage();
     }
 
     private void HandlePrompt(InputEvent inputEvent)
@@ -5519,7 +5624,10 @@ public sealed partial class Editor
         _screen.Resize(_columns, _rows);
         _screen.Clear();
 
-        EnsureCursorVisible();
+        if (!_freeScroll)
+        {
+            EnsureCursorVisible();
+        }
 
         int rows = TextRows();
         long total = _document.LineCount;

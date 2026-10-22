@@ -18,6 +18,7 @@ internal sealed partial class WindowsTerminal : ITerminal
     private const uint DisableNewlineAutoReturn = 0x0008;
     private const uint EnableQuickEditMode = 0x0040;
     private const uint EnableExtendedFlags = 0x0080;
+    private const uint EnableMouseInput = 0x0010;
 
     private const uint LeftAltPressed = 0x0001;
     private const uint LeftCtrlPressed = 0x0002;
@@ -26,8 +27,13 @@ internal sealed partial class WindowsTerminal : ITerminal
     private const uint ShiftPressed = 0x0010;
 
     private const ushort KeyEventType = 0x0001;
+    private const ushort MouseEventType = 0x0002;
     private const ushort WindowBufferSizeEventType = 0x0004;
     private const ushort FocusEventType = 0x0010;
+
+    private const uint MouseWheeled = 0x0004;
+    private const uint MouseHorizontalWheeled = 0x0008;
+    private const uint LeftButtonPressed = 0x0001;
 
     private const uint WaitTimeout = 0x00000102;
     private const uint WaitFailed = 0xFFFFFFFF;
@@ -66,11 +72,28 @@ internal sealed partial class WindowsTerminal : ITerminal
         public short Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MousePositionRecord
+    {
+        public short X;
+        public short Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseEventRecord
+    {
+        public MousePositionRecord MousePosition;
+        public uint ButtonState;
+        public uint ControlKeyState;
+        public uint EventFlags;
+    }
+
     [StructLayout(LayoutKind.Explicit, Size = 20)]
     private struct InputRecord
     {
         [FieldOffset(0)] public ushort EventType;
         [FieldOffset(4)] public KeyEventRecord KeyEvent;
+        [FieldOffset(4)] public MouseEventRecord MouseEvent;
         [FieldOffset(4)] public WindowBufferSizeRecord WindowBufferSizeEvent;
         [FieldOffset(4)] public int FocusSet;
     }
@@ -117,6 +140,7 @@ internal sealed partial class WindowsTerminal : ITerminal
     private bool _hasStashedKey;
     private InputEvent _repeatEvent;
     private ushort _repeatRemaining;
+    private bool _mouseLeftDown;
 
     public bool Init(out string error)
     {
@@ -152,7 +176,7 @@ internal sealed partial class WindowsTerminal : ITerminal
         uint inputMode = (_originalInputMode &
                           ~(EnableEchoInput | EnableLineInput | EnableProcessedInput |
                             EnableQuickEditMode)) |
-                         EnableWindowInput | EnableExtendedFlags;
+                         EnableWindowInput | EnableExtendedFlags | EnableMouseInput;
 
         if (SetConsoleMode(_inputHandle, inputMode) == 0)
         {
@@ -233,14 +257,15 @@ internal sealed partial class WindowsTerminal : ITerminal
             }
             else
             {
-                if (!ReadKeyEvent(out Key? special, out key, timeoutMilliseconds))
+                if (!ReadKeyEvent(out InputEvent special, out bool hasSpecial,
+                        out key, timeoutMilliseconds))
                 {
                     return false;
                 }
 
-                if (special is not null)
+                if (hasSpecial)
                 {
-                    inputEvent.Key = special.Value;
+                    inputEvent = special;
                     return true;
                 }
             }
@@ -330,10 +355,11 @@ internal sealed partial class WindowsTerminal : ITerminal
 
     public void Dispose() => Shutdown();
 
-    private bool ReadKeyEvent(out Key? special, out KeyEventRecord key,
-        int timeoutMilliseconds)
+    private bool ReadKeyEvent(out InputEvent special, out bool hasSpecial,
+        out KeyEventRecord key, int timeoutMilliseconds)
     {
-        special = null;
+        special = default;
+        hasSpecial = false;
         key = default;
 
         while (true)
@@ -343,7 +369,8 @@ internal sealed partial class WindowsTerminal : ITerminal
                 uint wait = WaitForSingleObject(_inputHandle, (uint)timeoutMilliseconds);
                 if (wait == WaitTimeout)
                 {
-                    special = Key.None;
+                    special.Key = Key.None;
+                    hasSpecial = true;
                     return true;
                 }
                 if (wait == WaitFailed)
@@ -361,14 +388,26 @@ internal sealed partial class WindowsTerminal : ITerminal
 
             if (record.EventType == WindowBufferSizeEventType)
             {
-                special = Key.Resize;
+                special.Key = Key.Resize;
+                hasSpecial = true;
                 return true;
             }
 
             if (record.EventType == FocusEventType)
             {
-                special = record.FocusSet != 0 ? Key.FocusIn : Key.FocusOut;
+                special.Key = record.FocusSet != 0 ? Key.FocusIn : Key.FocusOut;
+                hasSpecial = true;
                 return true;
+            }
+
+            if (record.EventType == MouseEventType)
+            {
+                if (TryDecodeMouse(record.MouseEvent, out special))
+                {
+                    hasSpecial = true;
+                    return true;
+                }
+                continue;
             }
 
             if (record.EventType != KeyEventType)
@@ -384,6 +423,50 @@ internal sealed partial class WindowsTerminal : ITerminal
             key = record.KeyEvent;
             return true;
         }
+    }
+
+    private bool TryDecodeMouse(MouseEventRecord mouse, out InputEvent inputEvent)
+    {
+        inputEvent = default;
+        if ((mouse.EventFlags & MouseHorizontalWheeled) != 0)
+        {
+            return false;
+        }
+
+        inputEvent.MouseX = Math.Max(0, (int)mouse.MousePosition.X);
+        inputEvent.MouseY = Math.Max(0, (int)mouse.MousePosition.Y);
+        ApplyModifiers(mouse.ControlKeyState, ref inputEvent);
+
+        if ((mouse.EventFlags & MouseWheeled) != 0)
+        {
+            short delta = (short)((mouse.ButtonState >> 16) & 0xFFFF);
+            if (delta == 0)
+            {
+                return false;
+            }
+
+            inputEvent.Key = delta > 0 ? Key.ScrollUp : Key.ScrollDown;
+            return true;
+        }
+
+        bool leftDown = (mouse.ButtonState & LeftButtonPressed) != 0;
+        if (leftDown && !_mouseLeftDown)
+        {
+            _mouseLeftDown = true;
+            inputEvent.Key = Key.MouseDown;
+            inputEvent.MouseButton = MouseButton.Left;
+            return true;
+        }
+
+        if (!leftDown && _mouseLeftDown)
+        {
+            _mouseLeftDown = false;
+            inputEvent.Key = Key.MouseUp;
+            inputEvent.MouseButton = MouseButton.Left;
+            return true;
+        }
+
+        return false;
     }
 
     private static InputEvent DecodeKey(KeyEventRecord key)
