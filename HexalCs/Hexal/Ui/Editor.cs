@@ -46,7 +46,8 @@ public sealed partial class Editor
         ('/', "Search across files"),
         ('f', "Open file picker"),
         ('y', "Yank selection to clipboard"),
-        ('p', "Paste from clipboard"),
+        ('p', "Paste on the current line"),
+        ('P', "Paste on a new line"),
         ('K', "LSP hover"),
         ('A', "LSP code actions"),
         ('D', "Workspace diagnostics"),
@@ -1250,8 +1251,10 @@ public sealed partial class Editor
                 YankSelection();
                 return;
             case 'p':
+                PasteClipboard(newLine: false);
+                return;
             case 'P':
-                PasteClipboard();
+                PasteClipboard(newLine: true);
                 return;
             case 'K':
             case 'k':
@@ -3314,9 +3317,11 @@ public sealed partial class Editor
     /// <summary>
     /// Inserts the system clipboard at each cursor. When a SELECT-mode range
     /// is active the pasted text replaces it, matching normal editor paste
-    /// behaviour, and the cursor ends after the inserted text.
+    /// behaviour, and the cursor ends after the inserted text. With
+    /// <paramref name="newLine"/> the paste is placed on one or more new lines
+    /// below the cursor's line instead of inline.
     /// </summary>
-    private void PasteClipboard()
+    private void PasteClipboard(bool newLine)
     {
         if (!Clipboard.TryPaste(out byte[] clipboardText, out string error))
         {
@@ -3331,7 +3336,14 @@ public sealed partial class Editor
         }
 
         byte[] text = NormalizePastedText(clipboardText);
-        ForEachSelection(() => PasteText(text), editing: true);
+        if (newLine)
+        {
+            ForEachSelection(() => PasteTextOnNewLine(text), editing: true);
+        }
+        else
+        {
+            ForEachSelection(() => PasteText(text), editing: true);
+        }
     }
 
     private void PasteText(byte[] text)
@@ -3349,6 +3361,73 @@ public sealed partial class Editor
         }
 
         _cursor = start + text.Length;
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
+        _mode = Mode.Normal;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+        ClearMessage();
+    }
+
+    /// <summary>
+    /// Inserts the clipboard on one or more new lines below the cursor's line,
+    /// leaving the current line intact. When the cursor is already on an empty
+    /// line the text fills that line instead of creating a blank line above it.
+    /// </summary>
+    private void PasteTextOnNewLine(byte[] text)
+    {
+        long line = _document.LineOfOffset(_cursor);
+        long start = _document.LineStart(line);
+        long end = _document.LineEnd(line);
+        byte[] eol = _document.Eol == "\r\n" ? CrLf : Lf;
+        ReadOnlySpan<byte> content = text;
+
+        long insertAt;
+        if (end > start)
+        {
+            if (line + 1 < _document.LineCount)
+            {
+                insertAt = _document.LineStart(line + 1);
+            }
+            else
+            {
+                insertAt = end;
+            }
+        }
+        else
+        {
+            insertAt = start;
+            if (insertAt < _document.Size && text[^1] == (byte)'\n')
+            {
+                // The empty line's own terminator already ends the pasted
+                // text, so drop one from the clipboard to avoid a blank line.
+                content = text.AsSpan(0, text.Length - eol.Length);
+            }
+        }
+
+        bool lastLine = line + 1 >= _document.LineCount;
+        bool currentLineHasText = end > start;
+        var payload = new ByteBuffer(text.Length + eol.Length * 2);
+
+        if (currentLineHasText && lastLine)
+        {
+            payload.Append(eol);
+            payload.Append(content);
+        }
+        else
+        {
+            payload.Append(content);
+
+            if (currentLineHasText && insertAt < _document.Size &&
+                (content.Length == 0 || content[^1] != (byte)'\n'))
+            {
+                payload.Append(eol);
+            }
+        }
+
+        _document.Insert(insertAt, payload.ToArray());
+        _cursor = insertAt + (currentLineHasText && lastLine ? eol.Length : 0);
         _selectionAnchor = _cursor;
         _selectionLinewise = false;
         _mode = Mode.Normal;

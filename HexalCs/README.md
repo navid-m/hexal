@@ -146,7 +146,8 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `Space` `/` | Search across project files |
 | `Space` `f` | Open the file picker |
 | `Space` `y` | Yank the selection to the system clipboard |
-| `Space` `p` | Paste the system clipboard at the cursor |
+| `Space` `p` | Paste the system clipboard on the current line |
+| `Space` `P` | Paste the system clipboard on a new line below |
 | `Tab` | Insert a tab in INSERT mode |
 
 ### Space menu
@@ -156,7 +157,8 @@ bottom-right corner, modelled on Helix's which-key menu. Press `Esc` to
 dismiss it, `/` to search across files, or `f` to open the file picker.
 `y` copies the current selection to the system clipboard and returns to
 NORMAL mode; `p` pastes the clipboard at the cursor (replacing the selection
-when one is active). Both pickers filter as you type; use Up/Down (or
+when one is active) and `P` pastes it on new lines below the cursor's line.
+Both pickers filter as you type; use Up/Down (or
 PageUp/PageDown) to select and Enter to open the result. File pickers start
 from the current working directory and skip common build and VCS directories.
 Search results open the file at the matching line.

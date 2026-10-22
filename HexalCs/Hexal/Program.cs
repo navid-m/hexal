@@ -168,7 +168,8 @@ internal static class Program
               Space /          Search across files
               Space f          Open the file picker
               Space y          Yank the selection to the system clipboard
-              Space p          Paste the system clipboard at the cursor
+              Space p          Paste the system clipboard on the current line
+              Space P          Paste the system clipboard on a new line
               Space K          Show LSP hover information
               Space A          Show and apply LSP code actions
               Space D          Show workspace diagnostics
