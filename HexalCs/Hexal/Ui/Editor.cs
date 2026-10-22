@@ -2999,9 +2999,30 @@ public sealed partial class Editor
 
     private void InsertNewline()
     {
+        long line = CursorLine();
+        long lineStart = _document.LineStart(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        int indent = 0;
+        while (indent < length &&
+               (_lineBuffer[indent] == (byte)' ' || _lineBuffer[indent] == (byte)'\t'))
+        {
+            ++indent;
+        }
+
+        // Never copy more indentation than the cursor has passed, so pressing
+        // Enter inside the leading whitespace does not push text right.
+        indent = (int)Math.Min(indent, Math.Max(0, _cursor - lineStart));
+
         byte[] eol = _document.Eol == "\r\n" ? CrLf : Lf;
         _document.Insert(_cursor, eol);
         _cursor = Math.Min(_cursor + eol.Length, _document.Size);
+
+        if (indent > 0)
+        {
+            _document.Insert(_cursor, _lineBuffer.AsSpan(0, indent));
+            _cursor += indent;
+        }
+
         SnapCursor();
         _preferredColumnValid = false;
         ClearMessage();
