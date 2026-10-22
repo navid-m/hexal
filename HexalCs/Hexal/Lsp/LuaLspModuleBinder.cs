@@ -322,7 +322,7 @@ public static class LuaLspModuleBinder
                 message ?? string.Empty,
                 data is LuaTable table ? coordinator.FromLua(table)
                     : coordinator.FromLua(data)));
-        module["is_error"] = new Func<object?, bool>(coordinator.IsErrorTable);
+        module["is_error"] = new Func<object?, bool>(LuaLspCoordinator.IsErrorTable);
     }
 
     private static void BindServerModule(LuaLspCoordinator coordinator, LuaTable lsp,
@@ -489,7 +489,7 @@ public static class LuaLspModuleBinder
             LspWorkspace workspace = coordinator.ActiveServer?.Workspace ??
                                      coordinator.Workspace;
             var task = new LspTaskResult();
-            task.Complete(coordinator.CreateIndexTable(workspace.CreateIndex(
+            task.Complete(coordinator.CreateIndexTable(LspWorkspace.CreateIndex(
                 options is LuaTable table ? coordinator.AsObject(table) : null)));
             return coordinator.CreateTask(task);
         });
@@ -1086,17 +1086,17 @@ public static class LuaLspModuleBinder
                 coordinator.AsObject(table) ?? new JsonObject(),
                 ("active_parameter", "activeParameter"))) : null);
 
-        module["validate"] = new Func<string, object?, object?>((method, value) =>
+        module["validate"] = new Func<string, object?, bool>((method, value) =>
             ValidateMethod(method, coordinator.FromLua(value)));
-        module["validate_position"] = new Func<object?, object?>((value) =>
+        module["validate_position"] = new Func<object?, bool>((value) =>
             ValidatePosition(coordinator.FromLua(value)));
-        module["validate_range"] = new Func<object?, object?>((value) =>
+        module["validate_range"] = new Func<object?, bool>((value) =>
             ValidateRange(coordinator.FromLua(value)));
-        module["validate_diagnostic"] = new Func<object?, object?>((value) =>
+        module["validate_diagnostic"] = new Func<object?, bool>((value) =>
             ValidateDiagnostic(coordinator.FromLua(value)));
     }
 
-    private static object? ValidateMethod(string method, JsonNode? value)
+    private static bool ValidateMethod(string method, JsonNode? value)
     {
         if (value is null)
         {
@@ -1120,7 +1120,7 @@ public static class LuaLspModuleBinder
         return true;
     }
 
-    private static object? ValidatePosition(JsonNode? value)
+    private static bool ValidatePosition(JsonNode? value)
     {
         if (value is not JsonObject position)
         {
@@ -1132,23 +1132,23 @@ public static class LuaLspModuleBinder
                character.TryGetValue(out int characterNumber) && characterNumber >= 0;
     }
 
-    private static object? ValidateRange(JsonNode? value)
+    private static bool ValidateRange(JsonNode? value)
     {
         if (value is not JsonObject range)
         {
             return false;
         }
-        return ValidatePosition(range["start"]) is true &&
-               ValidatePosition(range["end"]) is true;
+        return ValidatePosition(range["start"]) &&
+               ValidatePosition(range["end"]);
     }
 
-    private static object? ValidateDiagnostic(JsonNode? value)
+    private static bool ValidateDiagnostic(JsonNode? value)
     {
         if (value is not JsonObject diagnostic)
         {
             return false;
         }
-        return ValidateRange(diagnostic["range"]) is true &&
+        return ValidateRange(diagnostic["range"]) &&
                diagnostic["message"] is JsonValue;
     }
 
@@ -1771,7 +1771,7 @@ public static class LuaLspModuleBinder
     {
         module["create"] = new Func<object?, LuaTable>(options =>
         {
-            LspWorkspaceIndex index = coordinator.Workspace.CreateIndex(
+            LspWorkspaceIndex index = LspWorkspace.CreateIndex(
                 options is LuaTable table ? coordinator.AsObject(table) : null);
             return coordinator.CreateIndexTable(index);
         });

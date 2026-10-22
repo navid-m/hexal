@@ -234,7 +234,7 @@ public static class LspCapabilities
         return result;
     }
 
-    private static JsonNode SemanticTokens(JsonNode? value, JsonObject? legend)
+    private static JsonObject SemanticTokens(JsonNode? value, JsonObject? legend)
     {
         var result = new JsonObject
         {

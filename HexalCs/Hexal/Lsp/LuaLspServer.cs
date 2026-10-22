@@ -859,13 +859,13 @@ public sealed class LuaLspServer : IDisposable
             }
 
             object? value = result.Length > 0 ? result[0] : null;
-            if (_coordinator.IsErrorTable(value))
+            if (LuaLspCoordinator.IsErrorTable(value))
             {
                 SendError(id, _coordinator.ToProtocolError((LuaTable)value!));
                 return;
             }
             if (value is null && result.Length > 1 &&
-                _coordinator.IsErrorTable(result[1]))
+                LuaLspCoordinator.IsErrorTable(result[1]))
             {
                 SendError(id, _coordinator.ToProtocolError((LuaTable)result[1]!));
                 return;
@@ -1149,7 +1149,7 @@ public sealed class LuaLspServer : IDisposable
         SendResult(id, null);
     }
 
-    private JsonObject? DocumentParameters(JsonNode? parameters)
+    private static JsonObject? DocumentParameters(JsonNode? parameters)
     {
         return parameters?["textDocument"] as JsonObject;
     }

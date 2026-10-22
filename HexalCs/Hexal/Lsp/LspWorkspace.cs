@@ -250,7 +250,7 @@ public sealed class LspWorkspace
         _configuration[section] = value;
     }
 
-    private JsonNode BuildConfigurationNode()
+    private JsonObject BuildConfigurationNode()
     {
         var result = new JsonObject();
         foreach ((string key, string value) in _configuration)
@@ -450,7 +450,7 @@ public sealed class LspWorkspace
         _watches.Clear();
     }
 
-    public LspWorkspaceIndex CreateIndex(JsonObject? options)
+    public static LspWorkspaceIndex CreateIndex(JsonObject? options)
     {
         return new LspWorkspaceIndex(options);
     }
@@ -573,7 +573,7 @@ public sealed class LspWatchRegistration
         return result;
     }
 
-    private JsonObject WatchEvent(int type, string path)
+    private static JsonObject WatchEvent(int type, string path)
     {
         return new JsonObject
         {

@@ -1757,7 +1757,7 @@ public sealed partial class Editor
         return result;
     }
 
-    private List<string> FilterFiles(IReadOnlyList<string> files, string filter)
+    private static List<string> FilterFiles(IReadOnlyList<string> files, string filter)
     {
         if (filter.Length == 0)
         {

@@ -496,7 +496,7 @@ public sealed class LuaLspCoordinator : IDisposable
         table["index"] = new Func<object?, LuaTable>(options =>
         {
             var task = new LspTaskResult();
-            LspWorkspaceIndex index = workspace.CreateIndex(options is LuaTable table
+            LspWorkspaceIndex index = LspWorkspace.CreateIndex(options is LuaTable table
                 ? LspJson.FromLua(NullSentinel, table) as JsonObject
                 : null);
             task.Complete(CreateIndexTable(index));
@@ -783,7 +783,7 @@ public sealed class LuaLspCoordinator : IDisposable
         return end > start ? text[start..end] : null;
     }
 
-    private object? WordRangeAt(LspDocument document, JsonObject? position)
+    private LuaTable? WordRangeAt(LspDocument document, JsonObject? position)
     {
         if (position is null)
         {
@@ -848,7 +848,7 @@ public sealed class LuaLspCoordinator : IDisposable
         return table;
     }
 
-    public bool IsErrorTable(object? value)
+    public static bool IsErrorTable(object? value)
     {
         return value is LuaTable table && LspJson.ToBool(table["__hexal_lsp_error"]);
     }

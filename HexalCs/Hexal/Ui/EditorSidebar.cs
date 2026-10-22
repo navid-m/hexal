@@ -283,11 +283,7 @@ public sealed partial class Editor
             return;
         }
 
-        if (_sidebarExpanded.Contains(node.Path))
-        {
-            _sidebarExpanded.Remove(node.Path);
-        }
-        else
+        if (!_sidebarExpanded.Remove(node.Path))
         {
             _sidebarExpanded.Add(node.Path);
         }
@@ -542,8 +538,8 @@ public sealed partial class Editor
             return false;
         }
 
-        if (name.IndexOf(Path.DirectorySeparatorChar) >= 0 ||
-            name.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
+        if (name.Contains(Path.DirectorySeparatorChar) ||
+            name.Contains(Path.AltDirectorySeparatorChar))
         {
             return false;
         }
