@@ -145,16 +145,27 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `Space` | Open the space menu (bottom-right) |
 | `Space` `/` | Search across project files |
 | `Space` `f` | Open the file picker |
+| `Space` `y` | Yank the selection to the system clipboard |
+| `Space` `p` | Paste the system clipboard at the cursor |
 | `Tab` | Insert a tab in INSERT mode |
 
 ### Space menu
 
-Pressing `Space` in NORMAL mode opens a small menu in the bottom-right corner,
-modelled on Helix's which-key menu. Press `Esc` to dismiss it, `/` to search
-across files, or `f` to open the file picker. Both pickers filter as you type;
-use Up/Down (or PageUp/PageDown) to select and Enter to open the result. File
-pickers start from the current working directory and skip common build and VCS
-directories. Search results open the file at the matching line.
+Pressing `Space` in NORMAL or SELECT mode opens a small menu in the
+bottom-right corner, modelled on Helix's which-key menu. Press `Esc` to
+dismiss it, `/` to search across files, or `f` to open the file picker.
+`y` copies the current selection to the system clipboard and returns to
+NORMAL mode; `p` pastes the clipboard at the cursor (replacing the selection
+when one is active). Both pickers filter as you type; use Up/Down (or
+PageUp/PageDown) to select and Enter to open the result. File pickers start
+from the current working directory and skip common build and VCS directories.
+Search results open the file at the matching line.
+
+Clipboard access uses native helpers when available (`xclip`, `xsel`, or
+`wl-copy` on Linux, `pbcopy`/`pbpaste` on macOS, and PowerShell on Windows).
+When no copy helper is present, Hexal falls back to the terminal's OSC 52
+clipboard sequence, which also works over SSH with terminals that support it.
+Pasting without a clipboard helper reports an error.
 
 ### Commands
 
@@ -367,6 +378,7 @@ HexalCs/Hexal/
     Terminal.cs              terminal interface and factory
     PosixTerminal.cs         termios, poll, SIGWINCH, ANSI input decoder
     WindowsTerminal.cs       Console API, ReadConsoleInputW, VT output
+    Clipboard.cs             native clipboard helpers and OSC 52 fallback
   Lsp/
     LspManager.cs            async JSON-RPC client, document sync, diagnostics
     LspServerConfig.cs       server config, executable lookup, diagnostic types

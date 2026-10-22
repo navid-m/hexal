@@ -45,6 +45,8 @@ public sealed partial class Editor
     {
         ('/', "Search across files"),
         ('f', "Open file picker"),
+        ('y', "Yank selection to clipboard"),
+        ('p', "Paste from clipboard"),
         ('K', "LSP hover"),
         ('A', "LSP code actions"),
         ('D', "Workspace diagnostics"),
@@ -892,6 +894,9 @@ public sealed partial class Editor
 
         switch (inputEvent.Character.Value)
         {
+            case ' ':
+                OpenSpaceMenu();
+                return;
             case '%':
                 SelectAll();
                 return;
@@ -1239,6 +1244,14 @@ public sealed partial class Editor
             case 'f':
             case 'F':
                 OpenPicker(PickerKind.Files);
+                return;
+            case 'y':
+            case 'Y':
+                YankSelection();
+                return;
+            case 'p':
+            case 'P':
+                PasteClipboard();
                 return;
             case 'K':
             case 'k':
@@ -3260,6 +3273,123 @@ public sealed partial class Editor
         _preferredColumnValid = false;
         SnapCursor();
         ClearMessage();
+    }
+
+    /// <summary>
+    /// Copies the active SELECT-mode range to the system clipboard and leaves
+    /// SELECT mode, placing the cursor at the start of the yanked range.
+    /// </summary>
+    private void YankSelection()
+    {
+        if (_mode != Mode.Select)
+        {
+            SetMessage("Select text before yanking.");
+            return;
+        }
+
+        (long start, long end) = SelectionRange();
+        if (end <= start)
+        {
+            SetMessage("Nothing selected.");
+            return;
+        }
+
+        byte[] text = _document.Range(start, end - start);
+        if (!Clipboard.TryCopy(_terminal, text, out string error))
+        {
+            SetError(error);
+            return;
+        }
+
+        _cursor = start;
+        _selectionAnchor = start;
+        _selectionLinewise = false;
+        _mode = Mode.Normal;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+        SetMessage("Yanked selection to the system clipboard.");
+    }
+
+    /// <summary>
+    /// Inserts the system clipboard at each cursor. When a SELECT-mode range
+    /// is active the pasted text replaces it, matching normal editor paste
+    /// behaviour, and the cursor ends after the inserted text.
+    /// </summary>
+    private void PasteClipboard()
+    {
+        if (!Clipboard.TryPaste(out byte[] clipboardText, out string error))
+        {
+            SetError(error);
+            return;
+        }
+
+        if (clipboardText.Length == 0)
+        {
+            SetMessage("The system clipboard is empty.");
+            return;
+        }
+
+        byte[] text = NormalizePastedText(clipboardText);
+        ForEachSelection(() => PasteText(text), editing: true);
+    }
+
+    private void PasteText(byte[] text)
+    {
+        long start;
+        if (_mode == Mode.Select)
+        {
+            (start, long end) = SelectionRange();
+            _document.Replace(start, end - start, text);
+        }
+        else
+        {
+            start = _cursor;
+            _document.Insert(start, text);
+        }
+
+        _cursor = start + text.Length;
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
+        _mode = Mode.Normal;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+        ClearMessage();
+    }
+
+    /// <summary>
+    /// Converts clipboard line endings to the buffer's EOL convention so a
+    /// paste from Windows does not introduce mixed line endings into an LF
+    /// file (or vice versa).
+    /// </summary>
+    private byte[] NormalizePastedText(byte[] text)
+    {
+        byte[] eol = _document.Eol == "\r\n" ? CrLf : Lf;
+        var normalized = new ByteBuffer(text.Length + eol.Length);
+
+        for (int i = 0; i < text.Length; ++i)
+        {
+            byte value = text[i];
+            if (value == (byte)'\r')
+            {
+                if (i + 1 < text.Length && text[i + 1] == (byte)'\n')
+                {
+                    ++i;
+                }
+                normalized.Append(eol);
+            }
+            else if (value == (byte)'\n')
+            {
+                normalized.Append(eol);
+            }
+            else
+            {
+                normalized.Append(value);
+            }
+        }
+
+        return normalized.ToArray();
     }
 
     /// <summary>

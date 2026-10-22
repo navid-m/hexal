@@ -167,6 +167,8 @@ internal static class Program
               Space            Open the space menu
               Space /          Search across files
               Space f          Open the file picker
+              Space y          Yank the selection to the system clipboard
+              Space p          Paste the system clipboard at the cursor
               Space K          Show LSP hover information
               Space A          Show and apply LSP code actions
               Space D          Show workspace diagnostics
