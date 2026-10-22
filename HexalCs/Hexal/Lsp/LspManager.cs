@@ -459,6 +459,36 @@ public sealed class LspManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns the number of diagnostics currently published for one document.
+    /// Used by the status bar without allocating a full snapshot on every frame.
+    /// </summary>
+    public int CountDiagnosticsForPath(string documentPath)
+    {
+        if (string.IsNullOrEmpty(documentPath))
+        {
+            return 0;
+        }
+
+        string uri;
+        try
+        {
+            uri = PathToUri(documentPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            return 0;
+        }
+
+        lock (_stateLock)
+        {
+            return _diagnostics.TryGetValue(uri, out List<LspDiagnostic>? diagnostics)
+                ? diagnostics.Count
+                : 0;
+        }
+    }
+
     public void Stop()
     {
         lock (_stateLock)

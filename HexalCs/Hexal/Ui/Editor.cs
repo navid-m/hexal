@@ -4115,10 +4115,38 @@ public sealed partial class Editor
             rightX = 1;
         }
 
-        int leftMax = rightX - 1;
+        string diagnostic = string.Empty;
+        int diagnosticWidth = 0;
+        int diagnosticX = rightX;
+        int diagnosticCount = _document.Path is null
+            ? 0
+            : _lsp.CountDiagnosticsForPath(_document.Path);
+        if (diagnosticCount > 0)
+        {
+            diagnostic = $"\u25CF {diagnosticCount}";
+            diagnosticWidth = (int)UnicodeUtil.ColumnWidth(diagnostic);
+            diagnosticX = rightX - diagnosticWidth - 1;
+            if (diagnosticX < 1)
+            {
+                diagnostic = string.Empty;
+                diagnosticWidth = 0;
+                diagnosticX = rightX;
+            }
+        }
+
+        int leftMax = (diagnosticWidth > 0 ? diagnosticX : rightX) - 1;
         if (leftMax > 0)
         {
             _screen.PutString(1, (int)y, left, style, leftMax);
+        }
+
+        if (diagnosticWidth > 0)
+        {
+            var diagnosticStyle = style;
+            diagnosticStyle.Fg = 9;
+            diagnosticStyle.Bold = true;
+            _screen.PutString(diagnosticX, (int)y, diagnostic,
+                diagnosticStyle, diagnosticWidth);
         }
 
         int rightMax = _columns - rightX;
