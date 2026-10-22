@@ -3692,7 +3692,7 @@ public sealed partial class Editor
     {
         _ = line;
         _ = column;
-        string text = $" {ModeLabel()}  {_document.DisplayName}";
+        string text = $"{ModeLabel()}    {_document.DisplayName}";
         if (_document.IsDirty)
         {
             text += " [+]";
