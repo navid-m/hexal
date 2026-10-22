@@ -142,6 +142,7 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `d` / `D`, `Delete` | Delete the character/selection under the cursor |
 | `u` / `Ctrl+R` | Undo / redo |
 | `:` | Open the Ex command line |
+| `/` | Search inside the current file (case insensitive) |
 | `Space` | Open the space menu (bottom-right) |
 | `Space` `/` | Search across project files |
 | `Space` `f` | Open the file picker |
@@ -162,6 +163,15 @@ Both pickers filter as you type; use Up/Down (or
 PageUp/PageDown) to select and Enter to open the result. File pickers start
 from the current working directory and skip common build and VCS directories.
 Search results open the file at the matching line.
+
+### In-file search
+
+Press `/` in NORMAL mode to open the find box. Type a query and press
+`Enter` to finish editing it; all case-insensitive matches are highlighted
+as you type and the first match at or after the cursor is selected. Press
+`n` for the next match and `p` for the previous match (wrapping at the ends).
+`Esc` closes find mode. `Up`/`Down` and `Ctrl+N`/`Ctrl+P` also move between
+matches while the query is being edited.
 
 Clipboard access uses native helpers when available (`xclip`, `xsel`, or
 `wl-copy` on Linux, `pbcopy`/`pbpaste` on macOS, and PowerShell on Windows).

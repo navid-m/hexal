@@ -12,6 +12,7 @@ public sealed partial class Editor
     private const int TabWidth = 4;
     private const int BottomLinePadding = 1;
     private const int MouseScrollLines = 3;
+    private const int MaxFindMatches = 50000;
 
     private static readonly byte[] Lf = { (byte)'\n' };
     private static readonly byte[] CrLf = { (byte)'\r', (byte)'\n' };
@@ -155,6 +156,11 @@ public sealed partial class Editor
         long Line,
         long Column);
 
+    private readonly record struct FindMatch(
+        long Start,
+        long End,
+        long Line);
+
     private readonly struct HoverSegment
     {
         public HoverSegment(string text, SyntaxTokenKind kind)
@@ -177,6 +183,12 @@ public sealed partial class Editor
     private long _selectionAnchor;
     private bool _selectionLinewise;
     private readonly List<Selection> _extraSelections = new();
+    private bool _findActive;
+    private bool _findEditing;
+    private readonly StringBuilder _findQuery = new();
+    private int _findQueryCursor;
+    private readonly List<FindMatch> _findMatches = new();
+    private int _findMatchIndex = -1;
     private long _topLine;
     private long _leftColumn;
     private long _preferredColumn;
@@ -431,7 +443,7 @@ public sealed partial class Editor
         if (inputEvent.Key is Key.MouseDown or Key.MouseUp or Key.MouseMove or
             Key.ScrollUp or Key.ScrollDown)
         {
-            if (!_hoverVisible && !_spaceMenuOpen &&
+            if (!_hoverVisible && !_spaceMenuOpen && !_findActive &&
                 _prompt == PromptKind.None &&
                 _pickerKind == PickerKind.None &&
                 _mode is Mode.Normal or Mode.Insert or Mode.Select)
@@ -453,6 +465,7 @@ public sealed partial class Editor
             _pickerKind == PickerKind.None &&
             _prompt == PromptKind.None &&
             !_spaceMenuOpen &&
+            !_findActive &&
             _mode is Mode.Normal or Mode.Insert or Mode.Select)
         {
             ToggleSidebar();
@@ -469,6 +482,7 @@ public sealed partial class Editor
             _prompt == PromptKind.None &&
             _pickerKind == PickerKind.None &&
             !_spaceMenuOpen &&
+            !_findActive &&
             _mode is Mode.Normal or Mode.Insert or Mode.Select)
         {
             string keymapMode = _mode switch
@@ -486,7 +500,11 @@ public sealed partial class Editor
 
         try
         {
-            if (_pickerKind != PickerKind.None)
+            if (_findActive)
+            {
+                HandleFind(inputEvent);
+            }
+            else if (_pickerKind != PickerKind.None)
             {
                 HandlePicker(inputEvent);
             }
@@ -624,6 +642,11 @@ public sealed partial class Editor
         _topLine = Math.Max(0, line - Math.Max(0, oldTopOffset));
         SnapCursor();
         _fileStamp = stamp;
+
+        if (_findActive)
+        {
+            RebuildFindMatches();
+        }
 
         if (wasDirty)
         {
@@ -815,6 +838,9 @@ public sealed partial class Editor
                 _commandHistoryIndex = -1;
                 _document.BreakUndoGroup();
                 ClearMessage();
+                return;
+            case '/':
+                OpenFind();
                 return;
             case 'i':
             case 'I':
@@ -1928,6 +1954,265 @@ public sealed partial class Editor
         }
     }
 
+    private void OpenFind()
+    {
+        _findActive = true;
+        _findEditing = true;
+        _findQuery.Clear();
+        _findQueryCursor = 0;
+        _findMatches.Clear();
+        _findMatchIndex = -1;
+        _pendingG = false;
+        _document.BreakUndoGroup();
+        ClearMessage();
+    }
+
+    private void CloseFind()
+    {
+        _findActive = false;
+        _findEditing = false;
+        _findQuery.Clear();
+        _findQueryCursor = 0;
+        _findMatches.Clear();
+        _findMatchIndex = -1;
+        _document.BreakUndoGroup();
+    }
+
+    private void HandleFind(InputEvent inputEvent)
+    {
+        if (inputEvent.Key == Key.Escape)
+        {
+            CloseFind();
+            return;
+        }
+
+        if (!_findEditing)
+        {
+            switch (inputEvent.Key)
+            {
+                case Key.Enter:
+                    _findEditing = true;
+                    return;
+                case Key.Up:
+                    FindPrevious();
+                    return;
+                case Key.Down:
+                    FindNext();
+                    return;
+            }
+
+            if (inputEvent.Key == Key.Character && !inputEvent.Ctrl && !inputEvent.Alt)
+            {
+                switch (inputEvent.Character.Value)
+                {
+                    case 'n':
+                    case 'N':
+                        FindNext();
+                        return;
+                    case 'p':
+                    case 'P':
+                        FindPrevious();
+                        return;
+                    case '/':
+                        _findEditing = true;
+                        return;
+                }
+            }
+            return;
+        }
+
+        switch (inputEvent.Key)
+        {
+            case Key.Enter:
+                _findEditing = false;
+                return;
+            case Key.Up:
+                FindPrevious();
+                return;
+            case Key.Down:
+                FindNext();
+                return;
+            case Key.Backspace:
+                if (_findQueryCursor > 0)
+                {
+                    string text = _findQuery.ToString();
+                    int previous = UnicodeUtil.PreviousBoundary(text, _findQueryCursor);
+                    _findQuery.Remove(previous, _findQueryCursor - previous);
+                    _findQueryCursor = previous;
+                    RebuildFindMatches();
+                }
+                return;
+            case Key.Delete:
+                if (_findQueryCursor < _findQuery.Length)
+                {
+                    string text = _findQuery.ToString();
+                    int next = UnicodeUtil.NextBoundary(text, _findQueryCursor);
+                    _findQuery.Remove(_findQueryCursor, next - _findQueryCursor);
+                    RebuildFindMatches();
+                }
+                return;
+            case Key.Left:
+                _findQueryCursor = UnicodeUtil.PreviousBoundary(_findQuery.ToString(),
+                    _findQueryCursor);
+                return;
+            case Key.Right:
+                _findQueryCursor = UnicodeUtil.NextBoundary(_findQuery.ToString(),
+                    _findQueryCursor);
+                return;
+            case Key.Home:
+                _findQueryCursor = 0;
+                return;
+            case Key.End:
+                _findQueryCursor = _findQuery.Length;
+                return;
+        }
+
+        if (inputEvent.Key != Key.Character)
+        {
+            return;
+        }
+
+        uint codePoint = (uint)inputEvent.Character.Value;
+        if (inputEvent.Ctrl)
+        {
+            if (codePoint is 'n' or 'N')
+            {
+                FindNext();
+            }
+            else if (codePoint is 'p' or 'P')
+            {
+                FindPrevious();
+            }
+            return;
+        }
+
+        if (inputEvent.Alt || codePoint < 0x20 || codePoint == 0x7F)
+        {
+            return;
+        }
+
+        string inserted = inputEvent.Character.ToString();
+        _findQuery.Insert(_findQueryCursor, inserted);
+        _findQueryCursor += inserted.Length;
+        RebuildFindMatches();
+    }
+
+    private void RebuildFindMatches()
+    {
+        _findMatches.Clear();
+        _findMatchIndex = -1;
+
+        string query = _findQuery.ToString();
+        if (query.Length == 0)
+        {
+            return;
+        }
+
+        long total = _document.LineCount;
+        for (long line = 0; line < total; ++line)
+        {
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            if (length == 0)
+            {
+                continue;
+            }
+
+            string text = Encoding.UTF8.GetString(_lineBuffer, 0, length);
+            int searchStart = 0;
+            while (searchStart < text.Length)
+            {
+                int index = text.IndexOf(query, searchStart,
+                    StringComparison.OrdinalIgnoreCase);
+                if (index < 0)
+                {
+                    break;
+                }
+
+                int matchLength = Math.Min(query.Length, text.Length - index);
+                long lineStart = _document.LineStart(line);
+                long start = lineStart +
+                    Encoding.UTF8.GetByteCount(text.AsSpan(0, index));
+                long end = start +
+                    Encoding.UTF8.GetByteCount(text.AsSpan(index, matchLength));
+
+                _findMatches.Add(new FindMatch(start, end, line));
+                if (_findMatches.Count >= MaxFindMatches)
+                {
+                    break;
+                }
+
+                searchStart = index + Math.Max(1, matchLength);
+            }
+
+            if (_findMatches.Count >= MaxFindMatches)
+            {
+                break;
+            }
+        }
+
+        if (_findMatches.Count == 0)
+        {
+            return;
+        }
+
+        int selected = 0;
+        for (int i = 0; i < _findMatches.Count; ++i)
+        {
+            if (_findMatches[i].Start >= _cursor)
+            {
+                selected = i;
+                break;
+            }
+        }
+
+        SelectFindMatch(selected);
+    }
+
+    private void SelectFindMatch(int index)
+    {
+        if (index < 0 || index >= _findMatches.Count)
+        {
+            _findMatchIndex = -1;
+            return;
+        }
+
+        _findMatchIndex = index;
+        FindMatch match = _findMatches[index];
+        _cursor = match.Start;
+        _selectionAnchor = _cursor;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+    }
+
+    private void FindNext()
+    {
+        if (_findMatches.Count == 0)
+        {
+            RebuildFindMatches();
+            return;
+        }
+
+        int index = _findMatchIndex < 0
+            ? 0
+            : (_findMatchIndex + 1) % _findMatches.Count;
+        SelectFindMatch(index);
+    }
+
+    private void FindPrevious()
+    {
+        if (_findMatches.Count == 0)
+        {
+            RebuildFindMatches();
+            return;
+        }
+
+        int index = _findMatchIndex < 0
+            ? _findMatches.Count - 1
+            : (_findMatchIndex - 1 + _findMatches.Count) % _findMatches.Count;
+        SelectFindMatch(index);
+    }
+
     private void OpenPicker(PickerKind kind)
     {
         CancelPickerPreview();
@@ -2935,7 +3220,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | Ctrl+B sidebar | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | Tab completes | u/Ctrl+R undo");
+                SetMessage("i insert | Esc normal | / find | n/p next/prev match | Ctrl+B sidebar | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | Tab completes | u/Ctrl+R undo");
                 return;
         }
 
@@ -4709,6 +4994,11 @@ public sealed partial class Editor
             return "CONFIRM";
         }
 
+        if (_findActive)
+        {
+            return "FIND";
+        }
+
         if (_sidebarFocused && _sidebarVisible && _mode == Mode.Normal)
         {
             return "SIDEBAR";
@@ -5016,6 +5306,53 @@ public sealed partial class Editor
             long lastX = Math.Min(_columns,
                 _editorLeft + gutter + visualTo - _leftColumn);
 
+            for (long x = firstX; x < lastX; ++x)
+            {
+                _screen.ApplyStyle((int)x, row, style);
+            }
+        }
+    }
+
+    private void RenderFindMatches(long firstLine, int rows, int gutter)
+    {
+        if (!_findActive || _findMatches.Count == 0 || rows <= 0 ||
+            _columns <= _editorLeft + gutter)
+        {
+            return;
+        }
+
+        var matchStyle = new Style { Fg = 0, Bg = 3 };
+        var currentStyle = new Style { Fg = 0, Bg = 11, Bold = true };
+
+        for (int i = 0; i < _findMatches.Count; ++i)
+        {
+            FindMatch match = _findMatches[i];
+            if (match.Line < firstLine || match.Line >= firstLine + rows)
+            {
+                continue;
+            }
+
+            long lineStart = _document.LineStart(match.Line);
+            int length = _document.CopyLineText(match.Line, ref _lineBuffer, out _);
+            int localFrom = (int)Math.Clamp(match.Start - lineStart, 0, length);
+            int localTo = (int)Math.Clamp(match.End - lineStart, 0, length);
+            if (localTo <= localFrom)
+            {
+                continue;
+            }
+
+            long visualFrom = UnicodeUtil.VisualColumn(
+                _lineBuffer.AsSpan(0, length), localFrom, TabWidth);
+            long visualTo = UnicodeUtil.VisualColumn(
+                _lineBuffer.AsSpan(0, length), localTo, TabWidth);
+
+            int row = (int)(match.Line - firstLine);
+            long firstX = Math.Max(_editorLeft + gutter,
+                _editorLeft + gutter + visualFrom - _leftColumn);
+            long lastX = Math.Min(_columns,
+                _editorLeft + gutter + visualTo - _leftColumn);
+
+            Style style = i == _findMatchIndex ? currentStyle : matchStyle;
             for (long x = firstX; x < lastX; ++x)
             {
                 _screen.ApplyStyle((int)x, row, style);
@@ -5450,6 +5787,75 @@ public sealed partial class Editor
         }
     }
 
+    private void RenderFind()
+    {
+        if (!_findActive)
+        {
+            return;
+        }
+
+        int available = (int)Math.Max(0, StatusRow());
+        if (available < 5 || _columns < 20)
+        {
+            return;
+        }
+
+        int height = 4;
+        int width = Math.Min(_columns - 2, 72);
+        if (width < 20)
+        {
+            return;
+        }
+
+        int x = (_columns - width) / 2;
+        int y = Math.Max(0, available - height);
+        DrawBox(x, y, width, height, "Find");
+
+        var promptStyle = new Style { Fg = 14, Bold = true };
+        var queryStyle = new Style { Fg = 15 };
+        var statusStyle = new Style { Fg = 11 };
+
+        _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
+
+        string query = _findQuery.ToString();
+        int queryWidth = Math.Max(0, width - 5);
+        _screen.PutString(x + 4, y + 1, query, queryStyle, queryWidth);
+
+        if (_findEditing)
+        {
+            long queryColumn = UnicodeUtil.VisualColumn(query, _findQueryCursor, 1);
+            if (queryColumn < queryWidth)
+            {
+                int cursorX = x + 4 + (int)queryColumn;
+                if (cursorX < x + width - 1)
+                {
+                    Style cursorStyle = _screen.At(cursorX, y + 1).Style;
+                    cursorStyle.Reverse = true;
+                    _screen.ApplyStyle(cursorX, y + 1, cursorStyle);
+                }
+            }
+        }
+
+        string status;
+        if (query.Length == 0)
+        {
+            status = "Type to search";
+        }
+        else if (_findMatches.Count == 0)
+        {
+            status = "No matches";
+        }
+        else
+        {
+            int position = Math.Max(0, _findMatchIndex) + 1;
+            status = _findEditing
+                ? $"{position}/{_findMatches.Count} matches  Enter: navigate  Esc: cancel"
+                : $"{position}/{_findMatches.Count} matches  n: next  p: previous  Esc: exit";
+        }
+
+        _screen.PutString(x + 2, y + 2, status, statusStyle, width - 4);
+    }
+
     private void RenderPicker()
     {
         if (_pickerKind == PickerKind.None)
@@ -5772,6 +6178,7 @@ public sealed partial class Editor
             RenderLineNumbers(_topLine, rows, gutter);
             RenderTextLines(_topLine, rows, gutter);
             RenderSelection(_topLine, rows, gutter);
+            RenderFindMatches(_topLine, rows, gutter);
             RenderCursor(_topLine, rows, gutter);
         }
 
@@ -5782,6 +6189,7 @@ public sealed partial class Editor
         RenderCompletion();
         RenderSpaceMenu();
         RenderPicker();
+        RenderFind();
         RenderHover();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
