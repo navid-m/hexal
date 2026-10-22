@@ -38,6 +38,7 @@ internal static class Program
         TestLanguageGrammars();
         TestThemes();
         TestPluginConfigStore();
+        TestPluginMetadataAndToggle();
         TestLuaLspRuntime();
         TestHexalPaths();
 
@@ -863,6 +864,11 @@ internal static class Program
                 "controlStatements": ["if"],
                 "types": ["int"],
                 "constants": ["true"],
+                "indentation": {
+                    "style": "tabs",
+                    "width": 8,
+                    "tabWidth": 4
+                },
                 "comments": {
                     "line": "//",
                     "blockStart": "/*",
@@ -900,6 +906,13 @@ internal static class Program
             "formatter timeout", "2500");
         CheckEqual(definition.FormatOnSave, true, "formatter formatOnSave",
             "true");
+        Check(definition.Indentation is not null, "grammar indentation parsed");
+        CheckEqual(definition.Indentation?.UseTabs, true,
+            "grammar indentation uses tabs", "true");
+        CheckEqual(definition.Indentation?.IndentWidth, 8,
+            "grammar indentation width", "8");
+        CheckEqual(definition.Indentation?.TabWidth, 4,
+            "grammar tab width", "4");
 
         using var directory = new TempDir();
         string grammarPath = directory.Path("test.hexdef");
@@ -963,6 +976,8 @@ internal static class Program
                 "id": "test-theme",
                 "name": "Test Theme",
                 "description": "Theme parser fixture.",
+                "author": "Test Author",
+                "license": "MIT",
                 "colors": {
                     "foreground": "#112233",
                     "background": "black",
@@ -985,6 +1000,8 @@ internal static class Program
 
         CheckEqual(theme.Id, "test-theme", "theme id", "test-theme");
         CheckEqual(theme.Name, "Test Theme", "theme name", "Test Theme");
+        CheckEqual(theme.Author, "Test Author", "theme author", "Test Author");
+        CheckEqual(theme.License, "MIT", "theme license", "MIT");
         Check(Theme.IsTrueColor(theme.Foreground), "hex foreground is true colour");
         CheckEqual(Theme.Red(theme.Foreground), (byte)0x11, "theme red", "0x11");
         CheckEqual(Theme.Green(theme.Foreground), (byte)0x22, "theme green", "0x22");
@@ -1031,6 +1048,76 @@ internal static class Program
             "nested config value", "hexal");
         CheckEqual(loaded.Get("missing", "fallback") as string, "fallback",
             "config fallback", "fallback");
+    }
+
+    private static void TestPluginMetadataAndToggle()
+    {
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "example");
+        Directory.CreateDirectory(plugin);
+
+        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+            name = "Example"
+            version = "1.2.3"
+            description = "Example plugin"
+            author = "Test Author"
+            license = "MIT"
+            """, new UTF8Encoding(false));
+        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), """
+            hexal.commands.register("hello", function()
+                hexal.ui.message("HI")
+            end, "Say hi")
+            """, new UTF8Encoding(false));
+
+        var host = new FakeHost();
+        using (var manager = new LuaPluginManager(host, plugins))
+        {
+            manager.LoadAll();
+            CheckEqual(manager.Errors.Count, 0, "plugin metadata errors", "0");
+            CheckEqual(manager.PluginCount, 1, "plugin metadata count", "1");
+
+            PluginInfo info = manager.Plugins.Single();
+            CheckEqual(info.Id, "example", "plugin id", "example");
+            CheckEqual(info.Version, "1.2.3", "plugin version", "1.2.3");
+            CheckEqual(info.Description, "Example plugin", "plugin description",
+                "Example plugin");
+            CheckEqual(info.Author, "Test Author", "plugin author", "Test Author");
+            CheckEqual(info.License, "MIT", "plugin license", "MIT");
+            Check(info.Enabled, "plugin starts enabled");
+            Check(info.Running, "plugin starts running");
+            Check(info.Commands.Contains("hello"), "plugin command listed");
+            Check(manager.HasCommand("hello"), "plugin command registered");
+
+            Check(manager.SetPluginEnabled("example", false, out string error),
+                $"disable plugin ({error})");
+            CheckEqual(manager.PluginCount, 0, "disabled plugin unloaded", "0");
+            Check(!manager.HasCommand("hello"), "disabled plugin command removed");
+            info = manager.Plugins.Single();
+            Check(!info.Enabled, "plugin reports disabled");
+            Check(!info.Running, "disabled plugin not running");
+
+            Check(manager.SetPluginEnabled("example", true, out error),
+                $"enable plugin ({error})");
+            CheckEqual(manager.PluginCount, 1, "enabled plugin loaded", "1");
+            Check(manager.HasCommand("hello"), "enabled plugin command restored");
+        }
+
+        string statePath = directory.Path("disabled-plugins");
+        using (var manager = new LuaPluginManager(host, plugins, statePath))
+        {
+            manager.LoadAll();
+            Check(manager.SetPluginEnabled("example", false, out string error),
+                $"disable plugin for state ({error})");
+        }
+
+        using (var manager = new LuaPluginManager(host, plugins, statePath))
+        {
+            manager.LoadAll();
+            CheckEqual(manager.PluginCount, 0, "disabled state persists", "0");
+            Check(!manager.Plugins.Single().Enabled,
+                "persisted plugin reports disabled");
+        }
     }
 
     private static void TestLuaLspRuntime()

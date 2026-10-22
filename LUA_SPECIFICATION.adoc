@@ -237,6 +237,20 @@ Example layout:
       init.lua
       config.lua
 
+Manifest example:
+
+  name = "Example"
+  version = "1.0"
+  description = "What the plugin does"
+  author = "Plugin Author"
+  license = "MIT"
+  entry = "init.lua"
+  enabled = true
+
+The author and license fields are optional metadata. They are shown in
+the plugin manager together with the plugin's version, description,
+commands, paths and load errors.
+
 LIFECYCLE:
   1. Read and validate manifest.
   2. Create plugin execution context.

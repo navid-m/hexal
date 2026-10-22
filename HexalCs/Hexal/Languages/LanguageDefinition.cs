@@ -22,6 +22,15 @@ public readonly record struct SyntaxToken(int Start, int Length, SyntaxTokenKind
 }
 
 /// <summary>
+/// Default indentation preferences declared by a language definition. The
+/// editor applies these when a buffer is associated with the language.
+/// </summary>
+public readonly record struct IndentationSettings(
+    bool UseTabs,
+    int IndentWidth,
+    int TabWidth);
+
+/// <summary>
 /// A validated .hexdef language definition. The canonical schema is the JSON
 /// object documented in README.md. Definitions are data only; adding a grammar
 /// never requires recompiling the editor.
@@ -38,7 +47,8 @@ public sealed class LanguageDefinition
         HashSet<string> types, HashSet<string> constants, string? lineComment,
         string? blockCommentStart, string? blockCommentEnd,
         List<string> quoteCharacters, string? escapeCharacter, bool highlightNumbers,
-        FormatterConfig? formatter, bool? formatOnSave)
+        FormatterConfig? formatter, bool? formatOnSave,
+        IndentationSettings? indentation)
     {
         Id = id;
         Name = name;
@@ -56,6 +66,7 @@ public sealed class LanguageDefinition
         HighlightNumbers = highlightNumbers;
         Formatter = formatter;
         FormatOnSave = formatOnSave;
+        Indentation = indentation;
 
         LineCommentBytes = Encode(lineComment);
         BlockCommentStartBytes = Encode(blockCommentStart);
@@ -87,6 +98,13 @@ public sealed class LanguageDefinition
     public FormatterConfig? Formatter { get; }
 
     public bool? FormatOnSave { get; }
+
+    /// <summary>
+    /// Optional default indentation style from the grammar's
+    /// <c>indentation</c> object. Null leaves the buffer's current settings
+    /// untouched.
+    /// </summary>
+    public IndentationSettings? Indentation { get; }
 
     internal byte[]? LineCommentBytes { get; }
 
@@ -297,6 +315,50 @@ public sealed class LanguageDefinition
                 };
             }
 
+            IndentationSettings? indentation = null;
+            if (root.TryGetProperty("indentation", out JsonElement indentationElement))
+            {
+                if (indentationElement.ValueKind != JsonValueKind.Object)
+                {
+                    error = "indentation must be a JSON object";
+                    return false;
+                }
+
+                string style = (GetString(indentationElement, "style") ?? "spaces")
+                    .Trim().ToLowerInvariant();
+                if (style is not ("spaces" or "tabs"))
+                {
+                    error = "indentation.style must be 'spaces' or 'tabs'";
+                    return false;
+                }
+
+                bool useTabs = style == "tabs";
+                int indentWidth = useTabs
+                    ? Document.DefaultTabWidth
+                    : Document.DefaultIndentWidth;
+                if (indentationElement.TryGetProperty("width", out JsonElement widthValue) &&
+                    (widthValue.ValueKind != JsonValueKind.Number ||
+                     !widthValue.TryGetInt32(out indentWidth) ||
+                     indentWidth is < 1 or > 16))
+                {
+                    error = "indentation.width must be an integer between 1 and 16";
+                    return false;
+                }
+
+                int tabWidth = useTabs ? indentWidth : Document.DefaultTabWidth;
+                if (indentationElement.TryGetProperty("tabWidth",
+                        out JsonElement tabWidthValue) &&
+                    (tabWidthValue.ValueKind != JsonValueKind.Number ||
+                     !tabWidthValue.TryGetInt32(out tabWidth) ||
+                     tabWidth is < 1 or > 16))
+                {
+                    error = "indentation.tabWidth must be an integer between 1 and 16";
+                    return false;
+                }
+
+                indentation = new IndentationSettings(useTabs, indentWidth, tabWidth);
+            }
+
             if (lineComment is { Length: 0 })
             {
                 lineComment = null;
@@ -310,7 +372,7 @@ public sealed class LanguageDefinition
             definition = new LanguageDefinition(id, name, extensions, keywords,
                 controlStatements, types, constants, lineComment, blockStart,
                 blockEnd, quoteCharacters, escapeCharacter, highlightNumbers,
-                formatter, formatOnSave);
+                formatter, formatOnSave, indentation);
             return true;
         }
         catch (JsonException ex)

@@ -9,6 +9,28 @@ using NLua.Exceptions;
 namespace Hexal.Scripting;
 
 /// <summary>
+/// A snapshot of one discovered plugin manifest. It is also available for
+/// plugins that are currently disabled, so the plugin manager can show all
+/// installed plugins and their metadata.
+/// </summary>
+public sealed class PluginInfo
+{
+    public string Id { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string Version { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public string Author { get; init; } = string.Empty;
+    public string License { get; init; } = string.Empty;
+    public string Directory { get; init; } = string.Empty;
+    public string EntryPath { get; init; } = string.Empty;
+    public string ManifestPath { get; init; } = string.Empty;
+    public bool Enabled { get; init; }
+    public bool Running { get; init; }
+    public string Error { get; init; } = string.Empty;
+    public IReadOnlyList<string> Commands { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>
 /// Loads Lua plugins into isolated NLua states and exposes only the documented
 /// hexal.* modules. The editor talks to this class on the UI thread; Lua never
 /// receives editor objects or the CLR package.
@@ -28,6 +50,22 @@ public sealed class LuaPluginManager : IDisposable
         public PluginConfigStore Config = null!;
         public LuaLspCoordinator? Lsp;
         public bool Running;
+    }
+
+    private sealed class PluginEntry
+    {
+        public string Id = string.Empty;
+        public string Name = string.Empty;
+        public string Version = string.Empty;
+        public string Description = string.Empty;
+        public string Author = string.Empty;
+        public string License = string.Empty;
+        public string Directory = string.Empty;
+        public string EntryPath = string.Empty;
+        public string ManifestPath = string.Empty;
+        public string Error = string.Empty;
+        public bool Enabled;
+        public LoadedPlugin? Plugin;
     }
 
     private sealed class PluginCommand
@@ -57,6 +95,9 @@ public sealed class LuaPluginManager : IDisposable
 
     private readonly IEditorApi _host;
     private readonly string _pluginsDirectory;
+    private readonly string _statePath;
+    private readonly List<PluginEntry> _entries = new();
+    private readonly HashSet<string> _disabledPlugins = new(StringComparer.Ordinal);
     private readonly List<LoadedPlugin> _plugins = new();
     private readonly Dictionary<string, PluginCommand> _commands =
         new(StringComparer.OrdinalIgnoreCase);
@@ -71,19 +112,119 @@ public sealed class LuaPluginManager : IDisposable
     private bool _disposed;
 
     public LuaPluginManager(IEditorApi host)
-        : this(host, DefaultPluginDirectory)
+        : this(host, DefaultPluginDirectory, DefaultStatePath)
     {
     }
 
     public LuaPluginManager(IEditorApi host, string pluginDirectory)
+        : this(host, pluginDirectory, string.Empty)
+    {
+    }
+
+    public LuaPluginManager(IEditorApi host, string pluginDirectory,
+        string statePath)
     {
         _host = host;
         _pluginsDirectory = pluginDirectory;
+        _statePath = statePath;
     }
 
     public IReadOnlyList<string> Errors => _errors;
 
     public int PluginCount => _plugins.Count;
+
+    public static string DefaultStatePath =>
+        Path.Combine(HexalPaths.HexalHomeDirectory, "disabled-plugins");
+
+    /// <summary>
+    /// Returns a snapshot of every discovered plugin, including plugins that
+    /// are currently disabled or failed to load.
+    /// </summary>
+    public IReadOnlyList<PluginInfo> Plugins
+    {
+        get
+        {
+            var result = new List<PluginInfo>(_entries.Count);
+            foreach (PluginEntry entry in _entries)
+            {
+                result.Add(new PluginInfo
+                {
+                    Id = entry.Id,
+                    Name = entry.Name,
+                    Version = entry.Version,
+                    Description = entry.Description,
+                    Author = entry.Author,
+                    License = entry.License,
+                    Directory = entry.Directory,
+                    EntryPath = entry.EntryPath,
+                    ManifestPath = entry.ManifestPath,
+                    Enabled = entry.Enabled,
+                    Running = entry.Plugin?.Running ?? false,
+                    Error = entry.Error,
+                    Commands = CommandsForPlugin(entry.Id)
+                });
+            }
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Enables or disables a discovered plugin. Enabling loads the plugin into
+    /// a fresh Lua state; disabling unregisters its commands, keymaps, events
+    /// and language servers before releasing the state.
+    /// </summary>
+    public bool SetPluginEnabled(string id, bool enabled, out string error)
+    {
+        error = string.Empty;
+        PluginEntry? entry = FindEntry(id);
+        if (entry is null)
+        {
+            error = $"unknown plugin '{id}'";
+            return false;
+        }
+
+        if (enabled)
+        {
+            if (entry.Plugin is null)
+            {
+                StartPlugin(entry);
+            }
+
+            entry.Enabled = entry.Plugin is not null;
+            if (!entry.Enabled)
+            {
+                error = entry.Error.Length > 0
+                    ? entry.Error
+                    : $"could not enable plugin '{id}'";
+                return false;
+            }
+
+            _disabledPlugins.Remove(entry.Id);
+        }
+        else
+        {
+            StopPlugin(entry);
+            entry.Enabled = false;
+            _disabledPlugins.Add(entry.Id);
+        }
+
+        SaveState();
+        return true;
+    }
+
+    private List<string> CommandsForPlugin(string pluginId)
+    {
+        var names = new List<string>();
+        foreach ((string name, PluginCommand command) in _commands)
+        {
+            if (string.Equals(command.PluginId, pluginId, StringComparison.Ordinal))
+            {
+                names.Add(name);
+            }
+        }
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return names;
+    }
 
     public IReadOnlyList<LuaLspCoordinator> Coordinators =>
         _plugins.Where(plugin => plugin.Lsp is not null)
@@ -141,10 +282,12 @@ public sealed class LuaPluginManager : IDisposable
             return;
         }
 
+        HashSet<string> disabled = LoadDisabledPlugins();
+
         Array.Sort(directories, StringComparer.OrdinalIgnoreCase);
         foreach (string directory in directories)
         {
-            LoadPlugin(directory);
+            DiscoverPlugin(directory, disabled);
         }
 
         HexalPaths.Log(
@@ -397,87 +540,150 @@ public sealed class LuaPluginManager : IDisposable
         }
 
         _plugins.Clear();
+        _entries.Clear();
+        _disabledPlugins.Clear();
         _commands.Clear();
         _keyBindings.Clear();
         _subscriptions.Clear();
         _pendingKeys.Clear();
     }
 
-    private void LoadPlugin(string directory)
+    /// <summary>
+    /// Reads a plugin manifest and records it even when the plugin is disabled
+    /// or cannot be loaded, so it still appears in the plugin manager.
+    /// </summary>
+    private void DiscoverPlugin(string directory, HashSet<string> disabled)
     {
-        string id = Path.GetFileName(directory);
+        string fallbackId = Path.GetFileName(directory);
         string manifestPath = Path.Combine(directory, "plugin.toml");
         Dictionary<string, string> manifest = new(StringComparer.OrdinalIgnoreCase);
 
-        if (File.Exists(manifestPath))
+        var entry = new PluginEntry
         {
-            if (!TryParseManifest(manifestPath, manifest, out string manifestError))
-            {
-                _errors.Add($"{id}: {manifestError}");
-                return;
-            }
+            Id = fallbackId,
+            Name = fallbackId,
+            Directory = directory,
+            ManifestPath = manifestPath
+        };
+        _entries.Add(entry);
+
+        if (File.Exists(manifestPath) &&
+            !TryParseManifest(manifestPath, manifest, out string manifestError))
+        {
+            RecordDiscoveryError(entry, manifestError);
+            return;
         }
 
         if (manifest.TryGetValue("id", out string? manifestId) &&
             !string.IsNullOrWhiteSpace(manifestId))
         {
-            id = manifestId.Trim();
+            entry.Id = manifestId.Trim();
         }
 
-        if (id.Length == 0 || id.Contains('/') || id.Contains('\\') ||
-            id is "." or "..")
+        if (entry.Id.Length == 0 || entry.Id.Contains('/') || entry.Id.Contains('\\') ||
+            entry.Id is "." or "..")
         {
-            _errors.Add($"{Path.GetFileName(directory)}: invalid plugin id");
+            entry.Id = fallbackId;
+            RecordDiscoveryError(entry, "invalid plugin id");
             return;
         }
 
-        if (manifest.TryGetValue("enabled", out string? enabled) &&
-            string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        string name = manifest.TryGetValue("name", out string? manifestName) &&
-                      !string.IsNullOrWhiteSpace(manifestName)
+        entry.Name = manifest.TryGetValue("name", out string? manifestName) &&
+                     !string.IsNullOrWhiteSpace(manifestName)
             ? manifestName.Trim()
-            : id;
+            : entry.Id;
+        entry.Version = ReadManifestValue(manifest, "version");
+        entry.Description = ReadManifestValue(manifest, "description");
+        entry.Author = ReadManifestValue(manifest, "author");
+        entry.License = ReadManifestValue(manifest, "license");
 
-        string entry = manifest.TryGetValue("entry", out string? manifestEntry) &&
-                       !string.IsNullOrWhiteSpace(manifestEntry)
+        string entryFile = manifest.TryGetValue("entry", out string? manifestEntry) &&
+                           !string.IsNullOrWhiteSpace(manifestEntry)
             ? manifestEntry.Trim()
             : "init.lua";
 
-        string entryPath = Path.GetFullPath(Path.Combine(directory, entry));
+        string entryPath;
+        try
+        {
+            entryPath = Path.GetFullPath(Path.Combine(directory, entryFile));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            RecordDiscoveryError(entry, $"invalid entry point: {ex.Message}");
+            return;
+        }
+
         string fullDirectory = Path.GetFullPath(directory);
         if (!entryPath.StartsWith(fullDirectory + Path.DirectorySeparatorChar,
                 StringComparison.Ordinal) &&
             !string.Equals(entryPath, fullDirectory, StringComparison.Ordinal))
         {
-            _errors.Add($"{id}: entry point escapes the plugin directory");
+            RecordDiscoveryError(entry, "entry point escapes the plugin directory");
             return;
         }
 
+        entry.EntryPath = entryPath;
         if (!File.Exists(entryPath))
         {
-            _errors.Add($"{id}: entry point '{entry}' not found");
+            RecordDiscoveryError(entry, $"entry point '{entryFile}' not found");
             return;
         }
+
+        bool manifestEnabled = !manifest.TryGetValue("enabled", out string? enabled) ||
+                               !string.Equals(enabled, "false",
+                                   StringComparison.OrdinalIgnoreCase);
+        entry.Enabled = manifestEnabled && !disabled.Contains(entry.Id);
+        if (entry.Enabled)
+        {
+            StartPlugin(entry);
+        }
+    }
+
+    private static string ReadManifestValue(Dictionary<string, string> manifest,
+        string key)
+        => manifest.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : string.Empty;
+
+    private void RecordDiscoveryError(PluginEntry entry, string message)
+    {
+        entry.Error = message;
+        entry.Enabled = false;
+        _errors.Add($"{entry.Id}: {message}");
+    }
+
+    /// <summary>
+    /// Creates a fresh Lua state for a discovered plugin. Failure leaves the
+    /// entry in the list with an error so the plugin manager can show it and
+    /// the user can retry after fixing the plugin.
+    /// </summary>
+    private void StartPlugin(PluginEntry entry)
+    {
+        if (entry.Plugin is not null)
+        {
+            entry.Enabled = true;
+            return;
+        }
+
+        _errors.RemoveAll(error =>
+            error.StartsWith(entry.Id + ": ", StringComparison.Ordinal));
 
         var plugin = new LoadedPlugin
         {
-            Id = id,
-            Name = name,
-            Directory = directory,
-            EntryPath = entryPath
+            Id = entry.Id,
+            Name = entry.Name,
+            Directory = entry.Directory,
+            EntryPath = entry.EntryPath
         };
 
         string configDirectory = DefaultPluginConfigDirectory;
         string configPath = Path.Combine(configDirectory,
-            SanitizeFileName(id) + ".json");
+            SanitizeFileName(entry.Id) + ".json");
         plugin.Config = new PluginConfigStore(configPath);
         if (!plugin.Config.TryLoad(out string configError))
         {
-            _errors.Add($"{id}: config: {configError}");
+            _errors.Add($"{entry.Id}: config: {configError}");
         }
 
         try
@@ -487,23 +693,28 @@ public sealed class LuaPluginManager : IDisposable
             plugin.Hexal = (LuaTable)plugin.Lua["hexal"];
             plugin.Hexal["api_version"] = 1;
 
-            plugin.Lua["__hexal_plugin_dir"] = directory.Replace('\\', '/');
+            plugin.Lua["__hexal_plugin_dir"] = entry.Directory.Replace('\\', '/');
             plugin.Lua.DoString(
                 "package.path = __hexal_plugin_dir .. '/?.lua;' .. " +
                 "__hexal_plugin_dir .. '/?/init.lua;' .. package.path");
 
             RegisterModules(plugin);
-            plugin.Lua.DoFile(entryPath);
+            plugin.Lua.DoFile(entry.EntryPath);
             plugin.Running = true;
             _plugins.Add(plugin);
+            entry.Plugin = plugin;
+            entry.Error = string.Empty;
+            entry.Enabled = true;
         }
         catch (Exception ex)
         {
             string message = ex is LuaScriptException luaError
                 ? luaError.Message
                 : ex.Message;
-            _errors.Add($"{id}: {message}");
-            CleanupPlugin(id);
+            entry.Error = message;
+            entry.Enabled = false;
+            _errors.Add($"{entry.Id}: {message}");
+            CleanupPlugin(entry.Id);
             try
             {
                 plugin.Lsp?.Dispose();
@@ -521,6 +732,39 @@ public sealed class LuaPluginManager : IDisposable
                 // Ignore teardown failures for a failed plugin.
             }
         }
+    }
+
+    /// <summary>
+    /// Unregisters a running plugin's resources and releases its Lua state.
+    /// </summary>
+    private void StopPlugin(PluginEntry entry)
+    {
+        LoadedPlugin? plugin = entry.Plugin;
+        if (plugin is null)
+        {
+            return;
+        }
+
+        CleanupPlugin(entry.Id);
+        try
+        {
+            plugin.Lsp?.Dispose();
+        }
+        catch
+        {
+            // Coordinator teardown is best effort.
+        }
+        try
+        {
+            plugin.Lua.Dispose();
+        }
+        catch
+        {
+            // Plugin teardown is best effort.
+        }
+
+        _plugins.Remove(plugin);
+        entry.Plugin = null;
     }
 
     private void RegisterModules(LoadedPlugin plugin)
@@ -935,6 +1179,73 @@ public sealed class LuaPluginManager : IDisposable
             }
         }
         return null;
+    }
+
+    private PluginEntry? FindEntry(string id)
+    {
+        foreach (PluginEntry entry in _entries)
+        {
+            if (string.Equals(entry.Id, id, StringComparison.Ordinal))
+            {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private HashSet<string> LoadDisabledPlugins()
+    {
+        _disabledPlugins.Clear();
+        if (_statePath.Length == 0 || !File.Exists(_statePath))
+        {
+            return _disabledPlugins;
+        }
+
+        try
+        {
+            foreach (string line in File.ReadLines(_statePath))
+            {
+                string id = line.Trim();
+                if (id.Length > 0)
+                {
+                    _disabledPlugins.Add(id);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            _errors.Add($"plugin state: {ex.Message}");
+        }
+
+        return _disabledPlugins;
+    }
+
+    private void SaveState()
+    {
+        if (_statePath.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            string? directory = Path.GetDirectoryName(_statePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            string[] ids = _disabledPlugins
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            File.WriteAllLines(_statePath, ids);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            _errors.Add($"plugin state: {ex.Message}");
+        }
     }
 
     private static bool TryParseManifest(string path,

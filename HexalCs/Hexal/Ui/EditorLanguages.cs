@@ -6,14 +6,40 @@ public sealed partial class Editor
 {
     private void RefreshLanguage()
     {
-        _language = _document.Path is null ? null : _languages.Detect(_document.Path);
-        _syntax.SetDocument(_document, _language);
+        SetLanguage(_document.Path is null ? null : _languages.Detect(_document.Path));
     }
 
     private void SetLanguage(LanguageDefinition? language)
     {
         _language = language;
+        ApplyLanguageIndentation(language);
         _syntax.SetDocument(_document, language);
+    }
+
+    /// <summary>
+    /// Applies the default indentation preferences declared by a grammar.
+    /// Languages without an <c>indentation</c> object leave the buffer's
+    /// current settings alone.
+    /// </summary>
+    private void ApplyLanguageIndentation(LanguageDefinition? language)
+    {
+        IndentationSettings? indentation = language?.Indentation;
+        if (indentation is null)
+        {
+            return;
+        }
+
+        IndentationSettings settings = indentation.Value;
+        if (settings.UseTabs)
+        {
+            _document.SetIndentTabs(settings.TabWidth);
+            _document.IndentWidth = settings.IndentWidth;
+        }
+        else
+        {
+            _document.TabWidth = settings.TabWidth;
+            _document.SetIndentSpaces(settings.IndentWidth);
+        }
     }
 
     private bool TrySetLanguage(string id, out string error)

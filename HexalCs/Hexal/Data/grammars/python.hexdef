@@ -1,6 +1,7 @@
 {
     "id": "python",
     "name": "Python",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
     "extensions": [".py"],
     "keywords": [
         "and", "as", "assert", "async", "await", "class", "def", "del",

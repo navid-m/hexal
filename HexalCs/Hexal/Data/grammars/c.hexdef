@@ -1,6 +1,7 @@
 {
     "id": "c",
     "name": "C",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 8 },
     "extensions": [".h", ".c"],
     "keywords": [
         "auto", "const", "enum", "extern", "inline", "register",

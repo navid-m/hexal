@@ -1,6 +1,7 @@
 {
     "id": "csharp",
     "name": "C#",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
     "extensions": [".cs"],
     "keywords": [
         "abstract", "as", "async", "await", "base", "class", "const",

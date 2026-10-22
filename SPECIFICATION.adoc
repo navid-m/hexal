@@ -605,6 +605,11 @@ Example:
             "line": "//",
             "blockStart": "/*",
             "blockEnd": "*/"
+        },
+        "indentation": {
+            "style": "spaces",
+            "width": 4,
+            "tabWidth": 8
         }
     }
 
@@ -623,6 +628,8 @@ Required language-definition capabilities:
     - Line-comment syntax.
     - Block-comment syntax where applicable.
     - String delimiters and escape rules.
+    - Optional default indentation preferences (spaces or tabs, indent
+      width, and visual tab width).
     - Optional additional highlighting categories.
 
 Optional future capabilities:
@@ -1588,6 +1595,7 @@ Example:
             "id": "sometheme",
             "name": "Some Theme",
             "author": "Theme Author",
+            "license": "MIT",
             "version": 1,
 
             "colours": {

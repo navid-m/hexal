@@ -45,6 +45,9 @@ public sealed partial class Editor
         AddPaletteCommand("Reload configuration",
             "Reload .hexcfg, grammars, themes and language servers.",
             ReloadConfiguration);
+        AddPaletteCommand("Manage plugins",
+            "Enable or disable installed plugins and inspect their details.",
+            OpenPluginManager);
         AddPaletteCommand("Format document",
             "Format the current buffer with its language formatter.",
             FormatCurrentDocument);
@@ -96,6 +99,24 @@ public sealed partial class Editor
     private void AddPaletteCommand(string title, string description, Action action)
     {
         _paletteCommands.Add(new PaletteCommand(title, description, action));
+    }
+
+    private static string ThemeDetail(Theme theme)
+    {
+        var parts = new List<string>();
+        if (theme.Description.Length > 0)
+        {
+            parts.Add(theme.Description);
+        }
+        if (theme.Author.Length > 0)
+        {
+            parts.Add($"by {theme.Author}");
+        }
+        if (theme.License.Length > 0)
+        {
+            parts.Add(theme.License);
+        }
+        return string.Join("  ·  ", parts);
     }
 
     private void ExecutePluginPaletteCommand(string name)
@@ -172,7 +193,9 @@ public sealed partial class Editor
         for (int i = 0; i < _themes.Themes.Count; ++i)
         {
             Theme theme = _themes.Themes[i];
-            string searchText = $"{theme.Name} {theme.Description}";
+            string detail = ThemeDetail(theme);
+            string searchText = $"{theme.Name} {theme.Description} {theme.Author} " +
+                                theme.License;
             int score = FuzzyScore(searchText, query);
             if (score == int.MaxValue)
             {
@@ -182,7 +205,7 @@ public sealed partial class Editor
             scored.Add((score, new PickerItem
             {
                 Display = theme.Name,
-                Detail = theme.Description,
+                Detail = detail,
                 Key = theme.Id
             }));
         }

@@ -1,6 +1,7 @@
 {
     "id": "cython",
     "name": "Cython",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
     "extensions": [".pyx"],
     "keywords": [
         "and", "as", "assert", "async", "await", "class", "cdef",

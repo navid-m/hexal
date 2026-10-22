@@ -20,6 +20,10 @@ public sealed class Theme
 
     public string Description { get; set; } = "Default Hexal theme.";
 
+    public string Author { get; set; } = string.Empty;
+
+    public string License { get; set; } = string.Empty;
+
     public uint Foreground { get; set; } = 15;
     public uint Background { get; set; }
     public uint Muted { get; set; } = 8;
@@ -188,6 +192,8 @@ public sealed class Theme
             }
             result.Name = ReadString(root, "name", result.Id);
             result.Description = ReadString(root, "description", string.Empty);
+            result.Author = ReadString(root, "author", string.Empty).Trim();
+            result.License = ReadString(root, "license", string.Empty).Trim();
 
             if (root.TryGetProperty("colors", out JsonElement colors))
             {

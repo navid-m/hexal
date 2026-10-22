@@ -510,6 +510,12 @@ public sealed partial class Editor
             return _running;
         }
 
+        if (_pluginManagerVisible)
+        {
+            HandlePluginManagerInput(inputEvent);
+            return _running;
+        }
+
         if (inputEvent.Key is not (Key.ScrollUp or Key.ScrollDown))
         {
             _freeScroll = false;
@@ -7027,6 +7033,7 @@ public sealed partial class Editor
         RenderFind();
         RenderHover();
         RenderAbout();
+        RenderPluginManager();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

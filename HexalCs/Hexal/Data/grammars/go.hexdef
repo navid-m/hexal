@@ -1,6 +1,7 @@
 {
     "id": "go",
     "name": "Go",
+    "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
     "extensions": [".go"],
     "keywords": [
         "package", "import", "func", "var", "const", "type", "struct",
