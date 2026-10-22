@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Hexal.Core;
 
 namespace Hexal.Languages;
 
@@ -36,7 +37,8 @@ public sealed class LanguageDefinition
         HashSet<string> keywords, HashSet<string> controlStatements,
         HashSet<string> types, HashSet<string> constants, string? lineComment,
         string? blockCommentStart, string? blockCommentEnd,
-        List<string> quoteCharacters, string? escapeCharacter, bool highlightNumbers)
+        List<string> quoteCharacters, string? escapeCharacter, bool highlightNumbers,
+        FormatterConfig? formatter, bool? formatOnSave)
     {
         Id = id;
         Name = name;
@@ -52,6 +54,8 @@ public sealed class LanguageDefinition
         QuoteCharacters = quoteCharacters;
         EscapeCharacter = escapeCharacter;
         HighlightNumbers = highlightNumbers;
+        Formatter = formatter;
+        FormatOnSave = formatOnSave;
 
         LineCommentBytes = Encode(lineComment);
         BlockCommentStartBytes = Encode(blockCommentStart);
@@ -79,6 +83,10 @@ public sealed class LanguageDefinition
     public string? EscapeCharacter { get; }
 
     public bool HighlightNumbers { get; }
+
+    public FormatterConfig? Formatter { get; }
+
+    public bool? FormatOnSave { get; }
 
     internal byte[]? LineCommentBytes { get; }
 
@@ -237,6 +245,58 @@ public sealed class LanguageDefinition
                 }
             }
 
+            bool? formatOnSave = ReadBool(root, "formatOnSave") ??
+                                 ReadBool(root, "format_on_save");
+            FormatterConfig? formatter = null;
+            if (root.TryGetProperty("formatter", out JsonElement formatterElement) &&
+                formatterElement.ValueKind == JsonValueKind.Object)
+            {
+                string command = GetString(formatterElement, "command")?.Trim() ??
+                                 string.Empty;
+                if (command.Length == 0)
+                {
+                    error = "formatter.command is required";
+                    return false;
+                }
+
+                string input = (GetString(formatterElement, "input") ?? "stdin")
+                    .Trim().ToLowerInvariant();
+                if (input is not ("stdin" or "file"))
+                {
+                    error = "formatter.input must be 'stdin' or 'file'";
+                    return false;
+                }
+
+                string output = (GetString(formatterElement, "output") ?? "stdout")
+                    .Trim().ToLowerInvariant();
+                if (output is not ("stdout" or "file"))
+                {
+                    error = "formatter.output must be 'stdout' or 'file'";
+                    return false;
+                }
+
+                int timeoutMs = 15000;
+                if (formatterElement.TryGetProperty("timeout", out JsonElement timeout) &&
+                    timeout.ValueKind == JsonValueKind.Number &&
+                    timeout.TryGetInt32(out int configuredTimeout) &&
+                    configuredTimeout > 0)
+                {
+                    timeoutMs = configuredTimeout;
+                }
+
+                formatOnSave ??= ReadBool(formatterElement, "formatOnSave") ??
+                                  ReadBool(formatterElement, "format_on_save");
+
+                formatter = new FormatterConfig
+                {
+                    Command = command,
+                    Arguments = ReadStringArray(formatterElement, "arguments").ToList(),
+                    Input = input,
+                    Output = output,
+                    TimeoutMs = timeoutMs
+                };
+            }
+
             if (lineComment is { Length: 0 })
             {
                 lineComment = null;
@@ -249,7 +309,8 @@ public sealed class LanguageDefinition
 
             definition = new LanguageDefinition(id, name, extensions, keywords,
                 controlStatements, types, constants, lineComment, blockStart,
-                blockEnd, quoteCharacters, escapeCharacter, highlightNumbers);
+                blockEnd, quoteCharacters, escapeCharacter, highlightNumbers,
+                formatter, formatOnSave);
             return true;
         }
         catch (JsonException ex)
@@ -310,6 +371,21 @@ public sealed class LanguageDefinition
                 }
             }
         }
+    }
+
+    private static bool? ReadBool(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out JsonElement value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
     }
 
     private static HashSet<string> ReadSet(JsonElement element, string property)

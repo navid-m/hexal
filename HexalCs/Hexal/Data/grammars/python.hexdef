@@ -28,5 +28,11 @@
         "quoteCharacters": ["\"", "'"],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "formatter": {
+        "command": "black",
+        "arguments": ["-"],
+        "input": "stdin",
+        "output": "stdout"
+    }
 }

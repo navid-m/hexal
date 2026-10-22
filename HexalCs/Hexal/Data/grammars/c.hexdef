@@ -29,5 +29,11 @@
         "quoteCharacters": ["\"", "'"],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "formatter": {
+        "command": "clang-format",
+        "arguments": ["--assume-filename={file}"],
+        "input": "stdin",
+        "output": "stdout"
+    }
 }

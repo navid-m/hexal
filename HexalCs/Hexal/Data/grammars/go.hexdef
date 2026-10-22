@@ -27,5 +27,11 @@
         "quoteCharacters": ["\"", "'", "`"],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "formatter": {
+        "command": "gofmt",
+        "arguments": [],
+        "input": "stdin",
+        "output": "stdout"
+    }
 }

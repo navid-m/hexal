@@ -24,5 +24,11 @@
         "quoteCharacters": ["\"", "'"],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "formatter": {
+        "command": "stylua",
+        "arguments": ["-"],
+        "input": "stdin",
+        "output": "stdout"
+    }
 }

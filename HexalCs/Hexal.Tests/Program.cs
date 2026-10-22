@@ -30,6 +30,8 @@ internal static class Program
         TestFilesystemReadWrite();
         TestFileSearch();
         TestFilePreview();
+        TestHexalConfig();
+        TestFormatterRunner();
         TestLspPositions();
         TestLanguageGrammars();
         TestPluginConfigStore();
@@ -729,6 +731,65 @@ internal static class Program
         Check(missing.Error.Length > 0, "missing preview reports an error");
     }
 
+    private static void TestHexalConfig()
+    {
+        Check(HexalConfig.TryParse(
+                "{\"formatOnSave\": true}",
+                "test.hexcfg", out HexalConfig? config, out string error),
+            "parse config");
+        CheckEqual(error, string.Empty, "config error", "empty");
+        Check(config is not null && config.FormatOnSave,
+            "config formatOnSave root");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"format_on_save\": true}}",
+                "test.hexcfg", out config, out error),
+            "parse nested config");
+        Check(config is not null && config.FormatOnSave,
+            "config editor.formatOnSave");
+
+        Check(HexalConfig.TryParse(
+                "{\"formatOnSave\": false, \"editor\": {\"formatOnSave\": true}}",
+                "test.hexcfg", out config, out error),
+            "parse config with override");
+        Check(config is not null && !config.FormatOnSave,
+            "root formatOnSave takes precedence");
+
+        Check(!HexalConfig.TryParse("[]", "test.hexcfg", out config, out error),
+            "reject non-object config");
+        Check(error.Length > 0, "config root error reported");
+    }
+
+    private static void TestFormatterRunner()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var config = new FormatterConfig
+        {
+            Command = "/bin/sh",
+            Arguments = new[] { "-c", "tr a-z A-Z" },
+            Input = "stdin",
+            Output = "stdout"
+        };
+
+        FormatResult result = FormatterRunner.Run(config, "hello\n"u8.ToArray(),
+            null, CancellationToken.None);
+        Check(result.Ok, $"formatter succeeds ({result.Error})");
+        CheckEqual(Text(result.Output), "HELLO\n", "formatter output", "HELLO\n");
+
+        var missing = new FormatterConfig
+        {
+            Command = "hexal-formatter-that-does-not-exist"
+        };
+        FormatResult missingResult = FormatterRunner.Run(missing,
+            "text"u8.ToArray(), null, CancellationToken.None);
+        Check(!missingResult.Ok, "missing formatter fails");
+        Check(missingResult.Error.Length > 0, "missing formatter reports error");
+    }
+
     private static void TestLspPositions()
     {
         byte[] line = Encoding.UTF8.GetBytes("a😀b");
@@ -772,6 +833,14 @@ internal static class Program
                 "strings": {
                     "quoteCharacters": ["\""],
                     "escapeCharacter": "\\"
+                },
+                "formatter": {
+                    "command": "testfmt",
+                    "arguments": ["--stdin", "{file}"],
+                    "input": "stdin",
+                    "output": "stdout",
+                    "timeout": 2500,
+                    "formatOnSave": true
                 }
             }
             """;
@@ -784,6 +853,15 @@ internal static class Program
         LanguageDefinition definition = language!;
         CheckEqual(definition.Id, "test", "grammar id", "test");
         CheckEqual(definition.Extensions[0], ".tst", "grammar extension", ".tst");
+        Check(definition.Formatter is not null, "grammar formatter parsed");
+        CheckEqual(definition.Formatter?.Command, "testfmt", "formatter command",
+            "testfmt");
+        CheckEqual(definition.Formatter?.Arguments.Count, 2,
+            "formatter argument count", "2");
+        CheckEqual(definition.Formatter?.TimeoutMs, 2500,
+            "formatter timeout", "2500");
+        CheckEqual(definition.FormatOnSave, true, "formatter formatOnSave",
+            "true");
 
         using var directory = new TempDir();
         string grammarPath = directory.Path("test.hexdef");

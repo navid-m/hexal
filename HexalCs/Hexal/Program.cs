@@ -149,6 +149,9 @@ internal static class Program
               :q[!]            Quit (asks before discarding changes)
               :e[!] <file>     Open a file
               :lang <id>       Set the active language grammar
+              :fmt             Format the current buffer
+              :cfg             Open the configuration file
+              :rcfg            Reload configuration and grammars
               :help            Show a short key reminder
 
             Modes and keys:

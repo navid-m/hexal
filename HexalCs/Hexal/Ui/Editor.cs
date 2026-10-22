@@ -242,7 +242,8 @@ public sealed partial class Editor
 
     private byte[] _lineBuffer = Array.Empty<byte>();
 
-    private readonly LanguageRegistry _languages;
+    private LanguageRegistry _languages;
+    private HexalConfig _config = new();
     private readonly SyntaxHighlighter _syntax = new();
     private readonly List<SyntaxToken> _lineTokens = new();
     private LanguageDefinition? _language;
@@ -288,7 +289,27 @@ public sealed partial class Editor
         public long Revision;
     }
 
+    private readonly record struct FormatSelectionSnapshot(
+        long CursorLine,
+        long CursorColumn,
+        long AnchorLine,
+        long AnchorColumn,
+        bool Linewise);
+
+    private sealed class FormatOperation
+    {
+        public Task<FormatResult> Task = null!;
+        public Document Document = null!;
+        public long Revision;
+        public string? SavePath;
+        public bool SaveAfter;
+        public bool QuitAfter;
+        public List<FormatSelectionSnapshot> Selections = new();
+    }
+
     private SaveOperation? _saveOperation;
+    private FormatOperation? _formatOperation;
+    private CancellationTokenSource? _formatCancellation;
     private bool _quitAfterSave;
     private bool _resaveRequested;
     private bool _waitThenQuit;
@@ -302,6 +323,7 @@ public sealed partial class Editor
         _workspaceRoot = ResolveWorkspaceRoot(workspaceRoot);
         _openFilePickerOnStart = openFilePicker;
         _languages = LanguageRegistry.LoadUserGrammars();
+        _config = HexalConfig.LoadDefault(out string configError);
         RefreshLanguage();
         RefreshFileStamp();
         SnapCursor();
@@ -309,6 +331,10 @@ public sealed partial class Editor
         if (_languages.Errors.Count > 0)
         {
             SetError($"grammar: {_languages.Errors[0]}");
+        }
+        else if (configError.Length > 0)
+        {
+            SetError($"config: {configError}");
         }
     }
 
@@ -368,7 +394,9 @@ public sealed partial class Editor
             // report completion. Idle with no work uses a blocking read and
             // consumes no CPU.
             bool previewPending = _pickerPreviewPendingPath.Length > 0;
-            bool busy = _saveOperation is not null || _pickerTask is not null ||
+            bool busy = _saveOperation is not null ||
+                        _formatOperation is not null ||
+                        _pickerTask is not null ||
                         _pickerPreviewTask is not null || previewPending ||
                         _lsp.IsRunning || _lspDirty;
             int timeout = previewPending ? 16 : busy ? 50 : -1;
@@ -3299,6 +3327,33 @@ public sealed partial class Editor
                 StartSave(path: null, quitAfter: true);
                 return;
 
+            case "fmt":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :fmt");
+                    return;
+                }
+                FormatCurrentDocument();
+                return;
+
+            case "cfg":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :cfg");
+                    return;
+                }
+                OpenConfigFile();
+                return;
+
+            case "rcfg":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :rcfg");
+                    return;
+                }
+                ReloadConfiguration();
+                return;
+
             case "q":
                 if (arguments.Count != 0)
                 {
@@ -3335,7 +3390,7 @@ public sealed partial class Editor
 
             case "help":
                 ClearMessage();
-                SetMessage("i insert | Esc normal | / find | n/p next/prev match | Ctrl+B sidebar | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang | Tab completes | u/Ctrl+R undo");
+                SetMessage("i insert | Esc normal | / find | n/p next/prev match | Ctrl+B sidebar | Ctrl+C comment | Shift+C add cursor | , keep cursor | % select all | :w :wq :q :e :lang :fmt :cfg :rcfg | Tab completes | u/Ctrl+R undo");
                 return;
         }
 
@@ -3362,11 +3417,276 @@ public sealed partial class Editor
     }
 
     private static bool IsFutureCommand(string name)
-        => name is "fmt" or "cfg" or "rcfg" or "sf" or "g" or "sv" or "sh" or
-            "setup";
+        => name is "sf" or "g" or "sv" or "sh" or "setup";
 
-    private void StartSave(string? path, bool quitAfter)
+    private void FormatCurrentDocument()
     {
+        if (_formatOperation is not null)
+        {
+            SetMessage("Formatting is already in progress.");
+            return;
+        }
+
+        if (_language is null)
+        {
+            SetError("No language is active for this buffer.");
+            return;
+        }
+
+        if (_language.Formatter is null)
+        {
+            SetError($"No formatter configured for {_language.Name}.");
+            return;
+        }
+
+        StartFormat(_language.Formatter, savePath: null, quitAfter: false,
+            saveAfter: false);
+    }
+
+    private bool ShouldFormatOnSave()
+        => _language?.FormatOnSave ?? _config.FormatOnSave;
+
+    private bool TryGetFormatter(out FormatterConfig formatter)
+    {
+        formatter = _language?.Formatter!;
+        return formatter is not null;
+    }
+
+    private void StartFormat(FormatterConfig formatter, string? savePath,
+        bool quitAfter, bool saveAfter)
+    {
+        if (_formatOperation is not null)
+        {
+            SetMessage("Formatting is already in progress.");
+            return;
+        }
+
+        string? path = savePath ?? _document.Path;
+        byte[] input = _document.Text();
+        Document document = _document;
+        long revision = document.Revision;
+        List<FormatSelectionSnapshot> selections = CaptureFormatSelections();
+        var cancellation = new CancellationTokenSource();
+        _formatCancellation = cancellation;
+
+        Task<FormatResult> task = Task.Factory.StartNew(
+            () => FormatterRunner.Run(formatter, input, path, cancellation.Token),
+            CancellationToken.None, TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+        _formatOperation = new FormatOperation
+        {
+            Task = task,
+            Document = document,
+            Revision = revision,
+            SavePath = savePath,
+            SaveAfter = saveAfter,
+            QuitAfter = quitAfter,
+            Selections = selections
+        };
+
+        string name = Path.GetFileName(formatter.Command);
+        if (name.Length == 0)
+        {
+            name = formatter.Command;
+        }
+        SetMessage($"Formatting with {name} ...");
+    }
+
+    private List<FormatSelectionSnapshot> CaptureFormatSelections()
+    {
+        List<Selection> selections = CaptureAllSelections();
+        var result = new List<FormatSelectionSnapshot>(selections.Count);
+        foreach (Selection selection in selections)
+        {
+            result.Add(new FormatSelectionSnapshot(
+                _document.LineOfOffset(selection.Cursor),
+                VisualColumnOfOffset(selection.Cursor),
+                _document.LineOfOffset(selection.Anchor),
+                VisualColumnOfOffset(selection.Anchor),
+                selection.Linewise));
+        }
+        return result;
+    }
+
+    private List<Selection> RestoreFormatSelections(
+        IReadOnlyList<FormatSelectionSnapshot> snapshots)
+    {
+        var result = new List<Selection>(snapshots.Count);
+        long lastLine = _document.LineCount - 1;
+
+        foreach (FormatSelectionSnapshot snapshot in snapshots)
+        {
+            long cursorLine = Math.Clamp(snapshot.CursorLine, 0, lastLine);
+            int cursorLength = _document.CopyLineText(cursorLine,
+                ref _lineBuffer, out _);
+            long cursorStart = _document.LineStart(cursorLine);
+            long cursor = cursorStart + UnicodeUtil.ByteOffsetForVisualColumn(
+                _lineBuffer.AsSpan(0, cursorLength), snapshot.CursorColumn,
+                TabWidth);
+
+            long anchorLine = Math.Clamp(snapshot.AnchorLine, 0, lastLine);
+            int anchorLength = _document.CopyLineText(anchorLine,
+                ref _lineBuffer, out _);
+            long anchorStart = _document.LineStart(anchorLine);
+            long anchor = anchorStart + UnicodeUtil.ByteOffsetForVisualColumn(
+                _lineBuffer.AsSpan(0, anchorLength), snapshot.AnchorColumn,
+                TabWidth);
+
+            result.Add(new Selection
+            {
+                Cursor = cursor,
+                Anchor = anchor,
+                Linewise = snapshot.Linewise,
+                PreferredColumn = snapshot.CursorColumn,
+                PreferredColumnValid = true
+            });
+        }
+
+        return result;
+    }
+
+    private bool PollFormat()
+    {
+        FormatOperation? operation = _formatOperation;
+        if (operation is null || !operation.Task.IsCompleted)
+        {
+            return false;
+        }
+
+        _formatOperation = null;
+        _formatCancellation?.Dispose();
+        _formatCancellation = null;
+
+        FormatResult result;
+        try
+        {
+            result = operation.Task.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            result = FormatResult.Failure(ex.Message);
+        }
+
+        bool sameDocument = ReferenceEquals(operation.Document, _document);
+        bool valid = sameDocument && operation.Revision == _document.Revision;
+
+        if (!result.Ok || !valid)
+        {
+            if (!result.Ok)
+            {
+                SetError(result.Error);
+            }
+            else
+            {
+                SetError("Buffer changed during formatting; result discarded.");
+            }
+
+            if (_resaveRequested)
+            {
+                bool quitAfter = _quitAfterSave;
+                _resaveRequested = false;
+                _quitAfterSave = false;
+                StartSave(path: null, quitAfter, skipFormat: true);
+            }
+            else if (operation.SaveAfter)
+            {
+                _quitAfterSave = false;
+            }
+
+            return true;
+        }
+
+        ApplyFormattedOutput(operation, result.Output);
+
+        if (operation.SaveAfter)
+        {
+            bool quitAfter = operation.QuitAfter || _quitAfterSave;
+            _resaveRequested = false;
+            _quitAfterSave = false;
+            StartSave(operation.SavePath, quitAfter, skipFormat: true);
+        }
+        else if (_resaveRequested)
+        {
+            bool quitAfter = _quitAfterSave;
+            _resaveRequested = false;
+            _quitAfterSave = false;
+            StartSave(path: null, quitAfter, skipFormat: true);
+        }
+
+        return true;
+    }
+
+    private void ApplyFormattedOutput(FormatOperation operation, byte[] output)
+    {
+        List<Selection> selections = RestoreFormatSelections(operation.Selections);
+
+        _document.BeginCompositeEdit();
+        _document.Replace(0, _document.Size, output);
+        _document.EndCompositeEdit();
+        SetSelections(selections);
+        _document.BreakUndoGroup();
+
+        _lspDirty = _lsp.IsRunning;
+        _lspDirtySince = Environment.TickCount64;
+
+        if (_plugins is not null && _plugins.HasSubscribers("buffer_changed"))
+        {
+            FirePluginEvent("buffer_changed", CurrentBufferData());
+        }
+
+        SetMessage($"Formatted {_document.DisplayName}");
+    }
+
+    private void OpenConfigFile()
+    {
+        if (!HexalConfig.EnsureDefaultFile(out string path, out string error))
+        {
+            SetError($"config: {error}");
+            return;
+        }
+
+        RequestOpen(path, force: false);
+    }
+
+    private void ReloadConfiguration()
+    {
+        HexalConfig config = HexalConfig.LoadDefault(out string error);
+        if (error.Length > 0)
+        {
+            SetError($"config: {error}");
+            return;
+        }
+
+        _config = config;
+        _languages = LanguageRegistry.LoadUserGrammars();
+        ResetLsp();
+        RefreshLanguage();
+        FirePluginEvent("buffer_opened", CurrentBufferData());
+
+        if (_languages.Errors.Count > 0)
+        {
+            SetError($"grammar: {_languages.Errors[0]}");
+        }
+        else
+        {
+            SetMessage("Configuration reloaded.");
+        }
+    }
+
+    private void StartSave(string? path, bool quitAfter, bool skipFormat = false)
+    {
+        if (_formatOperation is not null)
+        {
+            if (quitAfter)
+            {
+                _quitAfterSave = true;
+            }
+            _resaveRequested = true;
+            SetMessage("Formatting in progress; queued another save.");
+            return;
+        }
+
         if (_saveOperation is not null)
         {
             if (quitAfter)
@@ -3375,6 +3695,13 @@ public sealed partial class Editor
             }
             _resaveRequested = true;
             SetMessage("Save already in progress; queued another save.");
+            return;
+        }
+
+        if (!skipFormat && ShouldFormatOnSave() &&
+            TryGetFormatter(out FormatterConfig formatter))
+        {
+            StartFormat(formatter, path, quitAfter, saveAfter: true);
             return;
         }
 
@@ -3426,6 +3753,10 @@ public sealed partial class Editor
         _plugins?.Tick();
         _lsp.Pump();
         bool redraw = PollSave();
+        if (PollFormat())
+        {
+            redraw = true;
+        }
         if (PollPicker())
         {
             redraw = true;

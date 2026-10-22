@@ -190,6 +190,9 @@ Pasting without a clipboard helper reports an error.
 | `:q!` | Quit without saving |
 | `:e <file>` | Open a file |
 | `:e! <file>` | Open a file, discarding unsaved changes |
+| `:fmt` | Format the current buffer with its language formatter |
+| `:cfg` | Open the active configuration file |
+| `:rcfg` | Reload configuration and language definitions |
 | `:help` | Show a short key reminder |
 
 `:w`/`:wq` return immediately. The status bar shows `[saving]` while the worker
@@ -267,7 +270,15 @@ Canonical schema:
         "quoteCharacters": ["\"", "'"],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "formatter": {
+        "command": "clang-format",
+        "arguments": ["--assume-filename={file}"],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
+    },
+    "formatOnSave": true
 }
 ```
 
@@ -278,6 +289,38 @@ Canonical schema:
 - Highlight categories are keyword, control statement, type, constant, string,
   comment, and number. Default text uses the terminal foreground.
 - `:lang <id>` overrides auto-detection for the current buffer.
+
+### Formatting
+
+`:fmt` formats the current buffer with the language's configured formatter.
+Formatter commands are data-only and are never run through a shell.
+
+- `formatter.command` is the executable name or path.
+- `formatter.arguments` is an array of arguments. `{file}` and `{path}` expand
+  to the document path, `{tmp}`/`{temp}`/`{output}` expand to the temporary
+  file used for file-based formatters.
+- `formatter.input` is `stdin` (default) or `file`.
+- `formatter.output` is `stdout` (default) or `file`.
+- `formatter.timeout` is the maximum run time in milliseconds (default 15000).
+
+On success, the formatted output replaces the buffer as a single undo step and
+the cursor and selection line/column are preserved. On failure, the buffer is
+left unchanged and the error is shown in the status bar.
+
+`formatOnSave` in a language definition overrides the global setting. When it
+is omitted, the global setting from `~/.hexal/.hexcfg` is used:
+
+```json
+{
+    "version": 1,
+    "formatOnSave": false
+}
+```
+
+The active configuration is `~/.hexal/.hexcfg` on every platform; a plain
+`~/.hexal/hexcfg` file is also accepted. `:cfg` opens the configuration file
+and creates it when missing, while `:rcfg` reloads the configuration and
+language definitions. Relative formatter paths are resolved against PATH.
 
 Only visible lines are tokenized. Lexer states are cached per line, so block
 comments remain correct while scrolling without rescanning the document on
