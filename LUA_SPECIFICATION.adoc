@@ -1,4 +1,3 @@
-
 HEXAL LUA PLUGIN API SPECIFICATION
 =================================
 
