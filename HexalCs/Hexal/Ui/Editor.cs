@@ -71,7 +71,7 @@ public sealed partial class Editor
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "debug-lsp", "dl", "s", "t", "gi", "gdl", "vs", "hs", "cb", "adi"
+        "debug-lsp", "dl", "s", "t", "gi", "gdl", "smc", "vs", "hs", "cb", "adi"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -94,6 +94,7 @@ public sealed partial class Editor
             ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
             ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
             ["gdl"] = "Toggle git diff markers in the line-number gutter.",
+            ["smc"] = "Toggle case-sensitive matching for all searches.",
             ["vs"] = "Split the current pane vertically (side by side).",
             ["hs"] = "Split the current pane horizontally (stacked).",
             ["cb"] = "Close the current buffer pane; use :q to quit the editor.",
@@ -269,6 +270,7 @@ public sealed partial class Editor
 
     private LanguageRegistry _languages;
     private HexalConfig _config = new();
+    private bool _searchMatchCase;
     private ThemeRegistry _themes = new();
     private Theme _theme = Theme.CreateDefault();
     private SyntaxHighlighter _syntax = new();
@@ -356,6 +358,7 @@ public sealed partial class Editor
         _config = HexalConfig.LoadDefault(out string configError);
         _showDiffLines = _config.ShowDiffLines;
         _showGitIgnored = _config.ShowGitIgnored;
+        _searchMatchCase = _config.SearchMatchCaseEnabled;
         _themes = ThemeRegistry.LoadDefault(out string themeError);
         _theme = _themes.ActiveTheme;
         RefreshLanguage();
@@ -1866,7 +1869,7 @@ public sealed partial class Editor
         return result;
     }
 
-    private static List<string> FilterFiles(IReadOnlyList<string> files, string filter)
+    private List<string> FilterFiles(IReadOnlyList<string> files, string filter)
     {
         if (filter.Length == 0)
         {
@@ -2481,10 +2484,12 @@ public sealed partial class Editor
 
             string text = Encoding.UTF8.GetString(_lineBuffer, 0, length);
             int searchStart = 0;
+            StringComparison comparison = _searchMatchCase
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
             while (searchStart < text.Length)
             {
-                int index = text.IndexOf(query, searchStart,
-                    StringComparison.OrdinalIgnoreCase);
+                int index = text.IndexOf(query, searchStart, comparison);
                 if (index < 0)
                 {
                     break;
@@ -3248,6 +3253,7 @@ public sealed partial class Editor
         string root = _pickerRoot;
         string query = _pickerQuery.ToString();
         List<string> files = _pickerFiles;
+        bool matchCase = _searchMatchCase;
 
         _pickerLoading = true;
         _pickerStatus = "Searching...";
@@ -3262,7 +3268,7 @@ public sealed partial class Editor
             try
             {
                 result.Matches = FileSearch.Search(root, files, query,
-                    FileSearch.DefaultMaxResults, cancellation.Token);
+                    FileSearch.DefaultMaxResults, cancellation.Token, matchCase);
             }
             catch (OperationCanceledException)
             {
@@ -3660,14 +3666,17 @@ public sealed partial class Editor
     /// Returns a lower score for better matches, or int.MaxValue when the
     /// query does not match. Contiguous matches rank ahead of subsequences.
     /// </summary>
-    private static int FuzzyScore(string text, string query)
+    private int FuzzyScore(string text, string query)
     {
         if (query.Length == 0)
         {
             return 0;
         }
 
-        int contiguous = text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        StringComparison comparison = _searchMatchCase
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+        int contiguous = text.IndexOf(query, comparison);
         if (contiguous >= 0)
         {
             return contiguous;
@@ -3679,12 +3688,16 @@ public sealed partial class Editor
 
         foreach (char queryChar in query)
         {
-            char wanted = char.ToLowerInvariant(queryChar);
+            char wanted = _searchMatchCase
+                ? queryChar
+                : char.ToLowerInvariant(queryChar);
             bool found = false;
 
             while (textIndex < text.Length)
             {
-                char candidate = char.ToLowerInvariant(text[textIndex]);
+                char candidate = _searchMatchCase
+                    ? text[textIndex]
+                    : char.ToLowerInvariant(text[textIndex]);
                 if (candidate == wanted)
                 {
                     gapScore += textIndex - lastMatch - 1;
@@ -3828,6 +3841,15 @@ public sealed partial class Editor
                 ToggleDiffLines();
                 return;
 
+            case "smc":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :smc");
+                    return;
+                }
+                ToggleSearchMatchCase();
+                return;
+
             case "vs":
                 if (arguments.Count != 0)
                 {
@@ -3936,6 +3958,27 @@ public sealed partial class Editor
         SetMessage(_showGitIgnored
             ? "Showing git-ignored files."
             : "Hiding git-ignored files.");
+    }
+
+    private void ToggleSearchMatchCase()
+    {
+        _searchMatchCase = !_searchMatchCase;
+        PersistDisplaySettings();
+
+        if (_findActive)
+        {
+            RebuildFindMatches();
+        }
+
+        if (_pickerKind != PickerKind.None)
+        {
+            BeginPickerQuery();
+        }
+
+        _forceFullRedraw = true;
+        SetMessage(_searchMatchCase
+            ? "Search is case-sensitive."
+            : "Search is case-insensitive.");
     }
 
     /// <summary>
@@ -4217,6 +4260,7 @@ public sealed partial class Editor
         _config = config;
         _showDiffLines = config.ShowDiffLines;
         _showGitIgnored = config.ShowGitIgnored;
+        _searchMatchCase = config.SearchMatchCaseEnabled;
         _languages = LanguageRegistry.LoadUserGrammars();
 
         string activeThemeId = _theme.Id;

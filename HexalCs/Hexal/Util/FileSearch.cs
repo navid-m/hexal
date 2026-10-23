@@ -144,19 +144,24 @@ public static class FileSearch
     }
 
     /// <summary>
-    /// Searches the supplied relative paths for a case-insensitive plain-text
-    /// match. Binary-looking and very large files are skipped. Results stop at
+    /// Searches the supplied relative paths for a plain-text match. Binary
+    /// looking and very large files are skipped. Results stop at
     /// <paramref name="maxResults"/> so a common query cannot exhaust memory.
+    /// Matching is case-insensitive unless <paramref name="matchCase"/> is set.
     /// </summary>
     public static List<FileSearchMatch> Search(string root,
         IReadOnlyList<string> relativePaths, string query, int maxResults,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool matchCase = false)
     {
         var matches = new List<FileSearchMatch>();
         if (query.Length == 0 || maxResults <= 0)
         {
             return matches;
         }
+
+        StringComparison comparison = matchCase
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
 
         foreach (string relativePath in relativePaths)
         {
@@ -196,7 +201,7 @@ public static class FileSearch
                         break;
                     }
 
-                    int index = line.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                    int index = line.IndexOf(query, comparison);
                     if (index >= 0)
                     {
                         matches.Add(new FileSearchMatch

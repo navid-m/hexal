@@ -762,6 +762,16 @@ internal static class Program
         CheckEqual(matches[0].Column, 7L, "match.Column", "7");
         Check(matches[0].Preview.Contains("beta needle", StringComparison.Ordinal),
             "match preview");
+
+        List<FileSearchMatch> caseSensitiveMiss = FileSearch.Search(directory.Path("."),
+            files, "NEEDLE", FileSearch.DefaultMaxResults, CancellationToken.None,
+            matchCase: true);
+        CheckEqual(caseSensitiveMiss.Count, 0, "case-sensitive misses", "0");
+
+        List<FileSearchMatch> caseSensitiveHit = FileSearch.Search(directory.Path("."),
+            files, "needle", FileSearch.DefaultMaxResults, CancellationToken.None,
+            matchCase: true);
+        CheckEqual(caseSensitiveHit.Count, 1, "case-sensitive hit", "1");
     }
 
     private static void TestGitDiff()
@@ -941,15 +951,24 @@ internal static class Program
         Check(HexalConfig.TryParse("{}", "test.hexcfg", out config, out error),
             "parse empty config");
         Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored &&
-              config.ConfirmQuitWithoutSaving,
+              config.ConfirmQuitWithoutSaving && !config.SearchMatchCaseEnabled,
             "display settings have defaults");
 
         Check(HexalConfig.TryParse(
-                "{\"showDiffLines\": false, \"showGitIgnored\": true}",
+                "{\"showDiffLines\": false, \"showGitIgnored\": true, " +
+                "\"searchMatchCaseEnabled\": true}",
                 "test.hexcfg", out config, out error),
             "parse display settings");
-        Check(config is not null && !config.ShowDiffLines && config.ShowGitIgnored,
+        Check(config is not null && !config.ShowDiffLines && config.ShowGitIgnored &&
+              config.SearchMatchCaseEnabled,
             "display settings are read");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"search_match_case_enabled\": true}}",
+                "test.hexcfg", out config, out error),
+            "parse nested search match case setting");
+        Check(config is not null && config.SearchMatchCaseEnabled,
+            "nested search match case setting is read");
 
         Check(HexalConfig.TryParse(
                 "{\"confirmQuitWithoutSaving\": false}",
@@ -968,7 +987,8 @@ internal static class Program
             "{\"formatOnSave\": true, \"custom\": \"kept\"}"u8),
             "write config for update");
         Check(HexalConfig.UpdateDisplaySettings(configPath,
-                showDiffLines: false, showGitIgnored: true, out error),
+                showDiffLines: false, showGitIgnored: true,
+                searchMatchCaseEnabled: true, out error),
             "update display settings");
         CheckEqual(error, string.Empty, "update error", "empty");
 
@@ -977,6 +997,7 @@ internal static class Program
         Check(updated.FormatOnSave, "update preserves formatOnSave");
         Check(!updated.ShowDiffLines, "update writes showDiffLines");
         Check(updated.ShowGitIgnored, "update writes showGitIgnored");
+        Check(updated.SearchMatchCaseEnabled, "update writes searchMatchCaseEnabled");
         Check(File.ReadAllText(configPath).Contains("\"custom\": \"kept\"",
                 StringComparison.Ordinal), "update preserves unknown settings");
     }

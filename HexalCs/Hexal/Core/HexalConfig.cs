@@ -15,7 +15,8 @@ public sealed class HexalConfig
             "formatOnSave": false,
             "showDiffLines": true,
             "showGitIgnored": false,
-            "confirmQuitWithoutSaving": true
+            "confirmQuitWithoutSaving": true,
+            "searchMatchCaseEnabled": false
         }
 
         """;
@@ -27,6 +28,12 @@ public sealed class HexalConfig
     public bool ShowDiffLines { get; init; } = true;
 
     public bool ShowGitIgnored { get; init; }
+
+    /// <summary>
+    /// When true, file-name filtering, in-file find and cross-file search all
+    /// match case exactly. When false, matching is case-insensitive.
+    /// </summary>
+    public bool SearchMatchCaseEnabled { get; init; }
 
     /// <summary>
     /// When true, quitting with unsaved changes asks for confirmation. When
@@ -117,6 +124,9 @@ public sealed class HexalConfig
             bool? confirmQuitWithoutSaving =
                 ReadBool(root, "confirmQuitWithoutSaving") ??
                 ReadBool(root, "confirm_quit_without_saving");
+            bool? searchMatchCaseEnabled =
+                ReadBool(root, "searchMatchCaseEnabled") ??
+                ReadBool(root, "search_match_case_enabled");
 
             if (root.TryGetProperty("editor", out JsonElement editor) &&
                 editor.ValueKind == JsonValueKind.Object)
@@ -130,6 +140,9 @@ public sealed class HexalConfig
                 confirmQuitWithoutSaving ??=
                     ReadBool(editor, "confirmQuitWithoutSaving") ??
                     ReadBool(editor, "confirm_quit_without_saving");
+                searchMatchCaseEnabled ??=
+                    ReadBool(editor, "searchMatchCaseEnabled") ??
+                    ReadBool(editor, "search_match_case_enabled");
             }
 
             config = new HexalConfig
@@ -138,7 +151,8 @@ public sealed class HexalConfig
                 FormatOnSave = formatOnSave ?? false,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
-                ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true
+                ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,
+                SearchMatchCaseEnabled = searchMatchCaseEnabled ?? false
             };
             return true;
         }
@@ -176,7 +190,7 @@ public sealed class HexalConfig
     /// leaving unrelated properties untouched.
     /// </summary>
     public static bool UpdateDisplaySettings(string path, bool showDiffLines,
-        bool showGitIgnored, out string error)
+        bool showGitIgnored, bool searchMatchCaseEnabled, out string error)
     {
         error = string.Empty;
 
@@ -217,6 +231,7 @@ public sealed class HexalConfig
 
             root["showDiffLines"] = showDiffLines;
             root["showGitIgnored"] = showGitIgnored;
+            root["searchMatchCaseEnabled"] = searchMatchCaseEnabled;
 
             string output = root.ToJsonString(new JsonSerializerOptions
             {

@@ -132,7 +132,7 @@ public sealed partial class Editor
     private void PersistDisplaySettings()
     {
         if (HexalConfig.UpdateDisplaySettings(_config.SourcePath,
-                _showDiffLines, _showGitIgnored, out string error))
+                _showDiffLines, _showGitIgnored, _searchMatchCase, out string error))
         {
             return;
         }

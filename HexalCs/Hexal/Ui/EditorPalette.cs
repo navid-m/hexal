@@ -48,6 +48,9 @@ public sealed partial class Editor
         AddPaletteCommand("Toggle git diff lines",
             "Show or hide added, deleted and modified line markers in the gutter.",
             ToggleDiffLines);
+        AddPaletteCommand("Toggle search match case",
+            "Make all searches case-sensitive or case-insensitive.",
+            ToggleSearchMatchCase);
         AddPaletteCommand("Split pane vertically",
             "Create a new pane to the right of the focused pane.",
             () => SplitPane(PaneSplitOrientation.Vertical));
@@ -356,6 +359,6 @@ public sealed partial class Editor
         SetMessage(
             "Ctrl+P palette | i insert | Esc normal | / find | . find all | Ctrl+B sidebar | " +
             "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
-            ":w :wq :q :e :fmt :cfg :s :t :gi :gdl :vs :hs :cb :adi | u/Ctrl+R undo");
+            ":w :wq :q :e :fmt :cfg :s :t :gi :gdl :smc :vs :hs :cb :adi | u/Ctrl+R undo");
     }
 }

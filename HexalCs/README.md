@@ -235,6 +235,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:rcfg` | Reload configuration, grammars and themes |
 | `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
 | `:gdl` | Toggle added/deleted/modified markers in the line-number gutter |
+| `:smc` | Toggle case-sensitive matching for all searches |
 | `:vs` | Split the focused pane vertically, side by side |
 | `:hs` | Split the focused pane horizontally, stacked |
 | `:cb` | Close the focused pane; with one pane, use `:q`/`:q!` to quit |
@@ -394,7 +395,8 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "formatOnSave": false,
     "showDiffLines": true,
     "showGitIgnored": false,
-    "confirmQuitWithoutSaving": true
+    "confirmQuitWithoutSaving": true,
+    "searchMatchCaseEnabled": false
 }
 ```
 
@@ -405,9 +407,10 @@ must be used instead, matching Helix's behaviour.
 `showDiffLines` controls the Git diff markers in the line-number gutter. They
 are enabled by default and use green for added lines, red for deleted lines and
 blue for modified lines. `showGitIgnored` controls whether files excluded by
-`.gitignore` appear in the sidebar, file picker and cross-file search. Both
-settings are toggled with `:gdl` and `:gi` and written back to the active
-configuration file.
+`.gitignore` appear in the sidebar, file picker and cross-file search.
+`searchMatchCaseEnabled` makes file-name filtering, in-file find and
+cross-file search case-sensitive. These settings are toggled with `:gdl`,
+`:gi` and `:smc` and written back to the active configuration file.
 
 The active configuration is `~/.hexal/.hexcfg` on every platform; a plain
 `~/.hexal/hexcfg` file is also accepted. `:cfg` opens the configuration file
