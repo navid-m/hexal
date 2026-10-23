@@ -12,19 +12,19 @@ public sealed partial class Editor
 
     private static readonly string[] SidebarFileMenuItems =
     {
-        "Open", "New Folder", "Rename", "Duplicate", "Copy to...", "Move to...",
-        "Delete"
+        "Open", "New Folder", "New File", "Rename", "Duplicate", "Copy to...",
+        "Move to...", "Delete"
     };
 
     private static readonly string[] SidebarFolderMenuItems =
     {
-        "Expand/Collapse", "New Folder", "Rename", "Duplicate", "Copy to...",
-        "Move to...", "Delete"
+        "Expand/Collapse", "New Folder", "New File", "Rename", "Duplicate",
+        "Copy to...", "Move to...", "Delete"
     };
 
     private static readonly string[] SidebarMenuHotkeys =
     {
-        "O", "X", "R", "D", "T", "M", "d"
+        "O", "X", "E", "R", "D", "T", "M", "d"
     };
 
     private sealed class SidebarNode
@@ -414,11 +414,12 @@ public sealed partial class Editor
         {
             'o' or 'O' => 0,
             'x' or 'X' => 1,
-            'r' or 'R' => 2,
-            'D' => 3,
-            'T' => 4,
-            'M' => 5,
-            'd' => 6,
+            'e' or 'E' => 2,
+            'r' or 'R' => 3,
+            'D' => 4,
+            'T' => 5,
+            'M' => 6,
+            'd' => 7,
             _ => -1
         };
         if (hotkeyIndex >= 0 && hotkeyIndex < items.Length)
@@ -478,29 +479,35 @@ public sealed partial class Editor
                 BeginSidebarNewFolder(node);
                 return;
             case 2:
-                BeginSidebarRename(node);
+                BeginSidebarNewFile(node);
                 return;
             case 3:
-                DuplicateSidebarNode(node);
+                BeginSidebarRename(node);
                 return;
             case 4:
-                BeginSidebarCopy(node);
+                DuplicateSidebarNode(node);
                 return;
             case 5:
-                BeginSidebarMove(node);
+                BeginSidebarCopy(node);
                 return;
             case 6:
+                BeginSidebarMove(node);
+                return;
+            case 7:
                 RequestDeleteSidebarNode(node);
                 return;
         }
     }
 
+    private string SidebarParentForNewEntry(SidebarNode node)
+        => node.IsDirectory
+            ? node.Path
+            : Path.GetDirectoryName(node.Path) ?? ProjectRoot();
+
     private void BeginSidebarNewFolder(SidebarNode node)
     {
         _sidebarFocused = _sidebarVisible;
-        string parent = node.IsDirectory
-            ? node.Path
-            : Path.GetDirectoryName(node.Path) ?? ProjectRoot();
+        string parent = SidebarParentForNewEntry(node);
         RequestPrompt("New folder name: ", value =>
             CompleteSidebarNewFolder(parent, value));
     }
@@ -547,6 +554,59 @@ public sealed partial class Editor
         ExpandSidebarToPath(target);
         RefreshSidebar(target);
         SetMessage($"Created folder {name}");
+    }
+
+    private void BeginSidebarNewFile(SidebarNode node)
+    {
+        _sidebarFocused = _sidebarVisible;
+        string parent = SidebarParentForNewEntry(node);
+        RequestPrompt("New file name: ", value =>
+            CompleteSidebarNewFile(parent, value));
+    }
+
+    private void CompleteSidebarNewFile(string parent, string? value)
+    {
+        _sidebarFocused = _sidebarVisible;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            SetMessage("New file cancelled.");
+            RefreshSidebar(null);
+            return;
+        }
+
+        string name = value.Trim();
+        if (!IsValidSidebarName(name))
+        {
+            SetError("Invalid file name.");
+            RefreshSidebar(null);
+            return;
+        }
+
+        string target = Path.Combine(parent, name);
+        if (File.Exists(target) || Directory.Exists(target))
+        {
+            SetError($"'{name}' already exists.");
+            RefreshSidebar(null);
+            return;
+        }
+
+        try
+        {
+            using var stream = new FileStream(target, FileMode.CreateNew,
+                FileAccess.Write, FileShare.None);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException or
+                                   PathTooLongException)
+        {
+            SetError($"Create file failed: {ex.Message}");
+            RefreshSidebar(null);
+            return;
+        }
+
+        ExpandSidebarToPath(target);
+        RefreshSidebar(target);
+        SetMessage($"Created file {name}");
     }
 
     private void BeginSidebarRename(SidebarNode node)
