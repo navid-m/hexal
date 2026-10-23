@@ -4,6 +4,8 @@
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
     "autoIndent": true,
     "autoClose": true,
+    "indentAfter": ["then", "do", "else", "repeat"],
+    "unindentBefore": ["end", "else", "elseif", "until"],
     "extensions": [".lua"],
     "keywords": [
         "and", "end", "function", "local", "not", "or", "repeat",

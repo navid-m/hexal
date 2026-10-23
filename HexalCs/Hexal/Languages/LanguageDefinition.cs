@@ -143,6 +143,22 @@ public sealed class LanguageDefinition
     /// </summary>
     public IReadOnlyList<string> UnindentBefore { get; }
 
+    /// <summary>
+    /// True when a line's leading text exactly matches one of the grammar's
+    /// auto-unindent keywords.
+    /// </summary>
+    public bool IsUnindentKeyword(string text)
+    {
+        foreach (string keyword in UnindentBefore)
+        {
+            if (string.Equals(keyword, text, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     internal byte[]? LineCommentBytes { get; }
 
     internal byte[]? BlockCommentStartBytes { get; }

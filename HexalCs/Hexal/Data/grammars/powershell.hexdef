@@ -4,6 +4,8 @@
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
     "autoIndent": true,
     "autoClose": true,
+    "indentAfter": ["else", "try", "finally", "do"],
+    "unindentBefore": ["}", "else", "elseif", "catch", "finally", "until"],
     "extensions": [
         ".ps1", ".psm1", ".psd1", ".ps1xml", ".pssc", ".psrc"
     ],

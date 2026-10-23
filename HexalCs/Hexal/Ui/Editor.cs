@@ -5454,6 +5454,7 @@ public sealed partial class Editor
             TryInsertAutoCloseTag();
         }
 
+        TryAutoUnindentKeyword();
         SnapCursor();
         _preferredColumnValid = false;
         ClearMessage();

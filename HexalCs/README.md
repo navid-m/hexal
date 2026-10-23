@@ -24,8 +24,8 @@ architecture and observable behaviour as the C++ MVP:
 - **Lua plugins** through an isolated NLua state and the documented
   `hexal.*` API modules
 - **Bundled grammars and LSP plugins** for Lua, Go, XML, C#, C, C++, Python,
-  Cython, GLSL, Shell Script, Git Ignore, PowerShell, JSON, and Fish Shell; the
-  first language server found in `PATH` is started automatically
+  Cython, GLSL, Shell Script, Git Ignore, PowerShell, JSON, Fish Shell, and
+  Ruby; the first language server found in `PATH` is started automatically
 
 ## Why this stack
 
@@ -371,7 +371,9 @@ Canonical schema:
 - `autoIndent` defaults to `true`. Pressing Enter after a line ending in a
   bracket or markup opening tag adds one indentation level. Additional literal
   suffixes can be supplied with `indentAfter`; `unindentBefore` controls which
-  prefixes are treated as closing lines. When the cursor sits between an
+  prefixes are treated as closing lines. Typing a line whose leading text
+  exactly matches an `unindentBefore` entry (for example `end` in Lua or Ruby)
+  automatically removes one indentation level. When the cursor sits between an
   opening and automatically inserted closing bracket or tag, Enter moves the
   closing token onto its own correctly unindented line.
 - `autoClose` defaults to `true`. Typing `(`, `[` or `{` inserts the matching
@@ -577,6 +579,7 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | PowerShell | `.ps1`, `.psm1`, `.psd1`, `.ps1xml`, `.pssc`, `.psrc` | `powershell-language-server`, PowerShell Editor Services |
 | JSON | `.json`, `.jsonc`, `.jsonl`, `.ndjson`, `.geojson`, `.har`, `.webmanifest` | `vscode-json-languageserver` |
 | Fish Shell | `.fish` | `fish-lsp` |
+| Ruby | `.rb`, `.rake`, `.gemspec`, `.ru` | `ruby-lsp`, `solargraph` |
 
 PowerShell Editor Services is launched through `pwsh` rather than as a
 standalone executable. Set `bundlePath` to the extracted PSES directory in

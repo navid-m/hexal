@@ -352,6 +352,52 @@ public sealed partial class Editor
         return true;
     }
 
+    private bool TryAutoUnindentKeyword()
+    {
+        if (!AutoIndentEnabled || _language is null ||
+            _language.UnindentBefore.Count == 0)
+        {
+            return false;
+        }
+
+        long line = CursorLine();
+        long start = _document.LineStart(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        int local = (int)Math.Clamp(_cursor - start, 0, length);
+        int content = 0;
+        while (content < local &&
+               (_lineBuffer[content] == (byte)' ' ||
+                _lineBuffer[content] == (byte)'\t'))
+        {
+            ++content;
+        }
+
+        if (content >= local)
+        {
+            return false;
+        }
+
+        string text = Encoding.UTF8.GetString(_lineBuffer, content,
+            local - content);
+        if (!_language.IsUnindentKeyword(text))
+        {
+            return false;
+        }
+
+        int remove = _document.UnindentLength(
+            _lineBuffer.AsSpan(0, content));
+        if (remove == 0)
+        {
+            return false;
+        }
+
+        _document.Erase(start, remove);
+        _cursor -= remove;
+        _preferredColumnValid = false;
+        SnapCursor();
+        return true;
+    }
+
     private bool StartsWithClosingToken(ReadOnlySpan<byte> after, string trigger)
     {
         string text = Encoding.UTF8.GetString(TrimStart(after));

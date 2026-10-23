@@ -1304,7 +1304,8 @@ internal static class Program
                 "autoIndent": false,
                 "autoClose": false,
                 "traditionalMarkupLanguage": true,
-                "indentAfter": [":", "=>"]
+                "indentAfter": [":", "=>"],
+                "unindentBefore": ["end"]
             }
             """, "markup.hexdef", out LanguageDefinition? markup,
                 out parseError), "parse markup grammar");
@@ -1313,6 +1314,10 @@ internal static class Program
         Check(!markup.AutoClose, "markup auto close opt-out");
         Check(markup.TraditionalMarkupLanguage, "markup mode enabled");
         CheckEqual(markup.IndentAfter.Count, 2, "indentAfter count", "2");
+        Check(markup.IsUnindentKeyword("end"),
+            "unindent keyword recognized");
+        Check(!markup.IsUnindentKeyword("ended"),
+            "partial unindent keyword rejected");
 
         using var directory = new TempDir();
         string grammarPath = directory.Path("test.hexdef");
@@ -1324,6 +1329,13 @@ internal static class Program
         CheckEqual(registry.Errors.Count, 0, "registry errors", "0");
         Check(ReferenceEquals(registry.Detect("sample.tst"), registry.Find("test")),
             "extension detection");
+
+        var bundled = LanguageRegistry.LoadUserGrammars();
+        Check(bundled.Find("ruby") is not null, "bundled ruby grammar loads");
+        Check(bundled.Find("lua")?.IsUnindentKeyword("end") == true,
+            "bundled lua unindents end");
+        Check(bundled.Find("ruby")?.IsUnindentKeyword("end") == true,
+            "bundled ruby unindents end");
 
         string sourcePath = directory.Path("sample.tst");
         const string source = "fn main() {\n  let x = 42;\n  // comment\n  /* block\n     still */\n  int y = true;\n}\n";

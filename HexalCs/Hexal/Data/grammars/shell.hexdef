@@ -4,6 +4,8 @@
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 8 },
     "autoIndent": true,
     "autoClose": true,
+    "indentAfter": ["then", "do", "in", "else", "elif"],
+    "unindentBefore": ["fi", "done", "esac", "else", "elif"],
     "extensions": [
         ".sh", ".bash", ".zsh", ".ksh", ".dash", ".ash", ".profile",
         ".bashrc", ".bash_profile", ".bash_login", ".bash_logout",

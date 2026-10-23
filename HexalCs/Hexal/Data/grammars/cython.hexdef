@@ -5,6 +5,7 @@
     "autoIndent": true,
     "autoClose": true,
     "indentAfter": [":"],
+    "unindentBefore": ["elif", "else:", "except", "except:", "finally:", "case"],
     "extensions": [".pyx"],
     "keywords": [
         "and", "as", "assert", "async", "await", "class", "cdef",
