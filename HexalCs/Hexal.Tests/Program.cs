@@ -2227,6 +2227,7 @@ internal static class Program
             "bibtex",
             "eel2",
             "dotenv",
+            "scar",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -2319,6 +2320,10 @@ internal static class Program
         Check(
             ReferenceEquals(bundled.Detect("service.env"), bundled.Find("dotenv")),
             "dotenv extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("main.scar"), bundled.Find("scar")),
+            "scar extension detection"
         );
         Check(
             ReferenceEquals(bundled.Detect("Dockerfile"), bundled.Find("dockerfile")),
