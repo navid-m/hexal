@@ -71,7 +71,7 @@ public sealed partial class Editor
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "debug-lsp", "dl", "s", "t", "gi", "gdl"
+        "debug-lsp", "dl", "s", "t", "gi", "gdl", "vs", "hs", "cb"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -93,12 +93,15 @@ public sealed partial class Editor
             ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
             ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
             ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
-            ["gdl"] = "Toggle git diff markers in the line-number gutter."
+            ["gdl"] = "Toggle git diff markers in the line-number gutter.",
+            ["vs"] = "Split the current pane vertically (side by side).",
+            ["hs"] = "Split the current pane horizontally (stacked).",
+            ["cb"] = "Close the current buffer pane; use :q to quit the editor."
         };
 
     private readonly ITerminal _terminal;
     private readonly Renderer _renderer = new();
-    private readonly Screen _screen = new();
+    private Screen _screen = new();
 
     private Document _document;
     private readonly string _workspaceRoot;
@@ -214,15 +217,15 @@ public sealed partial class Editor
     private long _cursor;
     private long _selectionAnchor;
     private bool _selectionLinewise;
-    private readonly List<Selection> _extraSelections = new();
+    private List<Selection> _extraSelections = new();
     private bool _findActive;
     private bool _findEditing;
     private bool _findMultiCursor;
     private List<Selection>? _findSavedSelections;
-    private readonly StringBuilder _findQuery = new();
+    private StringBuilder _findQuery = new();
     private int _findQueryCursor;
-    private readonly List<(long Start, long End)> _findScope = new();
-    private readonly List<FindMatch> _findMatches = new();
+    private List<(long Start, long End)> _findScope = new();
+    private List<FindMatch> _findMatches = new();
     private int _findMatchIndex = -1;
     private long _topLine;
     private long _leftColumn;
@@ -257,8 +260,8 @@ public sealed partial class Editor
     private List<string>? _completionFiles;
     private string _completionFilesRoot = string.Empty;
 
-    private readonly List<JumpLocation> _jumpHistory = new();
-    private readonly List<JumpLocation> _jumpForward = new();
+    private List<JumpLocation> _jumpHistory = new();
+    private List<JumpLocation> _jumpForward = new();
     private bool _pendingG;
 
     private byte[] _lineBuffer = Array.Empty<byte>();
@@ -267,7 +270,7 @@ public sealed partial class Editor
     private HexalConfig _config = new();
     private ThemeRegistry _themes = new();
     private Theme _theme = Theme.CreateDefault();
-    private readonly SyntaxHighlighter _syntax = new();
+    private SyntaxHighlighter _syntax = new();
     private readonly List<SyntaxToken> _lineTokens = new();
     private LanguageDefinition? _language;
 
@@ -358,6 +361,7 @@ public sealed partial class Editor
         RefreshFileStamp();
         RefreshDiffLines();
         SnapCursor();
+        InitializePanes();
 
         if (_languages.Errors.Count > 0)
         {
@@ -498,6 +502,7 @@ public sealed partial class Editor
         if (inputEvent.Key == Key.Resize)
         {
             RefreshSize();
+            UpdateEditorLeft();
             _forceFullRedraw = true;
             EnsureCursorVisible();
             return _running;
@@ -578,6 +583,26 @@ public sealed partial class Editor
             _mode is Mode.Normal or Mode.Insert or Mode.Select)
         {
             OpenCommandPalette();
+            return _running;
+        }
+
+        if (_pendingWindow)
+        {
+            _pendingWindow = false;
+            HandlePaneCommand(inputEvent);
+            return _running;
+        }
+
+        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
+            inputEvent.Character.Value is 'w' or 'W' &&
+            _pickerKind == PickerKind.None &&
+            _prompt == PromptKind.None &&
+            !_spaceMenuOpen &&
+            !_findActive &&
+            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        {
+            _pendingWindow = true;
+            SetMessage("Pane: arrows/hjkl focus, +/- resize, q close, Esc cancel");
             return _running;
         }
 
@@ -839,10 +864,6 @@ public sealed partial class Editor
             else if (character == 'c')
             {
                 ToggleComment();
-            }
-            else if (character == 'w')
-            {
-                SetMessage("Pane navigation is not part of the MVP.");
             }
             return;
         }
@@ -1907,6 +1928,16 @@ public sealed partial class Editor
 
     private void HandleEditorMouse(InputEvent inputEvent)
     {
+        if (inputEvent.Key == Key.MouseDown &&
+            inputEvent.MouseButton == MouseButton.Left &&
+            TryFindPaneAt(inputEvent.MouseX, inputEvent.MouseY,
+                out EditorPane clickedPane) &&
+            !ReferenceEquals(clickedPane, _activePane))
+        {
+            SwitchToPane(clickedPane);
+            _forceFullRedraw = true;
+        }
+
         switch (inputEvent.Key)
         {
             case Key.ScrollUp:
@@ -1961,7 +1992,7 @@ public sealed partial class Editor
 
     private void ScrollDocument(int delta)
     {
-        int rows = TextRows();
+        int rows = ActivePaneRows();
         if (rows <= 0)
         {
             return;
@@ -2030,20 +2061,22 @@ public sealed partial class Editor
     private bool TryOffsetAtScreen(int x, int y, out long offset)
     {
         offset = 0;
-        int localX = x - _editorLeft;
-        int rows = TextRows();
-        if (localX < 0 || rows <= 0 || y < 0 || y >= rows)
+        PaneBounds bounds = ActivePaneBounds();
+        int localX = x - bounds.X;
+        int localY = y - bounds.Y;
+        if (localX < 0 || localY < 0 || bounds.Height <= 0 ||
+            localX >= bounds.Width || localY >= bounds.Height)
         {
             return false;
         }
 
-        long line = _topLine + y;
+        long line = _topLine + localY;
         if (line < 0 || line >= _document.LineCount)
         {
             return false;
         }
 
-        int gutter = GutterWidth();
+        int gutter = GutterWidthFor(bounds.Width);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         long visual = localX > gutter
             ? _leftColumn + (localX - gutter)
@@ -3794,6 +3827,33 @@ public sealed partial class Editor
                 ToggleDiffLines();
                 return;
 
+            case "vs":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :vs");
+                    return;
+                }
+                SplitPane(PaneSplitOrientation.Vertical);
+                return;
+
+            case "hs":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :hs");
+                    return;
+                }
+                SplitPane(PaneSplitOrientation.Horizontal);
+                return;
+
+            case "cb":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :cb");
+                    return;
+                }
+                CloseCurrentBuffer();
+                return;
+
             case "help":
                 ShowHelpReminder();
                 return;
@@ -3903,7 +3963,7 @@ public sealed partial class Editor
     }
 
     private static bool IsFutureCommand(string name)
-        => name is "sf" or "g" or "sv" or "sh" or "setup";
+        => name is "sf" or "g" or "setup";
 
     private void FormatCurrentDocument()
     {
@@ -4156,7 +4216,7 @@ public sealed partial class Editor
         _themes.SetActiveTheme(_theme);
         _forceFullRedraw = true;
 
-        RefreshDiffLines();
+        RefreshAllPaneDiffLines();
         _completionFiles = null;
         _completionFilesRoot = string.Empty;
         _pickerFilesLoaded = false;
@@ -4361,6 +4421,8 @@ public sealed partial class Editor
             }
             else
             {
+                operation.Document.MarkSaved(result.Path, result.Pose,
+                    result.Revision);
                 SetMessage($"Wrote {result.Path}");
             }
 
@@ -4424,7 +4486,7 @@ public sealed partial class Editor
     {
         if (_saveOperation is not null)
         {
-            if (!force && _document.IsDirty)
+            if (!force && AnyPaneDocumentDirty())
             {
                 _prompt = PromptKind.Quit;
                 return;
@@ -4436,7 +4498,7 @@ public sealed partial class Editor
             return;
         }
 
-        if (!force && _document.IsDirty)
+        if (!force && AnyPaneDocumentDirty())
         {
             _prompt = PromptKind.Quit;
             return;
@@ -4499,7 +4561,7 @@ public sealed partial class Editor
             }
 
             _cursor = Math.Clamp(start + local, start, end);
-            int rows = TextRows();
+            int rows = ActivePaneRows();
             _topLine = Math.Max(0, targetLine - Math.Max(0, rows / 2));
         }
 
@@ -4839,7 +4901,7 @@ public sealed partial class Editor
     private void MovePage(int direction)
     {
         long before = _cursor;
-        int rows = TextRows();
+        int rows = ActivePaneRows();
         int amount = Math.Max(1, rows > 1 ? rows - 1 : 1);
         MoveVertical(direction * amount);
 
@@ -6005,8 +6067,9 @@ public sealed partial class Editor
 
     private void EnsureCursorVisible()
     {
+        PaneBounds bounds = ActivePaneBounds();
         long line = CursorLine();
-        int rows = TextRows();
+        int rows = bounds.Height;
 
         if (rows == 0)
         {
@@ -6030,10 +6093,8 @@ public sealed partial class Editor
             }
         }
 
-        int gutter = GutterWidth();
-        int textWidth = _columns > _editorLeft + gutter
-            ? _columns - _editorLeft - gutter
-            : 1;
+        int gutter = GutterWidthFor(bounds.Width);
+        int textWidth = bounds.Width > gutter ? bounds.Width - gutter : 1;
         long column = CursorVisualColumn();
 
         if (column < _leftColumn)
@@ -6056,13 +6117,14 @@ public sealed partial class Editor
 
     private int DiffMarkerWidth() => _showDiffLines ? 1 : 0;
 
-    private int GutterWidth()
+    private int GutterWidth() => GutterWidthFor(_columns - _editorLeft);
+
+    private int GutterWidthFor(int width)
     {
         int digits = DigitCount(_document.LineCount);
         int marker = DiffMarkerWidth();
         int gutter = digits + 1 + marker;
-        int available = _columns - _editorLeft;
-        if (available < gutter + 10)
+        if (width < gutter + 10)
         {
             return 0;
         }
@@ -6127,6 +6189,10 @@ public sealed partial class Editor
         if (_extraSelections.Count > 0)
         {
             text += $"  [{_extraSelections.Count + 1} cursors]";
+        }
+        if (_paneViews.Count > 1)
+        {
+            text += $"  [pane {ActivePaneOrdinal()}/{_paneViews.Count}]";
         }
         if (_saveOperation is not null)
         {
@@ -7299,37 +7365,12 @@ public sealed partial class Editor
         _screen.Clear(_theme.BaseStyle);
 
         UpdateEditorLeft();
-        UpdateDiffLinesForBufferChange();
         if (!_freeScroll)
         {
             EnsureCursorVisible();
         }
 
-        int rows = TextRows();
-        long total = _document.LineCount;
-
-        if (rows > 0)
-        {
-            long maxTop = total > rows ? total - rows : 0;
-            if (_topLine > maxTop)
-            {
-                _topLine = maxTop;
-            }
-        }
-        else
-        {
-            _topLine = CursorLine();
-        }
-
-        int gutter = GutterWidth();
-        if (rows > 0)
-        {
-            RenderLineNumbers(_topLine, rows, gutter);
-            RenderTextLines(_topLine, rows, gutter);
-            RenderSelection(_topLine, rows, gutter);
-            RenderFindMatches(_topLine, rows, gutter);
-            RenderCursor(_topLine, rows, gutter);
-        }
+        RenderPanes();
 
         RenderSidebar();
         RenderSidebarContextMenu();

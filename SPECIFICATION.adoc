@@ -1195,7 +1195,7 @@ The layout system MUST support more than two panes.
 
 
 ------------------------------------------------------------
-1.2 COMMAND: :sv
+1.2 COMMAND: :vs
 ------------------------------------------------------------
 
 Purpose:
@@ -1230,7 +1230,7 @@ The split MUST NOT duplicate the entire underlying text buffer.
 
 
 ------------------------------------------------------------
-1.3 COMMAND: :sh
+1.3 COMMAND: :hs
 ------------------------------------------------------------
 
 Purpose:
@@ -1832,8 +1832,8 @@ Example:
       :debug-lsp, :dl     Inspect LSP traffic and diagnostics
       :sf <pattern>       Search filenames
       :g                  Open the file tree
-      :sv                 Split the current pane vertically
-      :sh                 Split the current pane horizontally
+      :vs                 Split the current pane vertically
+      :hs                 Split the current pane horizontally
 
     Keybindings:
       I                   Enter Insert Mode
@@ -1936,8 +1936,8 @@ consistently.
 
 SPLIT WINDOWS
 
-    [ ] :sv creates a right-hand pane.
-    [ ] :sh creates a lower pane.
+    [ ] :vs creates a right-hand pane.
+    [ ] :hs creates a lower pane.
     [ ] New panes display the same buffer by default.
     [ ] Panes can display different buffers.
     [ ] Editing a shared buffer updates all its views.

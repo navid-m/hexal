@@ -256,6 +256,26 @@ public sealed class Screen
     }
 
     /// <summary>
+    /// Copies another screen into this one at the given origin. Used to compose
+    /// pane content rendered in an isolated grid onto the terminal screen.
+    /// </summary>
+    public void Blit(Screen source, int targetX, int targetY)
+    {
+        int width = Math.Min(source._width, _width - targetX);
+        int height = Math.Min(source._height, _height - targetY);
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        for (int row = 0; row < height; ++row)
+        {
+            Array.Copy(source._cells, row * source._width,
+                _cells, (targetY + row) * _width + targetX, width);
+        }
+    }
+
+    /// <summary>
     /// Applies a style to a cell, keeping both halves of a wide scalar in sync.
     /// Used for the block cursor.
     /// </summary>

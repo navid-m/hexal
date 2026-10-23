@@ -78,10 +78,30 @@ public sealed partial class Editor
         return hashes;
     }
 
+    private void RefreshAllPaneDiffLines()
+    {
+        if (_paneRoot is null)
+        {
+            RefreshDiffLines();
+            return;
+        }
+
+        EditorPane active = _activePane;
+        CapturePaneState(active);
+        foreach (EditorPane pane in AllPanes())
+        {
+            LoadPaneState(pane);
+            RefreshDiffLines();
+            CapturePaneState(pane);
+        }
+
+        LoadPaneState(active);
+    }
+
     private void ToggleDiffLines()
     {
         _showDiffLines = !_showDiffLines;
-        RefreshDiffLines();
+        RefreshAllPaneDiffLines();
         PersistDisplaySettings();
         _forceFullRedraw = true;
         SetMessage(_showDiffLines

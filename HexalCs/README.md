@@ -157,6 +157,9 @@ only that row.
 | `Space` `y` | Yank the selection to the system clipboard |
 | `Space` `p` | Paste the system clipboard on the current line |
 | `Space` `P` | Paste the system clipboard on a new line below |
+| `Ctrl+W`, arrow / `h` `j` `k` `l` | Focus an adjacent split pane |
+| `Ctrl+W`, `+` / `-` | Resize the current pane |
+| `Ctrl+W`, `q` | Close the current pane |
 | `Tab` | Insert a tab in INSERT mode |
 
 ### Space menu
@@ -232,8 +235,17 @@ support it. Pasting without a clipboard helper reports an error.
 | `:rcfg` | Reload configuration, grammars and themes |
 | `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
 | `:gdl` | Toggle added/deleted/modified markers in the line-number gutter |
+| `:vs` | Split the focused pane vertically, side by side |
+| `:hs` | Split the focused pane horizontally, stacked |
+| `:cb` | Close the focused pane; with one pane, use `:q`/`:q!` to quit |
 | `:help` | Show a short key reminder |
 | `:debug-lsp`, `:dl` | Inspect live language-server traffic and client diagnostics |
+
+Panes can be split repeatedly into a nested layout. Each pane keeps its own
+cursor, selection and viewport; panes showing the same buffer share edits and
+undo history. Pane boundaries are proportional to the terminal size and are
+recalculated after resizing. If the terminal becomes too small for a split,
+inactive branches are hidden until there is room again.
 
 `:w`/`:wq` return immediately. The status bar shows `[saving]` while the worker
 writes; scrolling and editing remain available. If an edit lands after the
