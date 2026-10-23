@@ -2,6 +2,8 @@
     "id": "json",
     "name": "JSON",
     "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [
         ".json", ".jsonc", ".jsonl", ".ndjson", ".geojson", ".har",
         ".webmanifest"

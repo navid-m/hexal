@@ -238,6 +238,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:vs` | Split the focused pane vertically, side by side |
 | `:hs` | Split the focused pane horizontally, stacked |
 | `:cb` | Close the focused pane; with one pane, use `:q`/`:q!` to quit |
+| `:adi` | Detect and apply the current buffer's indentation style |
 | `:help` | Show a short key reminder |
 | `:debug-lsp`, `:dl` | Inspect live language-server traffic and client diagnostics |
 
@@ -325,6 +326,16 @@ Canonical schema:
         "escapeCharacter": "\\"
     },
     "numbers": true,
+    "indentation": {
+        "style": "spaces",
+        "width": 4,
+        "tabWidth": 4
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "traditionalMarkupLanguage": false,
+    "indentAfter": [":"],
+    "unindentBefore": ["}"],
     "formatter": {
         "command": "clang-format",
         "arguments": ["--assume-filename={file}"],
@@ -340,6 +351,19 @@ Canonical schema:
 - `lineComment` and `blockComment: { "start": ..., "end": ... }` are accepted
   as aliases when `comments` is absent.
 - `numbers` defaults to `true`.
+- `autoIndent` defaults to `true`. Pressing Enter after a line ending in a
+  bracket or markup opening tag adds one indentation level. Additional literal
+  suffixes can be supplied with `indentAfter`; `unindentBefore` controls which
+  prefixes are treated as closing lines. When the cursor sits between an
+  opening and automatically inserted closing bracket or tag, Enter moves the
+  closing token onto its own correctly unindented line.
+- `autoClose` defaults to `true`. Typing `(`, `[` or `{` inserts the matching
+  closing character. Setting `traditionalMarkupLanguage` to `true` (as in the
+  XML grammar) also auto-closes typed tags such as `<item>` with `</item>`.
+  Set `autoClose` to `false` to opt out for a language.
+- `:adi` scans the current buffer and applies the detected indentation style
+  (tabs or spaces, plus the indent width) to that document without rewriting
+  its contents.
 - Highlight categories are keyword, control statement, type, constant, string,
   comment, and number. Default text uses the terminal foreground.
 - `:lang <id>` overrides auto-detection for the current buffer.

@@ -2,6 +2,8 @@
     "id": "glsl",
     "name": "GLSL",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [".gdshader", ".shader", ".fs", ".vs", ".glsl"],
     "keywords": [
         "attribute", "buffer", "centroid", "coherent", "const", "flat",

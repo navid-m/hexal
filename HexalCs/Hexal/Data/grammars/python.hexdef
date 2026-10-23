@@ -2,6 +2,9 @@
     "id": "python",
     "name": "Python",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "indentAfter": [":"],
     "extensions": [".py"],
     "keywords": [
         "and", "as", "assert", "async", "await", "class", "def", "del",

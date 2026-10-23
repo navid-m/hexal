@@ -2,6 +2,9 @@
     "id": "xml",
     "name": "XML",
     "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "traditionalMarkupLanguage": true,
     "extensions": [".xml", ".csproj", ".rpp"],
     "keywords": [
         "xml", "version", "encoding", "standalone", "xmlns", "xsi",

@@ -48,7 +48,9 @@ public sealed class LanguageDefinition
         string? blockCommentStart, string? blockCommentEnd,
         List<string> quoteCharacters, string? escapeCharacter, bool highlightNumbers,
         FormatterConfig? formatter, bool? formatOnSave,
-        IndentationSettings? indentation)
+        IndentationSettings? indentation, bool autoIndent, bool autoClose,
+        bool traditionalMarkupLanguage, List<string> indentAfter,
+        List<string> unindentBefore)
     {
         Id = id;
         Name = name;
@@ -67,6 +69,11 @@ public sealed class LanguageDefinition
         Formatter = formatter;
         FormatOnSave = formatOnSave;
         Indentation = indentation;
+        AutoIndent = autoIndent;
+        AutoClose = autoClose;
+        TraditionalMarkupLanguage = traditionalMarkupLanguage;
+        IndentAfter = indentAfter;
+        UnindentBefore = unindentBefore;
 
         LineCommentBytes = Encode(lineComment);
         BlockCommentStartBytes = Encode(blockCommentStart);
@@ -105,6 +112,36 @@ public sealed class LanguageDefinition
     /// untouched.
     /// </summary>
     public IndentationSettings? Indentation { get; }
+
+    /// <summary>
+    /// When true, pressing Enter can add or remove an indentation level based
+    /// on the grammar's indentation triggers. Defaults to true.
+    /// </summary>
+    public bool AutoIndent { get; }
+
+    /// <summary>
+    /// When true, typing an opening bracket or markup tag inserts its closing
+    /// counterpart. Defaults to true.
+    /// </summary>
+    public bool AutoClose { get; }
+
+    /// <summary>
+    /// Marks tag-based markup languages such as XML and HTML, enabling
+    /// automatic closing-tag insertion when <see cref="AutoClose"/> is true.
+    /// </summary>
+    public bool TraditionalMarkupLanguage { get; }
+
+    /// <summary>
+    /// Extra literal line suffixes that increase indentation on Enter, on top
+    /// of the built-in bracket rules.
+    /// </summary>
+    public IReadOnlyList<string> IndentAfter { get; }
+
+    /// <summary>
+    /// Extra literal line prefixes that cause an automatically inserted
+    /// closing line to unindent.
+    /// </summary>
+    public IReadOnlyList<string> UnindentBefore { get; }
 
     internal byte[]? LineCommentBytes { get; }
 
@@ -359,6 +396,25 @@ public sealed class LanguageDefinition
                 indentation = new IndentationSettings(useTabs, indentWidth, tabWidth);
             }
 
+            bool autoIndent = ReadBool(root, "autoIndent") ??
+                              ReadBool(root, "auto_indent") ?? true;
+            bool autoClose = ReadBool(root, "autoClose") ??
+                             ReadBool(root, "auto_close") ?? true;
+            bool traditionalMarkupLanguage =
+                ReadBool(root, "traditionalMarkupLanguage") ??
+                ReadBool(root, "traditional_markup_language") ?? false;
+
+            List<string> indentAfter = ReadStringArray(root, "indentAfter")
+                .Concat(ReadStringArray(root, "indent_after"))
+                .Where(value => value.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            List<string> unindentBefore = ReadStringArray(root, "unindentBefore")
+                .Concat(ReadStringArray(root, "unindent_before"))
+                .Where(value => value.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
             if (lineComment is { Length: 0 })
             {
                 lineComment = null;
@@ -372,7 +428,8 @@ public sealed class LanguageDefinition
             definition = new LanguageDefinition(id, name, extensions, keywords,
                 controlStatements, types, constants, lineComment, blockStart,
                 blockEnd, quoteCharacters, escapeCharacter, highlightNumbers,
-                formatter, formatOnSave, indentation);
+                formatter, formatOnSave, indentation, autoIndent, autoClose,
+                traditionalMarkupLanguage, indentAfter, unindentBefore);
             return true;
         }
         catch (JsonException ex)

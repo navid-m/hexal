@@ -2,6 +2,8 @@
     "id": "lua",
     "name": "Lua",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [".lua"],
     "keywords": [
         "and", "end", "function", "local", "not", "or", "repeat",

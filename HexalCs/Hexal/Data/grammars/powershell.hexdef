@@ -2,6 +2,8 @@
     "id": "powershell",
     "name": "PowerShell",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [
         ".ps1", ".psm1", ".psd1", ".ps1xml", ".pssc", ".psrc"
     ],

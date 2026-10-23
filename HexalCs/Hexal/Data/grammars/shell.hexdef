@@ -2,6 +2,8 @@
     "id": "shell",
     "name": "Shell Script",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 8 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [
         ".sh", ".bash", ".zsh", ".ksh", ".dash", ".ash", ".profile",
         ".bashrc", ".bash_profile", ".bash_login", ".bash_logout",

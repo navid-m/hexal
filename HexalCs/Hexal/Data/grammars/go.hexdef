@@ -2,6 +2,8 @@
     "id": "go",
     "name": "Go",
     "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [".go"],
     "keywords": [
         "package", "import", "func", "var", "const", "type", "struct",

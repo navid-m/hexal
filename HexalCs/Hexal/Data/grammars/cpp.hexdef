@@ -2,6 +2,8 @@
     "id": "cpp",
     "name": "C++",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 8 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [".h", ".cpp", ".hpp"],
     "keywords": [
         "alignas", "alignof", "auto", "class", "concept", "consteval",

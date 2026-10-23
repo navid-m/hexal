@@ -71,7 +71,7 @@ public sealed partial class Editor
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "debug-lsp", "dl", "s", "t", "gi", "gdl", "vs", "hs", "cb"
+        "debug-lsp", "dl", "s", "t", "gi", "gdl", "vs", "hs", "cb", "adi"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -96,7 +96,8 @@ public sealed partial class Editor
             ["gdl"] = "Toggle git diff markers in the line-number gutter.",
             ["vs"] = "Split the current pane vertically (side by side).",
             ["hs"] = "Split the current pane horizontally (stacked).",
-            ["cb"] = "Close the current buffer pane; use :q to quit the editor."
+            ["cb"] = "Close the current buffer pane; use :q to quit the editor.",
+            ["adi"] = "Detect the document indentation and apply it to this buffer."
         };
 
     private readonly ITerminal _terminal;
@@ -3854,6 +3855,15 @@ public sealed partial class Editor
                 CloseCurrentBuffer();
                 return;
 
+            case "adi":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :adi");
+                    return;
+                }
+                AutoDetectIndentation();
+                return;
+
             case "help":
                 ShowHelpReminder();
                 return;
@@ -5094,10 +5104,20 @@ public sealed partial class Editor
             return;
         }
 
+        if (TrySkipAutoClose(rune) || TryInsertAutoClosePair(rune))
+        {
+            return;
+        }
+
         Span<byte> text = stackalloc byte[4];
         int length = UnicodeUtil.Encode(codePoint, text);
         _document.Insert(_cursor, text[..length]);
         _cursor += length;
+        if (codePoint == '>')
+        {
+            TryInsertAutoCloseTag();
+        }
+
         SnapCursor();
         _preferredColumnValid = false;
         ClearMessage();
@@ -5119,33 +5139,7 @@ public sealed partial class Editor
 
     private void InsertNewline()
     {
-        long line = CursorLine();
-        long lineStart = _document.LineStart(line);
-        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-        int indent = 0;
-        while (indent < length &&
-               (_lineBuffer[indent] == (byte)' ' || _lineBuffer[indent] == (byte)'\t'))
-        {
-            ++indent;
-        }
-
-        // Never copy more indentation than the cursor has passed, so pressing
-        // Enter inside the leading whitespace does not push text right.
-        indent = (int)Math.Min(indent, Math.Max(0, _cursor - lineStart));
-
-        byte[] eol = _document.Eol == "\r\n" ? CrLf : Lf;
-        _document.Insert(_cursor, eol);
-        _cursor = Math.Min(_cursor + eol.Length, _document.Size);
-
-        if (indent > 0)
-        {
-            _document.Insert(_cursor, _lineBuffer.AsSpan(0, indent));
-            _cursor += indent;
-        }
-
-        SnapCursor();
-        _preferredColumnValid = false;
-        ClearMessage();
+        InsertNewlineWithAutoIndent();
     }
 
     private void InsertNewlineBelow()

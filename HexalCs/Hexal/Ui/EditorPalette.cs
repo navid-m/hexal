@@ -57,6 +57,9 @@ public sealed partial class Editor
         AddPaletteCommand("Close current buffer pane",
             "Close the focused pane; use :q or :q! when only one remains.",
             CloseCurrentBuffer);
+        AddPaletteCommand("Detect document indentation",
+            "Infer tabs or spaces and the indent width from the current buffer.",
+            AutoDetectIndentation);
         AddPaletteCommand("Open theme selector",
             "Search and preview installed themes.",
             () => OpenPicker(PickerKind.Themes));
@@ -353,6 +356,6 @@ public sealed partial class Editor
         SetMessage(
             "Ctrl+P palette | i insert | Esc normal | / find | . find all | Ctrl+B sidebar | " +
             "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
-            ":w :wq :q :e :fmt :cfg :s :t :gi :gdl :vs :hs :cb | u/Ctrl+R undo");
+            ":w :wq :q :e :fmt :cfg :s :t :gi :gdl :vs :hs :cb :adi | u/Ctrl+R undo");
     }
 }

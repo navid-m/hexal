@@ -1193,6 +1193,26 @@ internal static class Program
             "grammar indentation width", "8");
         CheckEqual(definition.Indentation?.TabWidth, 4,
             "grammar tab width", "4");
+        Check(definition.AutoIndent, "grammar auto indent defaults on");
+        Check(definition.AutoClose, "grammar auto close defaults on");
+        Check(!definition.TraditionalMarkupLanguage,
+            "grammar is not markup by default");
+
+        Check(LanguageDefinition.TryParse("""
+            {
+                "id": "markup",
+                "autoIndent": false,
+                "autoClose": false,
+                "traditionalMarkupLanguage": true,
+                "indentAfter": [":", "=>"]
+            }
+            """, "markup.hexdef", out LanguageDefinition? markup,
+                out parseError), "parse markup grammar");
+        Check(markup is not null, "markup grammar parsed");
+        Check(!markup!.AutoIndent, "markup auto indent opt-out");
+        Check(!markup.AutoClose, "markup auto close opt-out");
+        Check(markup.TraditionalMarkupLanguage, "markup mode enabled");
+        CheckEqual(markup.IndentAfter.Count, 2, "indentAfter count", "2");
 
         using var directory = new TempDir();
         string grammarPath = directory.Path("test.hexdef");

@@ -2,6 +2,8 @@
     "id": "fish",
     "name": "Fish Shell",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
     "extensions": [".fish"],
     "keywords": [
         "abbr", "alias", "argparse", "bg", "bind", "block", "builtin",

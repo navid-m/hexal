@@ -2,6 +2,9 @@
     "id": "cython",
     "name": "Cython",
     "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "indentAfter": [":"],
     "extensions": [".pyx"],
     "keywords": [
         "and", "as", "assert", "async", "await", "class", "cdef",
