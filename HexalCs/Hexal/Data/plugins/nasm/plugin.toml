@@ -2,3 +2,5 @@ name = "NASM Assembly"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for NASM assembly"
+lazy = true
+language = "nasm"

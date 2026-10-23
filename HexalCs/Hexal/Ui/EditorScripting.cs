@@ -45,15 +45,23 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         _plugins.LoadAll();
         _benchmark?.AddSince("Plugins", "Load all", phaseStart,
-            $"{_plugins.PluginCount} running, {_plugins.Errors.Count} errors");
+            $"{_plugins.PluginCount} running, " +
+            $"{_plugins.DeferredPluginCount} deferred, " +
+            $"{_plugins.Errors.Count} errors");
 
         if (_plugins.Errors.Count > 0)
         {
             SetError($"plugin: {_plugins.Errors[0]}");
         }
-        else if (_plugins.PluginCount > 0)
+        else if (_plugins.PluginCount > 0 || _plugins.DeferredPluginCount > 0)
         {
-            SetMessage($"{_plugins.PluginCount} plugin{(_plugins.PluginCount == 1 ? string.Empty : "s")} loaded");
+            int total = _plugins.PluginCount + _plugins.DeferredPluginCount;
+            string message = $"{total} plugin{(total == 1 ? string.Empty : "s")} loaded";
+            if (_plugins.DeferredPluginCount > 0)
+            {
+                message += $" ({_plugins.DeferredPluginCount} deferred)";
+            }
+            SetMessage(message);
         }
 
         _plugins.FireEvent("editor_started", new Dictionary<string, object?>

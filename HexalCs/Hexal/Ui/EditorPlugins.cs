@@ -471,7 +471,10 @@ public sealed partial class Editor
             yield return ($"Version: {plugin.Version}", style);
         }
 
-        yield return (plugin.Enabled ? "Status: enabled" : "Status: disabled",
+        string status = plugin.Deferred
+            ? "Status: enabled (loads when its language is opened)"
+            : plugin.Enabled ? "Status: enabled" : "Status: disabled";
+        yield return (status,
             plugin.Enabled ? _theme.TextStyle : _theme.MutedStyle);
         if (plugin.Author.Length > 0)
         {

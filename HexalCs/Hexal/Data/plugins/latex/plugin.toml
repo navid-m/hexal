@@ -2,3 +2,5 @@ name = "LaTeX"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for LaTeX"
+lazy = true
+language = "latex"

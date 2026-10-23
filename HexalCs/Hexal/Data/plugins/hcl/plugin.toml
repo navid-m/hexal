@@ -2,3 +2,5 @@ name = "HCL"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for HCL and Terraform"
+lazy = true
+language = "hcl"

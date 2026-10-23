@@ -59,11 +59,11 @@ public sealed class LanguageRegistry
 
         Array.Sort(files, StringComparer.OrdinalIgnoreCase);
 
-        // Parsing is CPU-bound and each definition is independent. Parse in
-        // parallel, then merge in file order so duplicate handling stays
-        // deterministic.
+        // Grammar files are tiny. Reading and parsing them sequentially avoids
+        // thread-pool startup and scheduling overhead, which is measurable for
+        // the small number of bundled definitions.
         var parsed = new (LanguageDefinition? Definition, string? Error)[files.Length];
-        Parallel.For(0, files.Length, index =>
+        for (int index = 0; index < files.Length; ++index)
         {
             string file = files[index];
             try
@@ -84,7 +84,7 @@ public sealed class LanguageRegistry
             {
                 parsed[index] = (null, ex.Message);
             }
-        });
+        }
 
         for (int index = 0; index < files.Length; ++index)
         {

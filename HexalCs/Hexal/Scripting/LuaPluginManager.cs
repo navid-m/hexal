@@ -27,6 +27,7 @@ public sealed class PluginInfo
     public string ManifestPath { get; init; } = string.Empty;
     public bool Enabled { get; init; }
     public bool Running { get; init; }
+    public bool Deferred { get; init; }
     public string Error { get; init; } = string.Empty;
     public IReadOnlyList<string> Commands { get; init; } = Array.Empty<string>();
 }
@@ -66,7 +67,9 @@ public sealed class LuaPluginManager : IDisposable
         public string EntryPath = string.Empty;
         public string ManifestPath = string.Empty;
         public string Error = string.Empty;
+        public string LazyLanguage = string.Empty;
         public bool Enabled;
+        public bool Deferred;
         public LoadedPlugin? Plugin;
     }
 
@@ -94,6 +97,9 @@ public sealed class LuaPluginManager : IDisposable
         public string PluginId = string.Empty;
         public LuaFunction Callback = null!;
     }
+
+    private static readonly object WarmupLock = new();
+    private static Task? s_warmupTask;
 
     private readonly IEditorApi _host;
     private readonly string _pluginsDirectory;
@@ -132,9 +138,57 @@ public sealed class LuaPluginManager : IDisposable
         _statePath = statePath;
     }
 
+    /// <summary>
+    /// Starts loading the native Lua runtime on a background thread. The
+    /// first Lua state initialization includes one-time native library and
+    /// runtime setup; overlapping it with grammar/theme loading removes that
+    /// cost from the plugin-load phase without changing plugin isolation.
+    /// </summary>
+    public static void BeginWarmup()
+    {
+        lock (WarmupLock)
+        {
+            s_warmupTask ??= Task.Run(static () => WarmupRuntime());
+        }
+    }
+
+    private static void WarmupRuntime()
+    {
+        try
+        {
+            using var lua = new Lua();
+            lua.NewTable("hexal");
+            var plugin = new LoadedPlugin
+            {
+                Id = "warmup",
+                Lua = lua,
+                Hexal = (LuaTable)lua["hexal"],
+                Config = new PluginConfigStore(string.Empty)
+            };
+
+            // The first plugin load pays the one-time JIT cost of building the
+            // complete hexal.* module surface. Do it here, concurrently with
+            // grammar and theme loading, using a throwaway manager/state.
+            var manager = new LuaPluginManager(null!, string.Empty, string.Empty);
+            manager.RegisterModules(plugin);
+        }
+        catch
+        {
+            // Warmup is best effort; real plugin loading reports errors.
+        }
+    }
+
     public IReadOnlyList<string> Errors => _errors;
 
     public int PluginCount => _plugins.Count;
+
+    /// <summary>
+    /// Number of enabled plugins whose Lua state is created on demand when a
+    /// buffer of their declared language is first opened.
+    /// </summary>
+    public int DeferredPluginCount =>
+        _entries.Count(entry => entry.Deferred && entry.Enabled &&
+                                entry.Plugin is null);
 
     public void SetBenchmark(StartupBenchmark? benchmark)
     {
@@ -168,6 +222,8 @@ public sealed class LuaPluginManager : IDisposable
                     ManifestPath = entry.ManifestPath,
                     Enabled = entry.Enabled,
                     Running = entry.Plugin?.Running ?? false,
+                    Deferred = entry.Deferred && entry.Enabled &&
+                               entry.Plugin is null,
                     Error = entry.Error,
                     Commands = CommandsForPlugin(entry.Id)
                 });
@@ -439,6 +495,15 @@ public sealed class LuaPluginManager : IDisposable
             return;
         }
 
+        if (string.Equals(eventName, "buffer_opened",
+                StringComparison.OrdinalIgnoreCase) &&
+            data is not null &&
+            data.TryGetValue("language", out object? languageValue) &&
+            languageValue?.ToString() is { Length: > 0 } language)
+        {
+            LoadDeferredPlugins(language);
+        }
+
         List<EventSubscription>? matching = null;
         foreach (EventSubscription subscription in _subscriptions.Values)
         {
@@ -483,6 +548,21 @@ public sealed class LuaPluginManager : IDisposable
         finally
         {
             _inEvent = false;
+        }
+    }
+
+    private void LoadDeferredPlugins(string language)
+    {
+        foreach (PluginEntry entry in _entries.ToArray())
+        {
+            if (!entry.Deferred || !entry.Enabled || entry.Plugin is not null ||
+                !string.Equals(entry.LazyLanguage, language,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            StartPlugin(entry);
         }
     }
 
@@ -720,6 +800,16 @@ public sealed class LuaPluginManager : IDisposable
                                !string.Equals(enabled, "false",
                                    StringComparison.OrdinalIgnoreCase);
         entry.Enabled = manifestEnabled && !disabled.Contains(entry.Id);
+
+        bool lazy = manifest.TryGetValue("lazy", out string? lazyValue) &&
+                    string.Equals(lazyValue, "true", StringComparison.OrdinalIgnoreCase);
+        entry.LazyLanguage = ReadManifestValue(manifest, "language");
+        if (entry.Enabled && lazy && entry.LazyLanguage.Length > 0)
+        {
+            entry.Deferred = true;
+            return;
+        }
+
         if (entry.Enabled)
         {
             StartPlugin(entry);
@@ -812,6 +902,7 @@ public sealed class LuaPluginManager : IDisposable
             entry.Plugin = plugin;
             entry.Error = string.Empty;
             entry.Enabled = true;
+            entry.Deferred = false;
         }
         catch (Exception ex)
         {

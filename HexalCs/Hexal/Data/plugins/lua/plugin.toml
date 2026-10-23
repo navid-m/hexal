@@ -2,3 +2,5 @@ name = "Lua"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for Lua"
+lazy = true
+language = "lua"

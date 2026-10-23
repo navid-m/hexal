@@ -2,3 +2,5 @@ name = "C#"
 version = "2.0"
 entry = "init.lua"
 description = "Built-in C# language server implemented in Lua"
+lazy = true
+language = "csharp"

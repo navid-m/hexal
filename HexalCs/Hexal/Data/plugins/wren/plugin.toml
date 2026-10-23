@@ -2,3 +2,5 @@ name = "Wren"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for Wren"
+lazy = true
+language = "wren"

@@ -5,6 +5,7 @@ using Hexal.Core;
 using Hexal.Languages;
 using Hexal.Lsp;
 using Hexal.Platform;
+using Hexal.Scripting;
 using Hexal.Util;
 
 namespace Hexal.Ui;
@@ -383,6 +384,7 @@ public sealed partial class Editor
     public Editor(ITerminal terminal, Document document,
         string? workspaceRoot = null, bool openFilePicker = false)
     {
+        LuaPluginManager.BeginWarmup();
         _terminal = terminal;
         _document = document;
         _workspaceRoot = ResolveWorkspaceRoot(workspaceRoot);
@@ -397,12 +399,14 @@ public sealed partial class Editor
         _showGitIgnored = _config.ShowGitIgnored;
         _searchMatchCase = _config.SearchMatchCaseEnabled;
 
-        long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
-        _languages = LanguageRegistry.LoadUserGrammars();
-        _benchmark?.AddSince("Internal", "Grammar registry", phaseStart,
-            $"{_languages.Languages.Count} definitions");
+        // Grammar parsing and Lua warm-up are independent of the initial
+        // frame. Start them in the background so the terminal can be painted
+        // immediately; the registry is applied as soon as it is ready.
+        _languages = new LanguageRegistry();
+        _startupGrammarStarted = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        _startupGrammarTask = Task.Run(LanguageRegistry.LoadUserGrammars);
 
-        phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         _themes = ThemeRegistry.LoadDefault(out string themeError);
         _benchmark?.AddSince("Internal", "Theme registry", phaseStart,
             $"{_themes.Themes.Count} themes");
@@ -410,18 +414,12 @@ public sealed partial class Editor
 
         phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         RefreshLanguage();
-        AutoDetectIndentationOnOpen();
         RefreshFileStamp();
-        RefreshDiffLines();
         SnapCursor();
         InitializePanes();
         _benchmark?.AddSince("Internal", "Editor initialization", phaseStart);
 
-        if (_languages.Errors.Count > 0)
-        {
-            SetError($"grammar: {_languages.Errors[0]}");
-        }
-        else if (themeError.Length > 0)
+        if (themeError.Length > 0)
         {
             SetError($"theme: {themeError}");
         }
@@ -463,13 +461,22 @@ public sealed partial class Editor
 
     public int Run()
     {
-        LoadPlugins();
         RefreshSize();
         EnsureCursorVisible();
         if (_openFilePickerOnStart)
         {
             OpenPicker(PickerKind.Files);
         }
+
+        // Paint the editor before plugin loading, git diff inspection and
+        // other startup work. This removes the blank-terminal flash on slow
+        // filesystems and leaves the UI responsive during the remaining work.
+        Render();
+        _benchmark?.AddSince("Startup", "UI first render",
+            _editorStartTimestamp);
+
+        PollStartupWork();
+        LoadPlugins();
         Render();
 
         while (_running)
@@ -491,7 +498,8 @@ public sealed partial class Editor
                         _formatOperation is not null ||
                         _pickerTask is not null ||
                         _pickerPreviewTask is not null || previewPending ||
-                        _lsp.IsRunning || _lspDirty || _dap.IsRunning;
+                        _lsp.IsRunning || _lspDirty || _dap.IsRunning ||
+                        _startupGrammarTask is not null;
             int timeout = previewPending ? 16 : busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
@@ -4682,6 +4690,8 @@ public sealed partial class Editor
         _showDiffLines = config.ShowDiffLines;
         _showGitIgnored = config.ShowGitIgnored;
         _searchMatchCase = config.SearchMatchCaseEnabled;
+        _startupGrammarTask = null;
+        _startupGrammarStarted = 0;
         _languages = LanguageRegistry.LoadUserGrammars();
 
         string activeThemeId = _theme.Id;
@@ -4802,7 +4812,11 @@ public sealed partial class Editor
     {
         _plugins?.Tick();
         _lsp.Pump();
-        bool redraw = PollSave();
+        bool redraw = PollStartupWork();
+        if (PollSave())
+        {
+            redraw = true;
+        }
         if (PollFormat())
         {
             redraw = true;

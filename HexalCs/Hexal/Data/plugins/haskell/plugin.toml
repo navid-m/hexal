@@ -2,3 +2,5 @@ name = "Haskell"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for Haskell"
+lazy = true
+language = "haskell"

@@ -2,3 +2,5 @@ name = "Go"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for Go"
+lazy = true
+language = "go"

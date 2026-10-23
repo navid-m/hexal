@@ -2,3 +2,5 @@ name = "XML"
 version = "1.0"
 entry = "init.lua"
 description = "Language server association for XML"
+lazy = true
+language = "xml"

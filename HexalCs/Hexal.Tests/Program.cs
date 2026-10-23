@@ -52,6 +52,7 @@ internal static class Program
         TestPluginReload();
         TestPluginInstaller();
         TestPluginProcessAndPanel();
+        TestLazyPluginLoading();
         TestGitLogPlugin();
         TestLazyCSharpPlugin();
         TestLuaLspRuntime();
@@ -2059,6 +2060,53 @@ internal static class Program
         CheckEqual(host.PanelLines.Count, 1, "plugin panel line update", "1");
         CheckEqual(host.PanelLines[0].Segments[0].Text, "three",
             "plugin panel segment text", "three");
+    }
+
+    private static void TestLazyPluginLoading()
+    {
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "lazy");
+        Directory.CreateDirectory(plugin);
+
+        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+            name = "Lazy"
+            version = "1.0"
+            lazy = true
+            language = "test"
+            """, new UTF8Encoding(false));
+        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), """
+            hexal.ui.message("LAZY_STARTED")
+            hexal.events.on("buffer_opened", function(event)
+                hexal.ui.message("LAZY_OPENED:" .. tostring(event.language))
+            end)
+            """, new UTF8Encoding(false));
+
+        var host = new FakeHost();
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+
+        CheckEqual(manager.PluginCount, 0, "lazy plugin not started", "0");
+        CheckEqual(manager.DeferredPluginCount, 1,
+            "lazy plugin deferred count", "1");
+
+        manager.FireEvent("buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "other" });
+        CheckEqual(manager.PluginCount, 0, "lazy plugin ignores other language",
+            "0");
+        CheckEqual(manager.DeferredPluginCount, 1,
+            "lazy plugin remains deferred", "1");
+
+        manager.FireEvent("buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "test" });
+        CheckEqual(manager.PluginCount, 1, "lazy plugin started on language",
+            "1");
+        CheckEqual(manager.DeferredPluginCount, 0,
+            "lazy plugin no longer deferred", "0");
+        Check(host.Messages.Contains("LAZY_STARTED"),
+            "lazy plugin init script ran");
+        Check(host.Messages.Contains("LAZY_OPENED:test"),
+            "lazy plugin received the opening event");
     }
 
     private static void TestGitLogPlugin()

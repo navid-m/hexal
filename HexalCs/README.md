@@ -568,6 +568,10 @@ Plugins live under `<binary>/data/plugins/<plugin-id>/`, or
 
 `plugin.toml` is a small key/value manifest. `entry` defaults to `init.lua`;
 `enabled = "false"` disables a plugin; `id` defaults to the directory name.
+`lazy = "true"` together with `language = "<id>"` defers creating the plugin's
+Lua state until a buffer of that language is first opened. Language-server
+association plugins use this to keep first-frame startup fast; enabling the
+plugin from the plugin manager loads it immediately.
 
 ```toml
 name = "Example"
