@@ -4166,6 +4166,8 @@ public sealed partial class Editor
             name = name[..^1];
         }
 
+        name = name.ToLowerInvariant();
+
         List<string> arguments = command.Arguments;
 
         switch (name)
