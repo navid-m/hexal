@@ -1554,71 +1554,87 @@ public sealed partial class Editor
         }
 
         Volatile.Write(ref operation.Total, jobs.Count);
-        foreach ((string path, FormatterConfig formatter) in jobs)
+        var errorLock = new object();
+        var options = new ParallelOptions
         {
-            if (token.IsCancellationRequested)
-            {
-                break;
-            }
+            MaxDegreeOfParallelism = BatchFormatParallelism,
+            CancellationToken = token,
+        };
 
-            if (openPath.Length > 0 && SamePath(path, openPath))
+        Parallel.ForEach(
+            jobs,
+            options,
+            job =>
             {
-                ++result.SkippedOpen;
-                Interlocked.Increment(ref operation.Completed);
-                continue;
-            }
-
-            try
-            {
-                byte[] input = File.ReadAllBytes(path);
-                FormatResult formatted = FormatterRunner.Run(formatter, input, path, token);
-                if (token.IsCancellationRequested)
+                string path = job.Path;
+                if (openPath.Length > 0 && SamePath(path, openPath))
                 {
-                    break;
+                    Interlocked.Increment(ref result.SkippedOpen);
+                    Interlocked.Increment(ref operation.Completed);
+                    return;
                 }
 
-                if (!formatted.Ok)
+                try
                 {
-                    ++result.Failed;
-                    result.FirstError ??= $"{Path.GetFileName(path)}: " + formatted.Error;
-                }
-                else
-                {
-                    byte[] output = formatted.Output;
-                    if (HasUtf8Bom(input) && !HasUtf8Bom(output))
+                    byte[] input = File.ReadAllBytes(path);
+                    FormatResult formatted = FormatterRunner.Run(job.Formatter, input, path, token);
+                    if (token.IsCancellationRequested)
                     {
-                        output = PrependUtf8Bom(output);
+                        return;
                     }
 
-                    ++result.Formatted;
-                    if (!input.AsSpan().SequenceEqual(output))
+                    if (!formatted.Ok)
                     {
-                        File.WriteAllBytes(path, output);
-                        ++result.Changed;
+                        Interlocked.Increment(ref result.Failed);
+                        lock (errorLock)
+                        {
+                            if (result.FirstError.Length == 0)
+                            {
+                                result.FirstError = $"{Path.GetFileName(path)}: " + formatted.Error;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        byte[] output = formatted.Output;
+                        if (HasUtf8Bom(input) && !HasUtf8Bom(output))
+                        {
+                            output = PrependUtf8Bom(output);
+                        }
+
+                        Interlocked.Increment(ref result.Formatted);
+                        if (!input.AsSpan().SequenceEqual(output))
+                        {
+                            File.WriteAllBytes(path, output);
+                            Interlocked.Increment(ref result.Changed);
+                        }
                     }
                 }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                catch (Exception ex)
+                    when (ex
+                            is IOException
+                                or UnauthorizedAccessException
+                                or NotSupportedException
+                                or ArgumentException
+                                or PathTooLongException
+                    )
+                {
+                    Interlocked.Increment(ref result.Failed);
+                    lock (errorLock)
+                    {
+                        if (result.FirstError.Length == 0)
+                        {
+                            result.FirstError = $"{Path.GetFileName(path)}: {ex.Message}";
+                        }
+                    }
+                }
+                finally
+                {
+                    Interlocked.Increment(ref operation.Completed);
+                }
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-                when (ex
-                        is IOException
-                            or UnauthorizedAccessException
-                            or NotSupportedException
-                            or ArgumentException
-                            or PathTooLongException
-                )
-            {
-                ++result.Failed;
-                result.FirstError ??= $"{Path.GetFileName(path)}: {ex.Message}";
-            }
-            finally
-            {
-                Interlocked.Increment(ref operation.Completed);
-            }
-        }
+        );
 
         return result;
     }

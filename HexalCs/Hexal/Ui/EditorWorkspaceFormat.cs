@@ -29,6 +29,15 @@ public sealed partial class Editor
         public string FirstError = string.Empty;
     }
 
+    // Formatters are separate processes, so running a few at a time hides
+    // their startup cost and uses otherwise idle cores without flooding the
+    // machine with one process per file.
+    private static readonly int BatchFormatParallelism = Math.Clamp(
+        Environment.ProcessorCount,
+        2,
+        8
+    );
+
     private WorkspaceFormatOperation? _workspaceFormatOperation;
     private int _workspaceFormatLastTotal = -1;
     private int _workspaceFormatLastCompleted = -1;
@@ -150,72 +159,81 @@ public sealed partial class Editor
         }
 
         Volatile.Write(ref operation.Total, jobs.Count);
-        foreach ((string path, FormatterConfig formatter) in jobs)
+        var errorLock = new object();
+        var options = new ParallelOptions
         {
-            if (token.IsCancellationRequested)
-            {
-                break;
-            }
+            MaxDegreeOfParallelism = BatchFormatParallelism,
+            CancellationToken = token,
+        };
 
-            Volatile.Write(ref operation.CurrentFile, Path.GetFileName(path));
-            if (openPath.Length > 0 && SamePath(path, openPath))
+        Parallel.ForEach(
+            jobs,
+            options,
+            job =>
             {
-                ++result.SkippedOpen;
-                Interlocked.Increment(ref operation.Completed);
-                continue;
-            }
-
-            try
-            {
-                byte[] input = File.ReadAllBytes(path);
-                FormatResult formatted = FormatterRunner.Run(formatter, input, path, token);
-                if (token.IsCancellationRequested)
+                string path = job.Path;
+                Volatile.Write(ref operation.CurrentFile, Path.GetFileName(path));
+                if (openPath.Length > 0 && SamePath(path, openPath))
                 {
-                    break;
+                    Interlocked.Increment(ref result.SkippedOpen);
+                    Interlocked.Increment(ref operation.Completed);
+                    return;
                 }
 
-                if (!formatted.Ok)
+                try
                 {
-                    ++result.Failed;
-                    result.FirstError ??= $"{Path.GetFileName(path)}: " + formatted.Error;
-                }
-                else
-                {
-                    byte[] output = formatted.Output;
-                    if (HasUtf8Bom(input) && !HasUtf8Bom(output))
+                    byte[] input = File.ReadAllBytes(path);
+                    FormatResult formatted = FormatterRunner.Run(job.Formatter, input, path, token);
+                    if (token.IsCancellationRequested)
                     {
-                        output = PrependUtf8Bom(output);
+                        return;
                     }
 
-                    ++result.Formatted;
-                    if (!input.AsSpan().SequenceEqual(output))
+                    if (!formatted.Ok)
                     {
-                        File.WriteAllBytes(path, output);
-                        ++result.Changed;
+                        Interlocked.Increment(ref result.Failed);
+                        RecordFormatError(
+                            errorLock,
+                            result,
+                            Path.GetFileName(path),
+                            formatted.Error
+                        );
+                    }
+                    else
+                    {
+                        byte[] output = formatted.Output;
+                        if (HasUtf8Bom(input) && !HasUtf8Bom(output))
+                        {
+                            output = PrependUtf8Bom(output);
+                        }
+
+                        Interlocked.Increment(ref result.Formatted);
+                        if (!input.AsSpan().SequenceEqual(output))
+                        {
+                            File.WriteAllBytes(path, output);
+                            Interlocked.Increment(ref result.Changed);
+                        }
                     }
                 }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                catch (Exception ex)
+                    when (ex
+                            is IOException
+                                or UnauthorizedAccessException
+                                or NotSupportedException
+                                or ArgumentException
+                                or PathTooLongException
+                    )
+                {
+                    Interlocked.Increment(ref result.Failed);
+                    RecordFormatError(errorLock, result, Path.GetFileName(path), ex.Message);
+                }
+                finally
+                {
+                    Interlocked.Increment(ref operation.Completed);
+                }
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-                when (ex
-                        is IOException
-                            or UnauthorizedAccessException
-                            or NotSupportedException
-                            or ArgumentException
-                            or PathTooLongException
-                )
-            {
-                ++result.Failed;
-                result.FirstError ??= $"{Path.GetFileName(path)}: {ex.Message}";
-            }
-            finally
-            {
-                Interlocked.Increment(ref operation.Completed);
-            }
-        }
+        );
 
         return result;
     }
@@ -325,6 +343,22 @@ public sealed partial class Editor
         }
         SetMessage(summary);
         return true;
+    }
+
+    private static void RecordFormatError(
+        object gate,
+        WorkspaceFormatResult result,
+        string fileName,
+        string error
+    )
+    {
+        lock (gate)
+        {
+            if (result.FirstError.Length == 0)
+            {
+                result.FirstError = $"{fileName}: {error}";
+            }
+        }
     }
 
     private static bool TryNormalizeExtension(string argument, out string extension)
