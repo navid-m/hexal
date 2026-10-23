@@ -242,7 +242,7 @@ internal static class Program
         Console.Out.Write(
             $"""
             Hexal v{Version}
-            Modal text editing redefined
+            Modal Editing Redefined
 
             Usage:
               hexal [options] [file]
