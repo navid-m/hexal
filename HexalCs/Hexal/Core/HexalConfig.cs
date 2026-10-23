@@ -21,6 +21,7 @@ public sealed class HexalConfig
             "smartBackspace": true,
             "autoDetectIndentationOnStartup": true,
             "startupBenchmarker": false,
+            "syntaxHighlightPickerPreview": false,
             "showDiffLines": true,
             "showGitIgnored": false,
             "confirmQuitWithoutSaving": true,
@@ -63,6 +64,12 @@ public sealed class HexalConfig
     /// benchmark modal through the command palette.
     /// </summary>
     public bool StartupBenchmarker { get; init; }
+
+    /// <summary>
+    /// When true, the file picker preview applies the detected language's
+    /// syntax highlighting. Disabled by default.
+    /// </summary>
+    public bool SyntaxHighlightPickerPreview { get; init; }
 
     public bool ShowDiffLines { get; init; } = true;
 
@@ -169,6 +176,9 @@ public sealed class HexalConfig
                 ReadBool(root, "auto_detect_indentation_on_startup");
             bool? startupBenchmarker = ReadBool(root, "startupBenchmarker") ??
                                        ReadBool(root, "startup_benchmarker");
+            bool? syntaxHighlightPickerPreview =
+                ReadBool(root, "syntaxHighlightPickerPreview") ??
+                ReadBool(root, "syntax_highlight_picker_preview");
             bool? showDiffLines = ReadBool(root, "showDiffLines") ??
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
@@ -199,6 +209,9 @@ public sealed class HexalConfig
                 startupBenchmarker ??=
                     ReadBool(editor, "startupBenchmarker") ??
                     ReadBool(editor, "startup_benchmarker");
+                syntaxHighlightPickerPreview ??=
+                    ReadBool(editor, "syntaxHighlightPickerPreview") ??
+                    ReadBool(editor, "syntax_highlight_picker_preview");
                 showDiffLines ??= ReadBool(editor, "showDiffLines") ??
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
@@ -224,6 +237,8 @@ public sealed class HexalConfig
                 AutoDetectIndentationOnStartup =
                     autoDetectIndentationOnStartup ?? true,
                 StartupBenchmarker = startupBenchmarker ?? false,
+                SyntaxHighlightPickerPreview =
+                    syntaxHighlightPickerPreview ?? false,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,

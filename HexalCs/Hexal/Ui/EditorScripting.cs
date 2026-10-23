@@ -390,6 +390,13 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                     _symbolRequestPending = false;
                     OpenDocumentSymbolPicker(lspEvent.DocumentSymbols);
                     break;
+                case LspEventKind.Completions:
+                    if (!_lspCompletionPending)
+                    {
+                        break;
+                    }
+                    OpenLspCompletion(lspEvent.Completions);
+                    break;
                 case LspEventKind.WorkspaceDiagnostics:
                     if (_pickerKind == PickerKind.Problems && _problemsWorkspace)
                     {
@@ -426,6 +433,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _definitionRequestPending = false;
         _codeActionRequestPending = false;
         _symbolRequestPending = false;
+        CloseLspCompletion();
     }
 
     private void NotifyLspSaved()

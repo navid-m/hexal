@@ -267,6 +267,11 @@ public sealed partial class Editor
     private bool _completionVisible;
     private CompletionKind _completionKind;
     private readonly List<string> _completionItems = new();
+    private bool _lspCompletionVisible;
+    private bool _lspCompletionPending;
+    private readonly List<LspCompletionItem> _lspCompletionItems = new();
+    private int _lspCompletionSelected;
+    private int _lspCompletionTop;
     private int _completionSelected;
     private int _completionTop;
     private string _completionPrefix = string.Empty;
@@ -1282,6 +1287,13 @@ public sealed partial class Editor
 
     private void HandleInsert(InputEvent inputEvent)
     {
+        if (_lspCompletionVisible && HandleLspCompletionInput(inputEvent))
+        {
+            return;
+        }
+
+        _lspCompletionPending = false;
+
         if (inputEvent.Key == Key.Escape)
         {
             _mode = Mode.Normal;
@@ -1295,6 +1307,10 @@ public sealed partial class Editor
             if (inputEvent.Character.Value == 'r')
             {
                 Redo();
+            }
+            else if (inputEvent.Character.Value == ' ')
+            {
+                RequestLspCompletionManually();
             }
             return;
         }
@@ -5446,6 +5462,7 @@ public sealed partial class Editor
             return;
         }
 
+        _lspCompletionPending = false;
         Span<byte> text = stackalloc byte[4];
         int length = UnicodeUtil.Encode(codePoint, text);
         _document.Insert(_cursor, text[..length]);
@@ -5459,6 +5476,14 @@ public sealed partial class Editor
         SnapCursor();
         _preferredColumnValid = false;
         ClearMessage();
+
+        if (_extraSelections.Count == 0 && codePoint < 0x80 &&
+            !char.IsWhiteSpace((char)codePoint) &&
+            _lsp.IsRunning && _lsp.IsInitialized &&
+            _lsp.IsCompletionTriggerCharacter((char)codePoint))
+        {
+            TryRequestLspCompletion(((char)codePoint).ToString());
+        }
     }
 
     /// <summary>
@@ -7688,10 +7713,70 @@ public sealed partial class Editor
             return;
         }
 
+        LanguageDefinition? language = _config.SyntaxHighlightPickerPreview
+            ? _languages.Detect(_pickerPreviewPath)
+            : null;
+        bool inBlock = false;
         for (int row = 0; row < contentRows && row < _pickerPreviewLines.Count; ++row)
         {
-            _screen.PutString(x + 2, y + 1 + row,
-                ExpandPreviewLine(_pickerPreviewLines[row]), style, contentWidth);
+            string line = ExpandPreviewLine(_pickerPreviewLines[row]);
+            if (language is null)
+            {
+                _screen.PutString(x + 2, y + 1 + row, line, style, contentWidth);
+                continue;
+            }
+
+            RenderPreviewHighlightedLine(x + 2, y + 1 + row, line, language,
+                ref inBlock, contentWidth);
+        }
+    }
+
+    private void RenderPreviewHighlightedLine(int x, int y, string line,
+        LanguageDefinition language, ref bool inBlock, int width)
+    {
+        if (width <= 0)
+        {
+            return;
+        }
+
+        byte[] bytes = Encoding.UTF8.GetBytes(line);
+        _lineTokens.Clear();
+        SyntaxHighlighter.GetLineTokens(language, bytes, inBlock, _lineTokens,
+            out inBlock);
+
+        var textStyle = _theme.TextStyle;
+        int column = 0;
+        int offset = 0;
+
+        void Emit(int start, int length, Style style)
+        {
+            if (length <= 0 || column >= width)
+            {
+                return;
+            }
+
+            string text = Encoding.UTF8.GetString(bytes, start, length);
+            _screen.PutString(x + column, y, text, style, width - column);
+            column += (int)UnicodeUtil.ColumnWidth(text);
+        }
+
+        foreach (SyntaxToken token in _lineTokens)
+        {
+            if (token.Start > offset)
+            {
+                Emit(offset, token.Start - offset, textStyle);
+            }
+
+            if (token.Start >= offset)
+            {
+                Emit(token.Start, token.Length, TokenStyle(token.Kind));
+                offset = token.Start + token.Length;
+            }
+        }
+
+        if (offset < bytes.Length)
+        {
+            Emit(offset, bytes.Length - offset, textStyle);
         }
     }
 
@@ -7834,6 +7919,7 @@ public sealed partial class Editor
         }
 
         RenderPanes();
+        RenderLspCompletion();
 
         RenderSidebar();
         RenderSidebarContextMenu();

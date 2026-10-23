@@ -52,6 +52,27 @@ public sealed record LspDocumentDiagnostics(
     IReadOnlyList<LspDiagnostic> Diagnostics);
 
 /// <summary>
+/// A completion returned by <c>textDocument/completion</c>. Text edit
+/// positions use the LSP coordinate system.
+/// </summary>
+public sealed class LspCompletionItem
+{
+    public string Label { get; init; } = string.Empty;
+    public string InsertText { get; init; } = string.Empty;
+    public int InsertTextFormat { get; init; } = 1;
+    public int Kind { get; init; }
+    public string Detail { get; init; } = string.Empty;
+    public string Documentation { get; init; } = string.Empty;
+    public string FilterText { get; init; } = string.Empty;
+    public string SortText { get; init; } = string.Empty;
+    public bool HasTextEdit { get; init; }
+    public int StartLine { get; init; }
+    public int StartCharacter { get; init; }
+    public int EndLine { get; init; }
+    public int EndCharacter { get; init; }
+}
+
+/// <summary>
 /// A target returned by a definition-like request. Positions use the LSP
 /// coordinate system: zero-based lines and UTF-16 code units.
 /// </summary>
@@ -85,7 +106,8 @@ public enum LspEventKind
     CodeActions,
     CodeActionResolved,
     WorkspaceDiagnostics,
-    DocumentSymbols
+    DocumentSymbols,
+    Completions
 }
 
 public sealed class LspEvent
@@ -106,6 +128,8 @@ public sealed class LspEvent
         Array.Empty<LspDocumentDiagnostics>();
     public IReadOnlyList<LspDocumentSymbol> DocumentSymbols { get; init; } =
         Array.Empty<LspDocumentSymbol>();
+    public IReadOnlyList<LspCompletionItem> Completions { get; init; } =
+        Array.Empty<LspCompletionItem>();
 }
 
 public static class ExecutableFinder

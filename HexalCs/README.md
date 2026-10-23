@@ -151,6 +151,7 @@ only that row.
 | `v` / `V` | Enter SELECT mode at the cursor |
 | `d` / `D`, `Delete` | Delete the character/selection under the cursor |
 | `u` / `Ctrl+R` | Undo / redo |
+| `Ctrl+Space` | Request LSP completions in INSERT mode |
 | `:` | Open the Ex command line |
 | `Ctrl+P` | Open the command palette |
 | `/` | Search inside the current file (literal) |
@@ -421,6 +422,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "smartBackspace": true,
     "autoDetectIndentationOnStartup": true,
     "startupBenchmarker": false,
+    "syntaxHighlightPickerPreview": false,
     "showDiffLines": true,
     "showGitIgnored": false,
     "confirmQuitWithoutSaving": true,
@@ -443,6 +445,8 @@ buffer is opened; blank new buffers are left using the language defaults.
 startup, plugin load/unload and editor initialization timings, then exposes a
 **Show startup benchmark** entry in the command palette. When disabled the
 benchmarker is never created and no measurements are taken.
+`syntaxHighlightPickerPreview` is disabled by default and controls whether the
+file picker preview applies the detected language's syntax highlighting.
 
 `confirmQuitWithoutSaving` controls whether `:q` asks for confirmation when
 there are unsaved changes. When set to `false`, the quit is refused and `:q!`
@@ -597,7 +601,11 @@ standalone executable. Set `bundlePath` to the extracted PSES directory in
 
 The LSP client runs asynchronously over stdio with JSON-RPC framing. It performs
 `initialize`, opens the document, sends debounced full-document changes and
-save notifications, and displays diagnostic counts in the status bar.
+save notifications, and displays diagnostic counts in the status bar. It also
+supports language-server completions: typing a server-advertised trigger
+character such as `.` opens a completion popup, and `Ctrl+Space` requests
+completions manually. The client advertises snippet support, so snippet
+insertions are expanded with their default text and first tab stop.
 `hexal.lsp.on_diagnostics` callbacks receive the server, URI and diagnostic
 objects. Servers are stopped and restarted when the buffer or language changes.
 If the executable is missing, the next candidate is attempted; absence of a

@@ -44,6 +44,8 @@ public sealed class LspManager : IDisposable
     private long _initializeId;
     private bool _initialized;
     private bool _workspaceDiagnosticsSupported;
+    private readonly HashSet<string> _completionTriggerCharacters =
+        new(StringComparer.Ordinal);
     private bool _disposed;
 
     private sealed record LspLogEntry(
@@ -340,6 +342,7 @@ public sealed class LspManager : IDisposable
                 _version = 1;
                 _initialized = false;
                 _workspaceDiagnosticsSupported = false;
+                _completionTriggerCharacters.Clear();
                 _pendingRequests.Clear();
                 _diagnostics.Clear();
                 _initializeId = Interlocked.Increment(ref _nextRequestId);
@@ -395,6 +398,7 @@ public sealed class LspManager : IDisposable
             _version = 1;
             _initialized = false;
             _workspaceDiagnosticsSupported = false;
+            _completionTriggerCharacters.Clear();
             _pendingRequests.Clear();
             _diagnostics.Clear();
             _initializeId = Interlocked.Increment(ref _nextRequestId);
@@ -609,6 +613,55 @@ public sealed class LspManager : IDisposable
             };
 
             SendRequestLocked("textDocument/documentSymbol", parameters);
+            return true;
+        }
+    }
+
+    public bool IsCompletionTriggerCharacter(char character)
+    {
+        lock (_stateLock)
+        {
+            return _completionTriggerCharacters.Contains(character.ToString());
+        }
+    }
+
+    /// <summary>
+    /// Requests completions at a zero-based line and UTF-16 column.
+    /// </summary>
+    public bool RequestCompletion(string documentPath, int line, int character,
+        string? triggerCharacter)
+    {
+        lock (_stateLock)
+        {
+            if (!CanRequestForPathLocked(documentPath))
+            {
+                return false;
+            }
+
+            var context = new JsonObject
+            {
+                ["triggerKind"] = string.IsNullOrEmpty(triggerCharacter) ? 1 : 2
+            };
+            if (!string.IsNullOrEmpty(triggerCharacter))
+            {
+                context["triggerCharacter"] = triggerCharacter;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["textDocument"] = new JsonObject
+                {
+                    ["uri"] = _documentUri
+                },
+                ["position"] = new JsonObject
+                {
+                    ["line"] = line,
+                    ["character"] = character
+                },
+                ["context"] = context
+            };
+
+            SendRequestLocked("textDocument/completion", parameters);
             return true;
         }
     }
@@ -929,6 +982,17 @@ public sealed class LspManager : IDisposable
                     ["definition"] = new JsonObject
                     {
                         ["linkSupport"] = true
+                    },
+                    ["completion"] = new JsonObject
+                    {
+                        ["completionItem"] = new JsonObject
+                        {
+                            ["snippetSupport"] = true,
+                            ["documentationFormat"] = new JsonArray(
+                                "markdown", "plaintext"),
+                            ["insertReplaceSupport"] = true
+                        },
+                        ["contextSupport"] = true
                     }
                 }
             }
@@ -1254,13 +1318,34 @@ public sealed class LspManager : IDisposable
             }
 
             if (root.TryGetProperty("result", out JsonElement result) &&
-                result.TryGetProperty("capabilities", out JsonElement capabilities) &&
-                capabilities.TryGetProperty("diagnosticProvider", out JsonElement provider) &&
-                provider.ValueKind == JsonValueKind.Object &&
-                provider.TryGetProperty("workspaceDiagnostics", out JsonElement workspace) &&
-                workspace.ValueKind == JsonValueKind.True)
+                result.TryGetProperty("capabilities", out JsonElement capabilities))
             {
-                _workspaceDiagnosticsSupported = true;
+                if (capabilities.TryGetProperty("diagnosticProvider",
+                        out JsonElement provider) &&
+                    provider.ValueKind == JsonValueKind.Object &&
+                    provider.TryGetProperty("workspaceDiagnostics",
+                        out JsonElement workspace) &&
+                    workspace.ValueKind == JsonValueKind.True)
+                {
+                    _workspaceDiagnosticsSupported = true;
+                }
+
+                if (capabilities.TryGetProperty("completionProvider",
+                        out JsonElement completionProvider) &&
+                    completionProvider.ValueKind == JsonValueKind.Object &&
+                    completionProvider.TryGetProperty("triggerCharacters",
+                        out JsonElement triggerCharacters) &&
+                    triggerCharacters.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement trigger in triggerCharacters.EnumerateArray())
+                    {
+                        if (trigger.ValueKind == JsonValueKind.String &&
+                            trigger.GetString() is { Length: > 0 } value)
+                        {
+                            _completionTriggerCharacters.Add(value);
+                        }
+                    }
+                }
             }
 
             LogInfo("initialize response received");
@@ -1337,6 +1422,19 @@ public sealed class LspManager : IDisposable
                     ServerName = serverName,
                     Method = method,
                     DocumentSymbols = symbols
+                });
+                return;
+            }
+
+            case "textDocument/completion":
+            {
+                List<LspCompletionItem> items = ParseCompletionItems(result);
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.Completions,
+                    ServerName = serverName,
+                    Method = method,
+                    Completions = items
                 });
                 return;
             }
@@ -1531,6 +1629,154 @@ public sealed class LspManager : IDisposable
                 }
                 break;
         }
+    }
+
+    private static List<LspCompletionItem> ParseCompletionItems(
+        JsonElement result)
+    {
+        var items = new List<LspCompletionItem>();
+        JsonElement array;
+        if (result.ValueKind == JsonValueKind.Array)
+        {
+            array = result;
+        }
+        else if (result.ValueKind == JsonValueKind.Object &&
+                 result.TryGetProperty("items", out JsonElement list) &&
+                 list.ValueKind == JsonValueKind.Array)
+        {
+            array = list;
+        }
+        else
+        {
+            return items;
+        }
+
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            string label = ReadString(item, "label");
+            if (label.Length == 0)
+            {
+                continue;
+            }
+
+            string insertText = ReadString(item, "insertText");
+            int insertFormat = ReadInt(item, "insertTextFormat", 1);
+            bool hasEdit = false;
+            int startLine = 0;
+            int startCharacter = 0;
+            int endLine = 0;
+            int endCharacter = 0;
+
+            if (item.TryGetProperty("textEdit", out JsonElement textEdit) &&
+                textEdit.ValueKind == JsonValueKind.Object)
+            {
+                if (textEdit.TryGetProperty("newText",
+                        out JsonElement newText) &&
+                    newText.ValueKind == JsonValueKind.String)
+                {
+                    insertText = newText.GetString() ?? string.Empty;
+                }
+
+                JsonElement range;
+                if (textEdit.TryGetProperty("range", out range) ||
+                    textEdit.TryGetProperty("insert", out range) ||
+                    textEdit.TryGetProperty("replace", out range))
+                {
+                    (startLine, startCharacter, endLine, endCharacter) =
+                        ReadRange(range);
+                    hasEdit = true;
+                }
+            }
+
+            if (insertText.Length == 0)
+            {
+                insertText = label;
+            }
+
+            string documentation = string.Empty;
+            if (item.TryGetProperty("documentation", out JsonElement docs))
+            {
+                if (docs.ValueKind == JsonValueKind.String)
+                {
+                    documentation = docs.GetString() ?? string.Empty;
+                }
+                else if (docs.ValueKind == JsonValueKind.Object &&
+                         docs.TryGetProperty("value", out JsonElement value) &&
+                         value.ValueKind == JsonValueKind.String)
+                {
+                    documentation = value.GetString() ?? string.Empty;
+                }
+            }
+
+            items.Add(new LspCompletionItem
+            {
+                Label = label,
+                InsertText = insertText,
+                InsertTextFormat = insertFormat,
+                Kind = ReadInt(item, "kind", 0),
+                Detail = ReadString(item, "detail"),
+                Documentation = documentation,
+                FilterText = ReadString(item, "filterText"),
+                SortText = ReadString(item, "sortText"),
+                HasTextEdit = hasEdit,
+                StartLine = startLine,
+                StartCharacter = startCharacter,
+                EndLine = endLine,
+                EndCharacter = endCharacter
+            });
+        }
+
+        return items;
+    }
+
+    private static string ReadString(JsonElement element, string property)
+    {
+        return element.TryGetProperty(property, out JsonElement value) &&
+               value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    private static int ReadInt(JsonElement element, string property, int fallback)
+    {
+        return element.TryGetProperty(property, out JsonElement value) &&
+               value.ValueKind == JsonValueKind.Number
+            ? value.GetInt32()
+            : fallback;
+    }
+
+    private static (int StartLine, int StartCharacter, int EndLine,
+        int EndCharacter) ReadRange(JsonElement range)
+    {
+        if (range.ValueKind != JsonValueKind.Object)
+        {
+            return (0, 0, 0, 0);
+        }
+
+        int startLine = 0;
+        int startCharacter = 0;
+        int endLine = 0;
+        int endCharacter = 0;
+
+        if (range.TryGetProperty("start", out JsonElement start) &&
+            start.ValueKind == JsonValueKind.Object)
+        {
+            startLine = ReadInt(start, "line", 0);
+            startCharacter = ReadInt(start, "character", 0);
+        }
+        if (range.TryGetProperty("end", out JsonElement end) &&
+            end.ValueKind == JsonValueKind.Object)
+        {
+            endLine = ReadInt(end, "line", startLine);
+            endCharacter = ReadInt(end, "character", startCharacter);
+        }
+
+        return (startLine, startCharacter, endLine, endCharacter);
     }
 
     private static List<LspDocumentSymbol> ParseDocumentSymbols(
@@ -2135,6 +2381,7 @@ public sealed class LspManager : IDisposable
         _config = null;
         _initialized = false;
         _workspaceDiagnosticsSupported = false;
+        _completionTriggerCharacters.Clear();
         _currentText = string.Empty;
         _documentUri = string.Empty;
         _pendingRequests.Clear();

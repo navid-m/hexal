@@ -260,6 +260,7 @@ internal static class Program
 
             Modes and keys:
               i / I            Enter INSERT mode
+              Ctrl+Space       Request LSP completions in INSERT mode
               Esc              Return to NORMAL mode
               h j k l          Move left / down / up / right
               arrows           Move (Home/End/PageUp/PageDown supported)

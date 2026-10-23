@@ -41,6 +41,7 @@ internal static class Program
         TestLspDebugReport();
         TestLspStartsForNewFile();
         TestLspDocumentSymbols();
+        TestLspCompletions();
         TestLanguageGrammars();
         TestThemes();
         TestPluginConfigStore();
@@ -988,6 +989,7 @@ internal static class Program
               config.SmartBackspace &&
               config.AutoDetectIndentationOnStartup &&
               !config.StartupBenchmarker &&
+              !config.SyntaxHighlightPickerPreview &&
               config.CentralRepositoryUrl == HexalConfig.DefaultCentralRepositoryUrl,
             "whitespace settings have defaults");
 
@@ -1268,8 +1270,8 @@ internal static class Program
             requestId = document.RootElement.GetProperty("id").GetInt32();
         }
 
-        transport.Incoming.Enqueue($$$$$"""
-            {"jsonrpc":"2.0","id":{{{{{requestId}}}}},"result":[
+        transport.Incoming.Enqueue($$$$$$"""
+            {"jsonrpc":"2.0","id":{{{{{{requestId}}}}}},"result":[
               {"name":"Widget","detail":"table","kind":5,
                "range":{"start":{"line":0,"character":0},"end":{"line":1,"character":1}},
                "selectionRange":{"start":{"line":0,"character":6},"end":{"line":0,"character":12}},
@@ -1319,8 +1321,8 @@ internal static class Program
             requestId = document.RootElement.GetProperty("id").GetInt32();
         }
 
-        transport.Incoming.Enqueue($$$$$"""
-            {"jsonrpc":"2.0","id":{{{{{requestId}}}}},"result":[
+        transport.Incoming.Enqueue($$$$$$"""
+            {"jsonrpc":"2.0","id":{{{{{{requestId}}}}}},"result":[
               {"name":"main","kind":12,
                "location":{"uri":"file:///tmp/symbols.lua",
                  "range":{"start":{"line":3,"character":4},"end":{"line":3,"character":8}}}}
@@ -1349,6 +1351,85 @@ internal static class Program
                 "flat symbol uri", "file:///tmp/symbols.lua");
         }
         Check(seen, "flat document symbol event received");
+    }
+
+    private static void TestLspCompletions()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("completion.cs");
+        Check(WriteBytes(path, "class C { void M() { obj. } }\n"u8),
+            "write completion document");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        Check(manager.TryStart(new LspServerConfig
+        {
+            Name = "Completion",
+            Transport = transport,
+            LanguageId = "csharp"
+        }, path, "class C { void M() { obj. } }\n", directory.Path("."),
+            out string error), $"completion LSP started ({error})");
+
+        transport.Incoming.Enqueue("""
+            {"jsonrpc":"2.0","id":1,"result":{"capabilities":{
+              "completionProvider":{"triggerCharacters":[".","<"]}}}}
+            """);
+        manager.Pump();
+        Check(manager.IsInitialized, "completion LSP initialized");
+        Check(manager.IsCompletionTriggerCharacter('.'),
+            "completion dot trigger registered");
+        Check(!manager.IsCompletionTriggerCharacter('x'),
+            "completion non-trigger rejected");
+
+        Check(manager.RequestCompletion(path, 0, 24, "."),
+            "request completions");
+        string request = transport.Sent.Last(message =>
+            message.Contains("textDocument/completion", StringComparison.Ordinal));
+        int requestId;
+        using (System.Text.Json.JsonDocument document =
+               System.Text.Json.JsonDocument.Parse(request))
+        {
+            requestId = document.RootElement.GetProperty("id").GetInt32();
+        }
+
+        transport.Incoming.Enqueue($$$$$"""
+            {"jsonrpc":"2.0","id":{{{{{requestId}}}}},"result":{"isIncomplete":false,"items":[
+              {"label":"Name","kind":10,"detail":"string","insertText":"Name",
+               "insertTextFormat":2,
+               "textEdit":{"newText":"${1:name}",
+                 "range":{"start":{"line":0,"character":23},
+                          "end":{"line":0,"character":24}}}},
+              {"label":"WriteLine","kind":2,"detail":"void",
+               "insertText":"WriteLine(${1:value})","insertTextFormat":2}
+            ]}}
+            """);
+        manager.Pump();
+
+        bool seen = false;
+        while (manager.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (lspEvent.Kind != LspEventKind.Completions)
+            {
+                continue;
+            }
+
+            seen = true;
+            CheckEqual(lspEvent.Completions.Count, 2,
+                "completion item count", "2");
+            CheckEqual(lspEvent.Completions[0].Label, "Name",
+                "completion label", "Name");
+            CheckEqual(lspEvent.Completions[0].InsertText, "${1:name}",
+                "completion snippet text", "${1:name}");
+            CheckEqual(lspEvent.Completions[0].InsertTextFormat, 2,
+                "completion snippet format", "2");
+            Check(lspEvent.Completions[0].HasTextEdit,
+                "completion text edit parsed");
+            CheckEqual(lspEvent.Completions[0].StartCharacter, 23,
+                "completion edit start", "23");
+            CheckEqual(lspEvent.Completions[1].Detail, "void",
+                "completion detail", "void");
+        }
+        Check(seen, "completion event received");
     }
 
     private static void TestLanguageGrammars()
