@@ -6346,11 +6346,35 @@ public sealed partial class Editor
         return offset + Math.Min(position - offset, inserted);
     }
 
+    private int FindDialogHeight() => _findReplace ? 6 : 4;
+
+    private int FindDialogWidth() => Math.Min(_columns - 2, 72);
+
+    private bool FindDialogFits()
+    {
+        int available = (int)Math.Max(0, StatusRow());
+        return available >= 5 && _columns >= 20 &&
+               FindDialogWidth() >= 20 &&
+               available >= FindDialogHeight() + 1;
+    }
+
+    private int VisiblePaneRows(int paneY, int paneHeight, bool activePane)
+    {
+        int rows = Math.Max(0, paneHeight);
+        if (!activePane || !_findActive || !FindDialogFits())
+        {
+            return rows;
+        }
+
+        int dialogTop = Math.Max(0, (int)StatusRow() - FindDialogHeight());
+        return Math.Clamp(dialogTop - paneY, 0, rows);
+    }
+
     private void EnsureCursorVisible()
     {
         PaneBounds bounds = ActivePaneBounds();
         long line = CursorLine();
-        int rows = bounds.Height;
+        int rows = VisiblePaneRows(bounds.Y, bounds.Height, activePane: true);
 
         if (rows == 0)
         {
@@ -7278,13 +7302,13 @@ public sealed partial class Editor
         }
 
         int available = (int)Math.Max(0, StatusRow());
-        if (available < 5 || _columns < 20)
+        if (!FindDialogFits())
         {
             return;
         }
 
-        int height = _findReplace ? 6 : 4;
-        int width = Math.Min(_columns - 2, 72);
+        int height = FindDialogHeight();
+        int width = FindDialogWidth();
         if (width < 20 || available < height + 1)
         {
             return;

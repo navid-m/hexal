@@ -731,6 +731,8 @@ public sealed partial class Editor
         _paneScreen.Resize(view.Width, view.Height);
         _paneScreen.Clear(_theme.BaseStyle);
 
+        int visibleRows = VisiblePaneRows(view.Y, view.Height, focused);
+
         Screen previousScreen = _screen;
         int previousColumns = _columns;
         int previousRows = _rows;
@@ -744,7 +746,7 @@ public sealed partial class Editor
         try
         {
             long total = _document.LineCount;
-            long maxTop = total > view.Height ? total - view.Height : 0;
+            long maxTop = total > visibleRows ? total - visibleRows : 0;
             if (_topLine > maxTop)
             {
                 _topLine = maxTop;
