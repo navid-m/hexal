@@ -123,6 +123,10 @@ hexal [options] [file]
 With no file, Hexal starts with an unnamed empty buffer. Relative file names in
 `:e` and `:w` resolve against the current working directory.
 
+`hexal install-plugin <name>` clones `centralRepositoryUrl` from `.hexcfg` and
+installs the `<name>/` folder into the active plugins directory. Existing
+plugin folders are not overwritten.
+
 Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 `4` file error at startup.
 
@@ -411,6 +415,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
 ```json
 {
     "version": 1,
+    "centralRepositoryUrl": "https://github.com/navid-m/hexal-plugins",
     "formatOnSave": false,
     "trimTrailingWhitespaceOnSave": false,
     "smartBackspace": true,
@@ -423,6 +428,10 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
 }
 ```
 
+`centralRepositoryUrl` is the git repository used by
+`hexal install-plugin <name>` and defaults to
+`https://github.com/navid-m/hexal-plugins`. Plugin folders are read from the
+repository root and copied into the active plugins directory.
 `trimTrailingWhitespaceOnSave` removes trailing spaces and tabs from every
 line before each save; the same cleanup is available on demand with `:cw`.
 `smartBackspace` is enabled by default and makes Backspace remove the whole

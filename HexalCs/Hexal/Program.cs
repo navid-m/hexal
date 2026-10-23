@@ -1,7 +1,9 @@
 using Hexal.Core;
 using Hexal.Languages;
 using Hexal.Platform;
+using Hexal.Scripting;
 using Hexal.Ui;
+using Hexal.Util;
 
 namespace Hexal;
 
@@ -13,6 +15,13 @@ internal static class Program
 
     public static int RunHexal(string[] arguments)
     {
+        if (arguments.Length > 0 &&
+            string.Equals(arguments[0], "install-plugin",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return RunInstallPlugin(arguments);
+        }
+
         string file = string.Empty;
         string? directory = null;
         string? healthLanguage = null;
@@ -88,6 +97,36 @@ internal static class Program
         }
 
         return RunEditor(file, directory);
+    }
+
+    private static int RunInstallPlugin(string[] arguments)
+    {
+        if (arguments.Length != 2)
+        {
+            Console.Error.WriteLine("usage: hexal install-plugin <name>");
+            return 2;
+        }
+
+        HexalConfig config = HexalConfig.LoadDefault(out string configError);
+        if (configError.Length > 0)
+        {
+            Console.Error.WriteLine($"hexal: config: {configError}");
+        }
+
+        string repository = string.IsNullOrWhiteSpace(config.CentralRepositoryUrl)
+            ? HexalConfig.DefaultCentralRepositoryUrl
+            : config.CentralRepositoryUrl;
+        if (!PluginInstaller.TryInstall(arguments[1], repository,
+                HexalPaths.PluginDirectory, out string installedPath,
+                out string error))
+        {
+            Console.Error.WriteLine($"hexal: install-plugin: {error}");
+            return 1;
+        }
+
+        Console.Out.WriteLine(
+            $"Installed plugin '{arguments[1]}' to {installedPath}");
+        return 0;
     }
 
     private static int RunHealth(string? language)
@@ -192,9 +231,13 @@ internal static class Program
             Usage:
               hexal [options] [file]
               hexal [options] [directory]
+              hexal install-plugin <name>
 
             Passing a directory opens the file picker rooted at that directory
             and scopes file search to it for the rest of the session.
+
+            install-plugin downloads the named folder from the central plugin
+            repository configured by centralRepositoryUrl in .hexcfg.
 
             Options:
               -h, --help        Show this help message and exit

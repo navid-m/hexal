@@ -9,9 +9,13 @@ public sealed class HexalConfig
 {
     public const string DefaultFileName = ".hexcfg";
 
+    public const string DefaultCentralRepositoryUrl =
+        "https://github.com/navid-m/hexal-plugins";
+
     private const string DefaultContents = """
         {
             "version": 1,
+            "centralRepositoryUrl": "https://github.com/navid-m/hexal-plugins",
             "formatOnSave": false,
             "trimTrailingWhitespaceOnSave": false,
             "smartBackspace": true,
@@ -26,6 +30,13 @@ public sealed class HexalConfig
         """;
 
     public string SourcePath { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Git repository used by <c>hexal install-plugin</c>. Plugin folders live
+    /// at the repository root.
+    /// </summary>
+    public string CentralRepositoryUrl { get; init; } =
+        DefaultCentralRepositoryUrl;
 
     public bool FormatOnSave { get; init; }
 
@@ -143,6 +154,9 @@ public sealed class HexalConfig
                 return false;
             }
 
+            string? centralRepositoryUrl =
+                ReadString(root, "centralRepositoryUrl") ??
+                ReadString(root, "central_repository_url");
             bool? formatOnSave = ReadBool(root, "formatOnSave") ??
                                  ReadBool(root, "format_on_save");
             bool? trimTrailingWhitespaceOnSave =
@@ -169,6 +183,9 @@ public sealed class HexalConfig
             if (root.TryGetProperty("editor", out JsonElement editor) &&
                 editor.ValueKind == JsonValueKind.Object)
             {
+                centralRepositoryUrl ??=
+                    ReadString(editor, "centralRepositoryUrl") ??
+                    ReadString(editor, "central_repository_url");
                 formatOnSave ??= ReadBool(editor, "formatOnSave") ??
                                  ReadBool(editor, "format_on_save");
                 trimTrailingWhitespaceOnSave ??=
@@ -197,6 +214,9 @@ public sealed class HexalConfig
             config = new HexalConfig
             {
                 SourcePath = sourcePath,
+                CentralRepositoryUrl = string.IsNullOrWhiteSpace(centralRepositoryUrl)
+                    ? DefaultCentralRepositoryUrl
+                    : centralRepositoryUrl,
                 FormatOnSave = formatOnSave ?? false,
                 TrimTrailingWhitespaceOnSave =
                     trimTrailingWhitespaceOnSave ?? false,
@@ -303,6 +323,17 @@ public sealed class HexalConfig
             error = ex.Message;
             return false;
         }
+    }
+
+    private static string? ReadString(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out JsonElement value) ||
+            value.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return value.GetString();
     }
 
     private static bool? ReadBool(JsonElement element, string property)

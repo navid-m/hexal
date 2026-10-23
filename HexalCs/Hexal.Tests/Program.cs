@@ -46,6 +46,7 @@ internal static class Program
         TestPluginConfigStore();
         TestPluginMetadataAndToggle();
         TestPluginReload();
+        TestPluginInstaller();
         TestPluginProcessAndPanel();
         TestGitLogPlugin();
         TestLazyCSharpPlugin();
@@ -986,7 +987,8 @@ internal static class Program
         Check(config is not null && !config.TrimTrailingWhitespaceOnSave &&
               config.SmartBackspace &&
               config.AutoDetectIndentationOnStartup &&
-              !config.StartupBenchmarker,
+              !config.StartupBenchmarker &&
+              config.CentralRepositoryUrl == HexalConfig.DefaultCentralRepositoryUrl,
             "whitespace settings have defaults");
 
         Check(HexalConfig.TryParse(
@@ -1684,6 +1686,58 @@ internal static class Program
         Check(manager.ReloadAll(out error), $"reload all plugins ({error})");
         Check(manager.HasCommand("third"), "reload all command registered");
         Check(!manager.HasCommand("second"), "reload all old command removed");
+    }
+
+    private static void TestPluginInstaller()
+    {
+        using var directory = new TempDir();
+        string repository = directory.Path("repository");
+        string plugin = System.IO.Path.Combine(repository, "demo");
+        Directory.CreateDirectory(plugin);
+        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+            name = "Demo"
+            version = "1.0"
+            """, new UTF8Encoding(false));
+        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"),
+            "hexal.commands.register(\"demo\", function() end)\n",
+            new UTF8Encoding(false));
+
+        if (!RunCommand("git", repository, "init", "-q"))
+        {
+            Console.Error.WriteLine(
+                "git unavailable; skipping plugin installer test");
+            return;
+        }
+
+        RunCommand("git", repository, "config", "user.email",
+            "tests@example.com");
+        RunCommand("git", repository, "config", "user.name", "Hexal Tests");
+        Check(RunCommand("git", repository, "add", "demo/plugin.toml",
+                "demo/init.lua"), "git add plugin");
+        Check(RunCommand("git", repository, "commit", "-qm", "plugin"),
+            "git commit plugin");
+
+        string plugins = directory.Path("plugins");
+        Check(PluginInstaller.TryInstall("demo", repository, plugins,
+                out string installed, out string error),
+            $"install plugin ({error})");
+        Check(Directory.Exists(installed), "installed plugin directory exists");
+        Check(File.Exists(System.IO.Path.Combine(installed, "plugin.toml")),
+            "installed plugin manifest exists");
+        Check(File.Exists(System.IO.Path.Combine(installed, "init.lua")),
+            "installed plugin entry exists");
+        Check(!Directory.Exists(System.IO.Path.Combine(installed, ".git")),
+            "installed plugin has no repository metadata");
+
+        Check(!PluginInstaller.TryInstall("demo", repository, plugins,
+                out _, out string duplicateError),
+            "duplicate plugin install is rejected");
+        Check(duplicateError.Contains("already installed",
+                StringComparison.OrdinalIgnoreCase),
+            "duplicate install error is descriptive");
+
+        Check(!PluginInstaller.TryInstall("../demo", repository, plugins,
+                out _, out _), "path traversal plugin name is rejected");
     }
 
     private static void TestPluginProcessAndPanel()
