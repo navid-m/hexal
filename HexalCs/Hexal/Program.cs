@@ -1,4 +1,5 @@
 using Hexal.Core;
+using Hexal.Languages;
 using Hexal.Platform;
 using Hexal.Ui;
 
@@ -14,6 +15,8 @@ internal static class Program
     {
         string file = string.Empty;
         string? directory = null;
+        string? healthLanguage = null;
+        bool health = false;
         bool optionsEnded = false;
 
         foreach (string argument in arguments)
@@ -36,12 +39,31 @@ internal static class Program
                 return 0;
             }
 
+            if (!optionsEnded && argument == "--health")
+            {
+                health = true;
+                continue;
+            }
+
             if (!optionsEnded && argument.Length > 1 && argument[0] == '-')
             {
                 Console.Error.WriteLine($"hexal: unknown option '{argument}'");
                 Console.Error.WriteLine();
                 PrintHelp();
                 return 2;
+            }
+
+            if (health)
+            {
+                if (healthLanguage is not null)
+                {
+                    Console.Error.WriteLine(
+                        "hexal: --health accepts at most one language");
+                    return 2;
+                }
+
+                healthLanguage = argument;
+                continue;
             }
 
             if (file.Length > 0 || directory is not null)
@@ -60,7 +82,43 @@ internal static class Program
             file = argument;
         }
 
+        if (health)
+        {
+            return RunHealth(healthLanguage);
+        }
+
         return RunEditor(file, directory);
+    }
+
+    private static int RunHealth(string? language)
+    {
+        try
+        {
+            LanguageHealthReport report = LanguageHealth.BuildDefault();
+            IReadOnlyList<LanguageHealthEntry> entries = report.Entries;
+
+            if (!string.IsNullOrWhiteSpace(language))
+            {
+                LanguageHealthEntry? match = entries.FirstOrDefault(entry =>
+                    string.Equals(entry.Language, language,
+                        StringComparison.OrdinalIgnoreCase));
+                if (match is null)
+                {
+                    Console.Error.WriteLine($"hexal: unknown language '{language}'");
+                    return 2;
+                }
+
+                entries = new[] { match };
+            }
+
+            LanguageHealthTable.Write(entries, Console.Out);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"hexal: health check failed: {ex.Message}");
+            return 1;
+        }
     }
 
     private static bool IsDirectory(string path)
@@ -139,9 +197,10 @@ internal static class Program
             and scopes file search to it for the rest of the session.
 
             Options:
-              -h, --help       Show this help message and exit
-              -v, --version    Show version information and exit
-              --               Treat the remaining arguments as file names
+              -h, --help        Show this help message and exit
+              -v, --version     Show version information and exit
+              --health [lang]   Show language support health and exit
+              --                Treat the remaining arguments as file names
 
             Editor commands:
               :w [file]        Save, optionally as a new file
