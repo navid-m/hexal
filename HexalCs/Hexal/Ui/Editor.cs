@@ -110,6 +110,8 @@ public sealed partial class Editor
         "t",
         "gi",
         "gdl",
+        "gj",
+        "gjp",
         "smc",
         "vs",
         "hs",
@@ -155,6 +157,8 @@ public sealed partial class Editor
         ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
         ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
         ["gdl"] = "Toggle git diff markers in the line-number gutter.",
+        ["gj"] = "Jump to the next git diff line.",
+        ["gjp"] = "Jump to the previous git diff line.",
         ["smc"] = "Toggle case-sensitive matching for all searches.",
         ["vs"] = "Split the current pane vertically (side by side).",
         ["hs"] = "Split the current pane horizontally (stacked).",
@@ -4284,6 +4288,24 @@ public sealed partial class Editor
                     return;
                 }
                 ToggleDiffLines();
+                return;
+
+            case "gj":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :gj");
+                    return;
+                }
+                JumpToNextDiffLine();
+                return;
+
+            case "gjp":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :gjp");
+                    return;
+                }
+                JumpToPreviousDiffLine();
                 return;
 
             case "smc":

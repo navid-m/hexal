@@ -110,6 +110,62 @@ public sealed partial class Editor
         SetMessage(_showDiffLines ? "Showing git diff lines." : "Hiding git diff lines.");
     }
 
+    private void JumpToNextDiffLine() => JumpToDiffLine(forward: true);
+
+    private void JumpToPreviousDiffLine() => JumpToDiffLine(forward: false);
+
+    private void JumpToDiffLine(bool forward)
+    {
+        UpdateDiffLinesForBufferChange();
+
+        if (!_showDiffLines)
+        {
+            SetMessage("Git diff lines are hidden.");
+            return;
+        }
+
+        if (_diffLines.Count == 0)
+        {
+            SetMessage("No git diff lines.");
+            return;
+        }
+
+        long currentLine = _document.LineOfOffset(_cursor);
+        long target = -1;
+        foreach (long line in _diffLines.Keys)
+        {
+            if (forward)
+            {
+                if (line > currentLine && (target < 0 || line < target))
+                {
+                    target = line;
+                }
+            }
+            else if (line < currentLine && line > target)
+            {
+                target = line;
+            }
+        }
+
+        if (target < 0)
+        {
+            SetMessage(forward
+                ? "No next git diff line."
+                : "No previous git diff line.");
+            return;
+        }
+
+        target = Math.Clamp(target, 0, _document.LineCount - 1);
+        _cursor = _document.LineStart(target);
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
+        _extraSelections.Clear();
+        _preferredColumnValid = false;
+        SnapCursor();
+        EnsureCursorVisible();
+        SetMessage($"Git diff line {target + 1}");
+    }
+
     private bool TryGetDiffMarker(long line, out char marker, out Style style)
     {
         if (!_showDiffLines || !_diffLines.TryGetValue(line, out GitDiffLineKind kind))

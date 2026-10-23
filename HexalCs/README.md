@@ -261,6 +261,8 @@ support it. Pasting without a clipboard helper reports an error.
 | `:rcfg` | Reload configuration, grammars and themes |
 | `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
 | `:gdl` | Toggle added/deleted/modified markers in the line-number gutter |
+| `:gj` | Jump to the next git diff line |
+| `:gjp` | Jump to the previous git diff line |
 | `:smc` | Toggle case-sensitive matching for all searches |
 | `:vs` | Split the focused pane vertically, side by side |
 | `:hs` | Split the focused pane horizontally, stacked |
