@@ -164,16 +164,10 @@ public sealed class SyntaxHighlighter
     {
         bool inBlock = startInBlock;
         int offset = 0;
-
-        if (
-            !inBlock
-            && language.LineHighlights.Count > 0
-            && TryTokenizeLineHighlights(language, text, tokens)
-        )
-        {
-            endInBlock = false;
-            return;
-        }
+        List<SyntaxToken>? lineHighlights =
+            !inBlock && language.LineHighlights.Count > 0
+                ? MatchLineHighlights(language, text)
+                : null;
 
         while (offset < text.Length)
         {
@@ -288,18 +282,22 @@ public sealed class SyntaxHighlighter
             SkipRune(text, ref offset);
         }
 
+        if (tokens is not null && lineHighlights is not null)
+        {
+            MergeLineHighlights(tokens, lineHighlights);
+        }
+
         endInBlock = inBlock;
     }
 
-    private static bool TryTokenizeLineHighlights(
+    private static List<SyntaxToken>? MatchLineHighlights(
         LanguageDefinition language,
-        ReadOnlySpan<byte> text,
-        List<SyntaxToken>? tokens
+        ReadOnlySpan<byte> text
     )
     {
         if (text.IsEmpty)
         {
-            return false;
+            return null;
         }
 
         string line = Encoding.UTF8.GetString(text);
@@ -313,11 +311,43 @@ public sealed class SyntaxHighlighter
 
             int start = Encoding.UTF8.GetByteCount(line.AsSpan(0, match.Index));
             int length = Encoding.UTF8.GetByteCount(line.AsSpan(match.Index, match.Length));
-            AddToken(tokens, start, length, rule.Kind);
-            return true;
+            return new List<SyntaxToken> { new(start, length, rule.Kind) };
         }
 
-        return false;
+        return null;
+    }
+
+    private static void MergeLineHighlights(
+        List<SyntaxToken> tokens,
+        List<SyntaxToken> highlights
+    )
+    {
+        var merged = new List<SyntaxToken>(tokens.Count + highlights.Count);
+        int index = 0;
+        foreach (SyntaxToken highlight in highlights)
+        {
+            while (index < tokens.Count && tokens[index].End <= highlight.Start)
+            {
+                merged.Add(tokens[index]);
+                ++index;
+            }
+
+            while (index < tokens.Count && tokens[index].Start < highlight.End)
+            {
+                ++index;
+            }
+
+            merged.Add(highlight);
+        }
+
+        while (index < tokens.Count)
+        {
+            merged.Add(tokens[index]);
+            ++index;
+        }
+
+        tokens.Clear();
+        tokens.AddRange(merged);
     }
 
     private static void AddToken(

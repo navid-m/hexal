@@ -679,6 +679,7 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | CoffeeScript | `.coffee`, `.litcoffee`, `.coffee.md` | `coffeescript-language-server` |
 | BibTeX | `.bib` | `texlab`, `bibtex-language-server` |
 | EEL2 | `.eel`, `.eel2`, `.jsfx`, `.jsfx-inc` | none (syntax highlighting only) |
+| Dotenv | `.env`, `.env.local`, `.env.development`, `.env.production`, and similar | none (syntax highlighting only) |
 | XML | `.xml`, `.csproj`, `.rpp` | `lemminx`, `xml-language-server` |
 | C# | `.cs` | `csharp-ls`, `roslyn-language-server`, `omnisharp` |
 | C | `.h`, `.c` | `clangd` |

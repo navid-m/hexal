@@ -2226,6 +2226,7 @@ internal static class Program
             "coffeescript",
             "bibtex",
             "eel2",
+            "dotenv",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -2308,6 +2309,18 @@ internal static class Program
             "eel2 extension detection"
         );
         Check(
+            ReferenceEquals(bundled.Detect(".env"), bundled.Find("dotenv")),
+            "dotenv file name detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect(".env.local"), bundled.Find("dotenv")),
+            "dotenv local file detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("service.env"), bundled.Find("dotenv")),
+            "dotenv extension detection"
+        );
+        Check(
             ReferenceEquals(bundled.Detect("Dockerfile"), bundled.Find("dockerfile")),
             "Dockerfile file name detection"
         );
@@ -2345,6 +2358,27 @@ internal static class Program
             "health available cells are lime green");
 
         var diffTokens = new List<SyntaxToken>();
+        LanguageDefinition? dotenvLanguage = bundled.Find("dotenv");
+        Check(dotenvLanguage is not null, "dotenv language available");
+        if (dotenvLanguage is not null)
+        {
+            diffTokens.Clear();
+            SyntaxHighlighter.GetLineTokens(
+                dotenvLanguage,
+                "POSTGRES_PASSWORD=hellew"u8,
+                false,
+                diffTokens,
+                out _
+            );
+            Check(
+                diffTokens.Count >= 1
+                    && diffTokens[0].Kind == SyntaxTokenKind.Keyword
+                    && diffTokens[0].Start == 0
+                    && diffTokens[0].Length == 18,
+                "dotenv assignment key is highlighted"
+            );
+        }
+
         LanguageDefinition? dockerfileLanguage = bundled.Find("dockerfile");
         Check(dockerfileLanguage is not null, "dockerfile language available");
         if (dockerfileLanguage is not null)

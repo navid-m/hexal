@@ -1,0 +1,52 @@
+{
+    "id": "dotenv",
+    "name": "Dotenv",
+    "indentation": {
+        "style": "spaces",
+        "width": 2,
+        "tabWidth": 4
+    },
+    "autoIndent": false,
+    "autoClose": false,
+    "extensions": [
+        ".env",
+        ".env.local",
+        ".env.development",
+        ".env.production",
+        ".env.test",
+        ".env.staging",
+        ".env.example",
+        ".env.sample",
+        ".env.template",
+        ".env.ci"
+    ],
+    "keywords": [
+        "export",
+        "set",
+        "unset"
+    ],
+    "controlStatements": [],
+    "types": [],
+    "constants": [
+        "false",
+        "null",
+        "true"
+    ],
+    "comments": {
+        "line": "#"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\"",
+            "'"
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "linePatterns": [
+        {
+            "pattern": "^(?:export\\s+)?[A-Za-z_][A-Za-z0-9_.]*\\s*=",
+            "kind": "keyword"
+        }
+    ]
+}
