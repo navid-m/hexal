@@ -92,8 +92,7 @@ internal static class Program
         return Encoding.UTF8.GetBytes(builder.ToString());
     }
 
-    private static void Measure(string name, long operations, int reps,
-        Action setup, Action body)
+    private static void Measure(string name, long operations, int reps, Action setup, Action body)
     {
         setup();
         body(); // warm-up the JIT and caches
@@ -111,7 +110,8 @@ internal static class Program
         times.Sort();
         double median = times[times.Count / 2];
         Console.Out.WriteLine(
-            $"METRIC\t{name}\t{median.ToString("R", CultureInfo.InvariantCulture)}\t{operations}");
+            $"METRIC\t{name}\t{median.ToString("R", CultureInfo.InvariantCulture)}\t{operations}"
+        );
     }
 
     private static void RunPieceBenchmarks(byte[] initial, Options options)
@@ -204,8 +204,7 @@ internal static class Program
                 {
                     UnicodeUtil.Decode(text, offset, out Rune rune, out int length);
                     offset += length;
-                    s_sink += (ulong)rune.Value +
-                              (ulong)UnicodeUtil.DisplayWidth((uint)rune.Value);
+                    s_sink += (ulong)rune.Value + (ulong)UnicodeUtil.DisplayWidth((uint)rune.Value);
                 }
             }
         }
@@ -242,7 +241,10 @@ internal static class Program
         int saveReps = options.Lines >= 1_000_000 ? 2 : 3;
         void SaveBody()
         {
-            Document.SaveSnapshot? snapshot = opened.CreateSaveSnapshot(savePath, out string saveError);
+            Document.SaveSnapshot? snapshot = opened.CreateSaveSnapshot(
+                savePath,
+                out string saveError
+            );
             if (snapshot is null)
             {
                 throw new InvalidOperationException(saveError);
@@ -270,7 +272,12 @@ internal static class Program
         var screen = new Screen(columns, rows);
         var renderer = new Renderer();
         var textStyle = new Style();
-        var statusStyle = new Style { Fg = 15, Bg = 4, Bold = true };
+        var statusStyle = new Style
+        {
+            Fg = 15,
+            Bg = 4,
+            Bold = true,
+        };
 
         void RenderSetup()
         {
@@ -299,8 +306,7 @@ internal static class Program
                 }
 
                 screen.Fill(0, rows - 2, columns, 1, (uint)' ', statusStyle);
-                screen.PutString(0, rows - 2, "NORMAL  benchmark  file.txt",
-                    statusStyle, columns);
+                screen.PutString(0, rows - 2, "NORMAL  benchmark  file.txt", statusStyle, columns);
 
                 ReadOnlySpan<byte> output = renderer.Render(screen, frame == 0);
                 s_sink += (ulong)output.Length;

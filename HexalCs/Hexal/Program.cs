@@ -15,9 +15,10 @@ internal static class Program
 
     public static int RunHexal(string[] arguments)
     {
-        if (arguments.Length > 0 &&
-            string.Equals(arguments[0], "install-plugin",
-                StringComparison.OrdinalIgnoreCase))
+        if (
+            arguments.Length > 0
+            && string.Equals(arguments[0], "install-plugin", StringComparison.OrdinalIgnoreCase)
+        )
         {
             return RunInstallPlugin(arguments);
         }
@@ -66,8 +67,7 @@ internal static class Program
             {
                 if (healthLanguage is not null)
                 {
-                    Console.Error.WriteLine(
-                        "hexal: --health accepts at most one language");
+                    Console.Error.WriteLine("hexal: --health accepts at most one language");
                     return 2;
                 }
 
@@ -78,7 +78,8 @@ internal static class Program
             if (file.Length > 0 || directory is not null)
             {
                 Console.Error.WriteLine(
-                    "hexal: the MVP opens one file or one project directory at a time");
+                    "hexal: the MVP opens one file or one project directory at a time"
+                );
                 return 2;
             }
 
@@ -116,16 +117,21 @@ internal static class Program
         string repository = string.IsNullOrWhiteSpace(config.CentralRepositoryUrl)
             ? HexalConfig.DefaultCentralRepositoryUrl
             : config.CentralRepositoryUrl;
-        if (!PluginInstaller.TryInstall(arguments[1], repository,
-                HexalPaths.PluginDirectory, out string installedPath,
-                out string error))
+        if (
+            !PluginInstaller.TryInstall(
+                arguments[1],
+                repository,
+                HexalPaths.PluginDirectory,
+                out string installedPath,
+                out string error
+            )
+        )
         {
             Console.Error.WriteLine($"hexal: install-plugin: {error}");
             return 1;
         }
 
-        Console.Out.WriteLine(
-            $"Installed plugin '{arguments[1]}' to {installedPath}");
+        Console.Out.WriteLine($"Installed plugin '{arguments[1]}' to {installedPath}");
         return 0;
     }
 
@@ -139,8 +145,8 @@ internal static class Program
             if (!string.IsNullOrWhiteSpace(language))
             {
                 LanguageHealthEntry? match = entries.FirstOrDefault(entry =>
-                    string.Equals(entry.Language, language,
-                        StringComparison.OrdinalIgnoreCase));
+                    string.Equals(entry.Language, language, StringComparison.OrdinalIgnoreCase)
+                );
                 if (match is null)
                 {
                     Console.Error.WriteLine($"hexal: unknown language '{language}'");
@@ -166,8 +172,13 @@ internal static class Program
         {
             return Directory.Exists(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             return false;
         }
@@ -179,8 +190,8 @@ internal static class Program
         {
             return Path.GetFullPath(path);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return path;
         }
@@ -209,8 +220,12 @@ internal static class Program
                 return 1;
             }
 
-            using var editor = new Editor(terminal, document, directory,
-                openFilePicker: directory is not null);
+            using var editor = new Editor(
+                terminal,
+                document,
+                directory,
+                openFilePicker: directory is not null
+            );
             int result = editor.Run();
             terminal.Shutdown();
             return result;
@@ -299,6 +314,7 @@ internal static class Program
 
             Relative file names are resolved from the current working directory.
 
-            """);
+            """
+        );
     }
 }
