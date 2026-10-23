@@ -4488,6 +4488,12 @@ public sealed partial class Editor
         {
             if (!force && AnyPaneDocumentDirty())
             {
+                if (!_config.ConfirmQuitWithoutSaving)
+                {
+                    SetError("Unsaved changes; use :q! to quit without saving.");
+                    return;
+                }
+
                 _prompt = PromptKind.Quit;
                 return;
             }
@@ -4500,6 +4506,12 @@ public sealed partial class Editor
 
         if (!force && AnyPaneDocumentDirty())
         {
+            if (!_config.ConfirmQuitWithoutSaving)
+            {
+                SetError("Unsaved changes; use :q! to quit without saving.");
+                return;
+            }
+
             _prompt = PromptKind.Quit;
             return;
         }

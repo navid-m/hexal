@@ -14,7 +14,8 @@ public sealed class HexalConfig
             "version": 1,
             "formatOnSave": false,
             "showDiffLines": true,
-            "showGitIgnored": false
+            "showGitIgnored": false,
+            "confirmQuitWithoutSaving": true
         }
 
         """;
@@ -26,6 +27,12 @@ public sealed class HexalConfig
     public bool ShowDiffLines { get; init; } = true;
 
     public bool ShowGitIgnored { get; init; }
+
+    /// <summary>
+    /// When true, quitting with unsaved changes asks for confirmation. When
+    /// false, the quit is refused and the user must run <c>:q!</c>.
+    /// </summary>
+    public bool ConfirmQuitWithoutSaving { get; init; } = true;
 
     public static string DefaultPath =>
         Path.Combine(HexalPaths.HexalHomeDirectory, DefaultFileName);
@@ -107,6 +114,9 @@ public sealed class HexalConfig
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
                                    ReadBool(root, "show_git_ignored");
+            bool? confirmQuitWithoutSaving =
+                ReadBool(root, "confirmQuitWithoutSaving") ??
+                ReadBool(root, "confirm_quit_without_saving");
 
             if (root.TryGetProperty("editor", out JsonElement editor) &&
                 editor.ValueKind == JsonValueKind.Object)
@@ -117,6 +127,9 @@ public sealed class HexalConfig
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
                                    ReadBool(editor, "show_git_ignored");
+                confirmQuitWithoutSaving ??=
+                    ReadBool(editor, "confirmQuitWithoutSaving") ??
+                    ReadBool(editor, "confirm_quit_without_saving");
             }
 
             config = new HexalConfig
@@ -124,7 +137,8 @@ public sealed class HexalConfig
                 SourcePath = sourcePath,
                 FormatOnSave = formatOnSave ?? false,
                 ShowDiffLines = showDiffLines ?? true,
-                ShowGitIgnored = showGitIgnored ?? false
+                ShowGitIgnored = showGitIgnored ?? false,
+                ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true
             };
             return true;
         }

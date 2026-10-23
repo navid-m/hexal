@@ -940,7 +940,8 @@ internal static class Program
 
         Check(HexalConfig.TryParse("{}", "test.hexcfg", out config, out error),
             "parse empty config");
-        Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored,
+        Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored &&
+              config.ConfirmQuitWithoutSaving,
             "display settings have defaults");
 
         Check(HexalConfig.TryParse(
@@ -949,6 +950,13 @@ internal static class Program
             "parse display settings");
         Check(config is not null && !config.ShowDiffLines && config.ShowGitIgnored,
             "display settings are read");
+
+        Check(HexalConfig.TryParse(
+                "{\"confirmQuitWithoutSaving\": false}",
+                "test.hexcfg", out config, out error),
+            "parse quit confirmation setting");
+        Check(config is not null && !config.ConfirmQuitWithoutSaving,
+            "quit confirmation setting is read");
 
         Check(!HexalConfig.TryParse("[]", "test.hexcfg", out config, out error),
             "reject non-object config");

@@ -369,9 +369,14 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "version": 1,
     "formatOnSave": false,
     "showDiffLines": true,
-    "showGitIgnored": false
+    "showGitIgnored": false,
+    "confirmQuitWithoutSaving": true
 }
 ```
+
+`confirmQuitWithoutSaving` controls whether `:q` asks for confirmation when
+there are unsaved changes. When set to `false`, the quit is refused and `:q!`
+must be used instead, matching Helix's behaviour.
 
 `showDiffLines` controls the Git diff markers in the line-number gutter. They
 are enabled by default and use green for added lines, red for deleted lines and
