@@ -4263,7 +4263,16 @@ public sealed partial class Editor
         {
             if (sameDocument)
             {
+                string? previousPath = operation.Document.Path;
                 operation.Document.MarkSaved(result.Path, result.Pose, result.Revision);
+                bool pathChanged = !string.Equals(previousPath, result.Path,
+                    StringComparison.Ordinal);
+                if (pathChanged)
+                {
+                    ResetLsp();
+                    RefreshLanguage();
+                }
+
                 RefreshFileStamp();
                 SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
                 FirePluginEvent("buffer_saved", new Dictionary<string, object?>
@@ -4272,6 +4281,15 @@ public sealed partial class Editor
                     ["id"] = CurrentBufferId
                 });
                 NotifyLspSaved();
+
+                // Saving an unnamed buffer assigns a path and therefore a
+                // language. Start (or restart) its server just as opening a
+                // file would. Also retry on later saves when a server was not
+                // available the first time.
+                if (pathChanged || (!_lsp.IsRunning && _language is not null))
+                {
+                    FirePluginEvent("buffer_opened", CurrentBufferData());
+                }
             }
             else
             {

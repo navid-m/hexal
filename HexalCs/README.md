@@ -117,6 +117,7 @@ hexal [options] [file]
 | --- | --- |
 | `-h`, `--help` | Print help and exit |
 | `-v`, `--version` | Print version and exit |
+| `--health [language]` | Print language support health and exit |
 | `--` | Treat remaining arguments as file names |
 
 With no file, Hexal starts with an unnamed empty buffer. Relative file names in
@@ -124,6 +125,10 @@ With no file, Hexal starts with an unnamed empty buffer. Relative file names in
 
 Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 `4` file error at startup.
+
+`--health` prints one row per loaded grammar with the availability of its
+language server, formatter and syntax highlighting. Pass a language id to show
+only that row.
 
 ### Keys
 

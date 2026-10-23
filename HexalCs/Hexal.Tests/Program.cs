@@ -36,6 +36,7 @@ internal static class Program
         TestFormatterRunner();
         TestLspPositions();
         TestLspDebugReport();
+        TestLspStartsForNewFile();
         TestLanguageGrammars();
         TestThemes();
         TestPluginConfigStore();
@@ -928,6 +929,28 @@ internal static class Program
             "debug report logs server shutdown");
 
         File.Delete(path);
+    }
+
+    private static void TestLspStartsForNewFile()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("newfile.py");
+        Check(!File.Exists(path), "new file does not exist before LSP start");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        bool started = manager.TryStart(new LspServerConfig
+        {
+            Name = "FakeNew",
+            Transport = transport,
+            LanguageId = "python"
+        }, path, "print('new')\n", directory.Path("."), out string error);
+
+        Check(started, $"new-file LSP started ({error})");
+        CheckEqual(transport.Sent.Count, 1,
+            "new-file LSP initialize count", "1");
+        CheckEqual(manager.ServerName, "FakeNew", "new-file LSP name", "FakeNew");
+        manager.Stop();
     }
 
     private static void TestLanguageGrammars()

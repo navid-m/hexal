@@ -287,7 +287,10 @@ public sealed class LspManager : IDisposable
             return false;
         }
 
-        if (string.IsNullOrEmpty(documentPath) || !File.Exists(documentPath))
+        // The file does not need to exist on disk yet. A new buffer still has a
+        // path and its contents are sent to the server with didOpen, so LSP
+        // support must work before the first save.
+        if (string.IsNullOrEmpty(documentPath))
         {
             error = "language servers require a file-backed buffer";
             return false;
