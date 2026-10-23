@@ -610,8 +610,9 @@ in normal undo/redo and mark the buffer dirty.
 Debug Adapter Protocol support is intentionally small and can be disabled with
 `"debugAdapter": false` in `.hexcfg`. Languages opt in with the optional
 `debugger` object described in the grammar schema. `Ctrl+E` toggles a
-breakpoint on the current line; breakpoints are drawn in the marker column.
-`:debug [executable]` starts the configured adapter, `:dbg-cont` continues,
+breakpoint on the current line. Breakpoint lines use a subtle red tint that is
+adapted to the active theme's background, and the current stopped line uses an
+amber tint. `:debug [executable]` starts the configured adapter, `:dbg-cont` continues,
 `:dbg-next`/`:dbg-step`/`:dbg-out` step, `:dbg-pause` pauses and `:dbg-stop`
 ends the session. When execution stops, Hexal moves to the reported source
 location and marks it in the gutter.

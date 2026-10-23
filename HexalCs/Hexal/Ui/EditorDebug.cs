@@ -24,11 +24,86 @@ public sealed partial class Editor
         string FileNameWithoutExtension,
         string? Executable);
 
-    private int DebugMarkerWidth()
-        => _config.DebugAdapter && _language?.Debugger is not null ? 1 : 0;
+    private int EditorMarkerWidth() => _showDiffLines ? 1 : 0;
 
-    private int EditorMarkerWidth()
-        => _showDiffLines || DebugMarkerWidth() > 0 ? 1 : 0;
+    private Style? LineHighlightStyle(long line)
+    {
+        if (IsBreakpointAt(line))
+        {
+            return LineTint(red: true);
+        }
+
+        if (IsCurrentDebugLine(line))
+        {
+            return LineTint(red: false);
+        }
+
+        return null;
+    }
+
+    private Style LineTint(bool red)
+    {
+        bool dark = ThemeBackgroundIsDark();
+        uint background;
+        if (red)
+        {
+            // A red tint tuned to the theme's background luminance keeps the
+            // breakpoint line visible without washing out syntax colours.
+            background = dark
+                ? Theme.Rgb(78, 18, 25)
+                : Theme.Rgb(247, 207, 212);
+        }
+        else
+        {
+            background = dark
+                ? Theme.Rgb(56, 44, 14)
+                : Theme.Rgb(250, 235, 190);
+        }
+
+        return new Style
+        {
+            Fg = _theme.Foreground,
+            Bg = background
+        };
+    }
+
+    private bool ThemeBackgroundIsDark()
+    {
+        uint background = _theme.Background;
+        if (!Theme.IsTrueColor(background))
+        {
+            // ANSI palette indices 0-6 are dark; 7 is light grey, and 8-15
+            // are the bright variants. For the extended palette use a simple
+            // cube approximation.
+            if (background < 7)
+            {
+                return true;
+            }
+            if (background < 16)
+            {
+                return background < 15;
+            }
+            if (background < 232)
+            {
+                int value = (int)background - 16;
+                int red = value / 36;
+                int green = (value / 6) % 6;
+                int blue = value % 6;
+                int[] levels = { 0, 95, 135, 175, 215, 255 };
+                double luminance = 0.2126 * levels[red] +
+                                   0.7152 * levels[green] +
+                                   0.0722 * levels[blue];
+                return luminance < 128;
+            }
+
+            return background < 244;
+        }
+
+        double trueColorLuminance = 0.2126 * Theme.Red(background) +
+                                    0.7152 * Theme.Green(background) +
+                                    0.0722 * Theme.Blue(background);
+        return trueColorLuminance < 128;
+    }
 
     private string DebugStatusText()
     {

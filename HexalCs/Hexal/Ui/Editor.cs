@@ -6767,27 +6767,30 @@ public sealed partial class Editor
                 x = 0;
             }
 
-            if (markerWidth > 0)
+            Style? highlight = LineHighlightStyle(line);
+            if (highlight is { } rowStyle)
             {
-                if (IsBreakpointAt(line))
+                _screen.Fill(_editorLeft, row,
+                    Math.Max(0, _columns - _editorLeft), 1, ' ', rowStyle);
+            }
+
+            if (markerWidth > 0 &&
+                TryGetDiffMarker(line, out char marker, out Style markerStyle))
+            {
+                if (highlight is { } markerHighlight)
                 {
-                    _screen.Put(_editorLeft, row, '\u25CF', _theme.ErrorStyle);
+                    markerStyle.Bg = markerHighlight.Bg;
                 }
-                else if (IsCurrentDebugLine(line))
-                {
-                    _screen.Put(_editorLeft, row, '\u25B6',
-                        _theme.WarningStyle);
-                }
-                else if (TryGetDiffMarker(line, out char marker,
-                             out Style markerStyle))
-                {
-                    _screen.Put(_editorLeft, row, marker, markerStyle);
-                }
+                _screen.Put(_editorLeft, row, marker, markerStyle);
             }
 
             Style style = line == current
                 ? _theme.CurrentLineNumberStyle
                 : _theme.MutedStyle;
+            if (highlight is { } highlightStyle)
+            {
+                style.Bg = highlightStyle.Bg;
+            }
 
             _screen.PutInt(_editorLeft + markerWidth + x, row, number, style, digits);
         }
@@ -6815,6 +6818,12 @@ public sealed partial class Editor
             ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
             _syntax.GetLineTokens(line, text, _lineTokens);
             int tokenIndex = 0;
+            Style? lineHighlight = LineHighlightStyle(line);
+            if (lineHighlight is { } fillStyle)
+            {
+                _screen.Fill(_editorLeft + gutter, row, textWidth, 1, ' ',
+                    fillStyle);
+            }
 
             int offset = 0;
             long visual = 0;
@@ -6835,6 +6844,10 @@ public sealed partial class Editor
                     tokenKind = _lineTokens[tokenIndex].Kind;
                 }
                 Style textStyle = TokenStyle(tokenKind);
+                if (lineHighlight is { } highlightStyle)
+                {
+                    textStyle.Bg = highlightStyle.Bg;
+                }
 
                 UnicodeUtil.Decode(text, offset, out Rune rune, out int byteLength);
                 offset += byteLength;
