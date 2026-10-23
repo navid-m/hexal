@@ -71,8 +71,9 @@ public sealed partial class Editor
 
     private static readonly string[] BuiltinCommands =
     {
-        "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "debug-lsp", "dl", "s", "t", "gi", "gdl", "smc", "vs", "hs", "cb", "adi"
+        "e", "w", "wq", "q", "fmt", "cw", "cfg", "rcfg", "lang", "help",
+        "about", "a", "debug-lsp", "dl", "s", "t", "gi", "gdl", "smc", "vs",
+        "hs", "cb", "adi"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -83,6 +84,7 @@ public sealed partial class Editor
             ["wq"] = "Write the current buffer, then quit when saving finishes.",
             ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
             ["fmt"] = "Format the current buffer with its language formatter.",
+            ["cw"] = "Remove trailing spaces and tabs from every line.",
             ["cfg"] = "Open (or create) the Hexal configuration file.",
             ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
             ["lang"] = "Set the language grammar for the current buffer.",
@@ -3994,6 +3996,15 @@ public sealed partial class Editor
                 FormatCurrentDocument();
                 return;
 
+            case "cw":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :cw");
+                    return;
+                }
+                CleanWhitespace();
+                return;
+
             case "cfg":
                 if (arguments.Count != 0)
                 {
@@ -4558,6 +4569,11 @@ public sealed partial class Editor
         {
             StartFormat(formatter, path, quitAfter, saveAfter: true);
             return;
+        }
+
+        if (_config.TrimTrailingWhitespaceOnSave)
+        {
+            TrimTrailingWhitespaceInBuffer();
         }
 
         Document.SaveSnapshot? snapshot = _document.CreateSaveSnapshot(path, out string error);
@@ -5447,6 +5463,11 @@ public sealed partial class Editor
     {
         long line = CursorLine();
         long begin = _document.LineStart(line);
+
+        if (_cursor > begin && BackspaceIndentation(begin))
+        {
+            return;
+        }
 
         if (_cursor > begin)
         {

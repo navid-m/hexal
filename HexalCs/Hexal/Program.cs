@@ -209,6 +209,7 @@ internal static class Program
               :e[!] <file>     Open a file
               :lang <id>       Set the active language grammar
               :fmt             Format the current buffer
+              :cw              Remove trailing whitespace from every line
               :cfg             Open the configuration file
               :rcfg            Reload configuration and grammars
               :help            Show a short key reminder

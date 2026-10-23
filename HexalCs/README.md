@@ -246,6 +246,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:e <file>` | Open a file |
 | `:e! <file>` | Open a file, discarding unsaved changes |
 | `:fmt` | Format the current buffer with its language formatter |
+| `:cw` | Remove trailing spaces and tabs from every line |
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
 | `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
@@ -408,12 +409,20 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
 {
     "version": 1,
     "formatOnSave": false,
+    "trimTrailingWhitespaceOnSave": false,
+    "smartBackspace": true,
     "showDiffLines": true,
     "showGitIgnored": false,
     "confirmQuitWithoutSaving": true,
     "searchMatchCaseEnabled": false
 }
 ```
+
+`trimTrailingWhitespaceOnSave` removes trailing spaces and tabs from every
+line before each save; the same cleanup is available on demand with `:cw`.
+`smartBackspace` is enabled by default and makes Backspace remove the whole
+indentation run when only spaces or tabs precede the cursor; set it to `false`
+to delete one character at a time.
 
 `confirmQuitWithoutSaving` controls whether `:q` asks for confirmation when
 there are unsaved changes. When set to `false`, the quit is refused and `:q!`

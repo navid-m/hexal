@@ -358,6 +358,53 @@ public sealed class Document
         return length;
     }
 
+    /// <summary>
+    /// Removes trailing spaces and tabs from every line as a single undoable
+    /// edit. Returns the number of lines that changed.
+    /// </summary>
+    public int TrimTrailingWhitespace()
+    {
+        var ranges = new List<(long Start, long Length)>();
+        long lineCount = LineCount;
+
+        for (long line = 0; line < lineCount; ++line)
+        {
+            long begin = LineStart(line);
+            long end = LineEnd(line);
+            long trimmed = end;
+
+            while (trimmed > begin)
+            {
+                byte value = ByteAt(trimmed - 1);
+                if (value != (byte)' ' && value != (byte)'\t')
+                {
+                    break;
+                }
+                --trimmed;
+            }
+
+            if (trimmed < end)
+            {
+                ranges.Add((trimmed, end - trimmed));
+            }
+        }
+
+        if (ranges.Count == 0)
+        {
+            return 0;
+        }
+
+        BeginCompositeEdit();
+        for (int index = ranges.Count - 1; index >= 0; --index)
+        {
+            (long start, long length) = ranges[index];
+            Erase(start, length);
+        }
+        EndCompositeEdit();
+        BreakUndoGroup();
+        return ranges.Count;
+    }
+
     public byte[] Range(long offset, long length) => _table.Range(offset, length);
 
     public byte[] Text() => _table.ToArray();

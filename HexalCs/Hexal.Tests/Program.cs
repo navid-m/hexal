@@ -25,6 +25,7 @@ internal static class Program
         TestCommandParsing();
         TestDocumentLinesAndSaving();
         TestDocumentOpenNewFileAndBom();
+        TestTrailingWhitespaceTrim();
         TestDocumentIndentSettings();
         TestUndoRedo();
         TestCompositeUndo();
@@ -498,6 +499,30 @@ internal static class Program
         }
     }
 
+    private static void TestTrailingWhitespaceTrim()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("trim.txt");
+        Check(WriteBytes(path,
+            "alpha  \n\tbeta\t \n   \nkeep\nno newline  "u8),
+            "write trailing whitespace file");
+
+        Document? document = Document.Open(path, out string error);
+        Check(document is not null, $"open trailing whitespace document ({error})");
+        if (document is null)
+        {
+            return;
+        }
+
+        CheckEqual(document.TrimTrailingWhitespace(), 4,
+            "trimmed line count", "4");
+        CheckEqual(Text(document.Text()),
+            "alpha\n\tbeta\n\nkeep\nno newline", "trimmed document", "expected");
+        Check(document.IsDirty, "trim marks document dirty");
+        CheckEqual(document.TrimTrailingWhitespace(), 0,
+            "second trim changes nothing", "0");
+    }
+
     private static void TestDocumentIndentSettings()
     {
         var document = new Document();
@@ -954,6 +979,26 @@ internal static class Program
         Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored &&
               config.ConfirmQuitWithoutSaving && !config.SearchMatchCaseEnabled,
             "display settings have defaults");
+        Check(config is not null && !config.TrimTrailingWhitespaceOnSave &&
+              config.SmartBackspace,
+            "whitespace settings have defaults");
+
+        Check(HexalConfig.TryParse(
+                "{\"trimTrailingWhitespaceOnSave\": true, \"smartBackspace\": false}",
+                "test.hexcfg", out config, out error),
+            "parse whitespace settings");
+        Check(config is not null && config.TrimTrailingWhitespaceOnSave &&
+              !config.SmartBackspace,
+            "whitespace settings are read");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"trim_trailing_whitespace_on_save\": true, " +
+                "\"smart_backspace\": false}}",
+                "test.hexcfg", out config, out error),
+            "parse nested whitespace settings");
+        Check(config is not null && config.TrimTrailingWhitespaceOnSave &&
+              !config.SmartBackspace,
+            "nested whitespace settings are read");
 
         Check(HexalConfig.TryParse(
                 "{\"showDiffLines\": false, \"showGitIgnored\": true, " +

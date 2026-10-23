@@ -75,6 +75,9 @@ public sealed partial class Editor
         AddPaletteCommand("Format document",
             "Format the current buffer with its language formatter.",
             FormatCurrentDocument);
+        AddPaletteCommand("Clean trailing whitespace",
+            "Remove trailing spaces and tabs from every line.",
+            CleanWhitespace);
         AddPaletteCommand("Save file",
             "Write the current buffer to disk.",
             () => StartSave(path: null, quitAfter: false));
@@ -360,6 +363,6 @@ public sealed partial class Editor
             "Ctrl+P palette | i insert | Esc normal | / find | \\ regex | ' regex replace | " +
             ". find all | Ctrl+B sidebar | " +
             "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
-            ":w :wq :q :e :fmt :cfg :s :t :gi :gdl :smc :vs :hs :cb :adi | u/Ctrl+R undo");
+            ":w :wq :q :e :fmt :cw :cfg :s :t :gi :gdl :smc :vs :hs :cb :adi | u/Ctrl+R undo");
     }
 }

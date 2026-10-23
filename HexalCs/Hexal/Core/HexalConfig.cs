@@ -13,6 +13,8 @@ public sealed class HexalConfig
         {
             "version": 1,
             "formatOnSave": false,
+            "trimTrailingWhitespaceOnSave": false,
+            "smartBackspace": true,
             "showDiffLines": true,
             "showGitIgnored": false,
             "confirmQuitWithoutSaving": true,
@@ -24,6 +26,18 @@ public sealed class HexalConfig
     public string SourcePath { get; init; } = string.Empty;
 
     public bool FormatOnSave { get; init; }
+
+    /// <summary>
+    /// When true, trailing spaces and tabs are removed from every line before
+    /// a save writes the buffer to disk.
+    /// </summary>
+    public bool TrimTrailingWhitespaceOnSave { get; init; }
+
+    /// <summary>
+    /// When true, Backspace removes the whole run of indentation when only
+    /// whitespace precedes the cursor on the line.
+    /// </summary>
+    public bool SmartBackspace { get; init; } = true;
 
     public bool ShowDiffLines { get; init; } = true;
 
@@ -117,6 +131,11 @@ public sealed class HexalConfig
 
             bool? formatOnSave = ReadBool(root, "formatOnSave") ??
                                  ReadBool(root, "format_on_save");
+            bool? trimTrailingWhitespaceOnSave =
+                ReadBool(root, "trimTrailingWhitespaceOnSave") ??
+                ReadBool(root, "trim_trailing_whitespace_on_save");
+            bool? smartBackspace = ReadBool(root, "smartBackspace") ??
+                                   ReadBool(root, "smart_backspace");
             bool? showDiffLines = ReadBool(root, "showDiffLines") ??
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
@@ -133,6 +152,11 @@ public sealed class HexalConfig
             {
                 formatOnSave ??= ReadBool(editor, "formatOnSave") ??
                                  ReadBool(editor, "format_on_save");
+                trimTrailingWhitespaceOnSave ??=
+                    ReadBool(editor, "trimTrailingWhitespaceOnSave") ??
+                    ReadBool(editor, "trim_trailing_whitespace_on_save");
+                smartBackspace ??= ReadBool(editor, "smartBackspace") ??
+                                   ReadBool(editor, "smart_backspace");
                 showDiffLines ??= ReadBool(editor, "showDiffLines") ??
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
@@ -149,6 +173,9 @@ public sealed class HexalConfig
             {
                 SourcePath = sourcePath,
                 FormatOnSave = formatOnSave ?? false,
+                TrimTrailingWhitespaceOnSave =
+                    trimTrailingWhitespaceOnSave ?? false,
+                SmartBackspace = smartBackspace ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,
