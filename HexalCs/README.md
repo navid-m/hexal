@@ -669,6 +669,10 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | Lua | `.lua` | `lua-language-server` |
 | Go | `.go` | `gopls` |
 | Erlang | `.erl`, `.hrl`, `.escript`, `.app`, `.app.src` | `erlang_ls`, `elp` |
+| Protocol Buffers | `.proto` | `protols`, `bufls`, `protobuf-language-server` |
+| Nushell | `.nu` | `nu --lsp`, `nu-lsp` |
+| Elvish | `.elv` | `elvish -lsp` |
+| PureScript | `.purs` | `purescript-language-server` |
 | XML | `.xml`, `.csproj`, `.rpp` | `lemminx`, `xml-language-server` |
 | C# | `.cs` | `csharp-ls`, `roslyn-language-server`, `omnisharp` |
 | C | `.h`, `.c` | `clangd` |

@@ -2219,6 +2219,10 @@ internal static class Program
             "supercollider",
             "ocaml",
             "erlang",
+            "protobuf",
+            "nushell",
+            "elvish",
+            "purescript",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -2271,6 +2275,22 @@ internal static class Program
         Check(
             ReferenceEquals(bundled.Detect("app.app.src"), bundled.Find("erlang")),
             "erlang compound extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("message.proto"), bundled.Find("protobuf")),
+            "protobuf extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("config.nu"), bundled.Find("nushell")),
+            "nushell extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("script.elv"), bundled.Find("elvish")),
+            "elvish extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("Main.purs"), bundled.Find("purescript")),
+            "purescript extension detection"
         );
         Check(
             ReferenceEquals(bundled.Detect("Dockerfile"), bundled.Find("dockerfile")),

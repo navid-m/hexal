@@ -1,0 +1,97 @@
+{
+    "id": "protobuf",
+    "name": "Protocol Buffers",
+    "indentation": {
+        "style": "spaces",
+        "width": 2,
+        "tabWidth": 4
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [
+        ".proto"
+    ],
+    "keywords": [
+        "edition",
+        "enum",
+        "extend",
+        "extensions",
+        "group",
+        "import",
+        "map",
+        "max",
+        "message",
+        "oneof",
+        "option",
+        "optional",
+        "package",
+        "public",
+        "repeated",
+        "required",
+        "reserved",
+        "returns",
+        "rpc",
+        "service",
+        "stream",
+        "syntax",
+        "to",
+        "weak"
+    ],
+    "controlStatements": [
+        "enum",
+        "extend",
+        "group",
+        "message",
+        "oneof",
+        "rpc",
+        "service",
+        "stream"
+    ],
+    "types": [
+        "bool",
+        "bytes",
+        "double",
+        "fixed32",
+        "fixed64",
+        "float",
+        "int32",
+        "int64",
+        "sfixed32",
+        "sfixed64",
+        "sint32",
+        "sint64",
+        "string",
+        "uint32",
+        "uint64"
+    ],
+    "constants": [
+        "false",
+        "true"
+    ],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\"",
+            "'"
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": [
+        "{",
+        "[",
+        "enum",
+        "message",
+        "oneof",
+        "rpc",
+        "service"
+    ],
+    "unindentBefore": [
+        "}",
+        "]"
+    ]
+}
