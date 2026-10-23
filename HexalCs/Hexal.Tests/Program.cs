@@ -1218,6 +1218,7 @@ internal static class Program
             config is not null
                 && config.ShowDiffLines
                 && !config.ShowGitIgnored
+                && !config.WordWrap
                 && config.ConfirmQuitWithoutSaving
                 && !config.SearchMatchCaseEnabled,
             "display settings have defaults"
@@ -1374,6 +1375,27 @@ internal static class Program
 
         Check(
             HexalConfig.TryParse(
+                "{\"wordWrap\": true}",
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse word wrap setting"
+        );
+        Check(config is not null && config.WordWrap, "word wrap setting is read");
+        Check(
+            HexalConfig.TryParse(
+                "{\"editor\": {\"word_wrap\": true}}",
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested word wrap setting"
+        );
+        Check(config is not null && config.WordWrap, "nested word wrap setting is read");
+
+        Check(
+            HexalConfig.TryParse(
                 "{\"keepSidebarFocusOnOpen\": false}",
                 "test.hexcfg",
                 out config,
@@ -1444,6 +1466,15 @@ internal static class Program
         Check(!updated.ShowDiffLines, "update writes showDiffLines");
         Check(updated.ShowGitIgnored, "update writes showGitIgnored");
         Check(updated.SearchMatchCaseEnabled, "update writes searchMatchCaseEnabled");
+
+        Check(
+            HexalConfig.UpdateWordWrap(configPath, wordWrap: true, out error),
+            "update word wrap setting"
+        );
+        updated = HexalConfig.Load(configPath, out error);
+        Check(updated.WordWrap, "update writes wordWrap");
+        Check(updated.FormatOnSave, "word wrap update preserves formatOnSave");
+        Check(!updated.ShowDiffLines, "word wrap update preserves showDiffLines");
         Check(
             File.ReadAllText(configPath).Contains("\"custom\": \"kept\"", StringComparison.Ordinal),
             "update preserves unknown settings"

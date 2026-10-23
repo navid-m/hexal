@@ -271,6 +271,8 @@ support it. Pasting without a clipboard helper reports an error.
 | `:hs` | Split the focused pane horizontally, stacked |
 | `:cb` | Close the focused pane; with one pane, use `:q`/`:q!` to quit |
 | `:adi` | Detect and apply the current buffer's indentation style |
+| `:ww` | Toggle soft word wrap and persist the setting to `.hexcfg` |
+| `:help` | Open the scrollable keybinding and command reference |
 | `:help` | Show a short key reminder |
 | `:debug-lsp`, `:dl` | Inspect live language-server traffic and client diagnostics |
 | `:debug [executable]`, `:dbg` | Start an experimental DAP session |
@@ -476,6 +478,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "debugAdapter": true,
     "showDiffLines": true,
     "showGitIgnored": false,
+    "wordWrap": false,
     "keepSidebarFocusOnOpen": true,
     "confirmQuitWithoutSaving": true,
     "searchMatchCaseEnabled": false
@@ -515,6 +518,9 @@ blue for modified lines. `showGitIgnored` controls whether files excluded by
 `keepSidebarFocusOnOpen` is enabled by default and keeps keyboard focus in the
 sidebar after opening a file; press `Ctrl+B` to close the sidebar and return to
 the buffer. Set it to `false` to move focus to the opened buffer immediately.
+`wordWrap` is disabled by default. Toggle it with `:ww` to softly wrap long
+lines at the pane width; the new value is written back to the active
+configuration file.
 `searchMatchCaseEnabled` makes file-name filtering, in-file find and
 cross-file search case-sensitive. `showDiffLines`, `showGitIgnored` and
 `searchMatchCaseEnabled` are toggled with `:gdl`, `:gi` and `:smc` and written

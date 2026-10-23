@@ -112,6 +112,7 @@ public sealed partial class Editor
         "gdl",
         "gj",
         "gjp",
+        "ww",
         "path",
         "smc",
         "vs",
@@ -160,6 +161,7 @@ public sealed partial class Editor
         ["gdl"] = "Toggle git diff markers in the line-number gutter.",
         ["gj"] = "Jump to the next git diff line.",
         ["gjp"] = "Jump to the previous git diff line.",
+        ["ww"] = "Toggle soft word wrapping for long lines.",
         ["path"] = "Show the current file's absolute path.",
         ["smc"] = "Toggle case-sensitive matching for all searches.",
         ["vs"] = "Split the current pane vertically (side by side).",
@@ -439,6 +441,7 @@ public sealed partial class Editor
 
         _showDiffLines = _config.ShowDiffLines;
         _showGitIgnored = _config.ShowGitIgnored;
+        _wordWrap = _config.WordWrap;
         _searchMatchCase = _config.SearchMatchCaseEnabled;
 
         // Grammar parsing and Lua warm-up are independent of the initial
@@ -635,6 +638,12 @@ public sealed partial class Editor
 
         if (inputEvent.Key == Key.FocusOut)
         {
+            return _running;
+        }
+
+        if (_helpVisible)
+        {
+            HandleHelpInput(inputEvent);
             return _running;
         }
 
@@ -2236,7 +2245,9 @@ public sealed partial class Editor
             return;
         }
 
-        long maxTop = Math.Max(0, _document.LineCount - rows);
+        long maxTop = _wordWrap
+            ? Math.Max(0, _document.LineCount - 1)
+            : Math.Max(0, _document.LineCount - rows);
         long top = Math.Clamp(_topLine + delta, 0, maxTop);
         if (top == _topLine)
         {
@@ -2311,6 +2322,17 @@ public sealed partial class Editor
         )
         {
             return false;
+        }
+
+        if (_wordWrap)
+        {
+            return TryOffsetAtScreenWrapped(
+                localX,
+                localY,
+                bounds.Width,
+                bounds.Height,
+                out offset
+            );
         }
 
         long line = _topLine + localY;
@@ -4310,6 +4332,15 @@ public sealed partial class Editor
                 JumpToPreviousDiffLine();
                 return;
 
+            case "ww":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :ww");
+                    return;
+                }
+                ToggleWordWrap();
+                return;
+
             case "path":
                 if (arguments.Count != 0)
                 {
@@ -4900,6 +4931,8 @@ public sealed partial class Editor
 
         _showDiffLines = config.ShowDiffLines;
         _showGitIgnored = config.ShowGitIgnored;
+        _wordWrap = config.WordWrap;
+        _leftColumn = 0;
         _searchMatchCase = config.SearchMatchCaseEnabled;
         _startupGrammarTask = null;
         _startupGrammarStarted = 0;
@@ -6843,23 +6876,28 @@ public sealed partial class Editor
         if (rows == 0)
         {
             _topLine = line;
+            return;
         }
-        else
-        {
-            if (line < _topLine)
-            {
-                _topLine = line;
-            }
-            else if (line >= _topLine + rows)
-            {
-                _topLine = line - rows + 1;
-            }
 
-            long maxTop = _document.LineCount > rows ? _document.LineCount - rows : 0;
-            if (_topLine > maxTop)
-            {
-                _topLine = maxTop;
-            }
+        if (_wordWrap)
+        {
+            EnsureWrappedCursorVisible(line, rows, bounds.Width);
+            return;
+        }
+
+        if (line < _topLine)
+        {
+            _topLine = line;
+        }
+        else if (line >= _topLine + rows)
+        {
+            _topLine = line - rows + 1;
+        }
+
+        long maxTop = _document.LineCount > rows ? _document.LineCount - rows : 0;
+        if (_topLine > maxTop)
+        {
+            _topLine = maxTop;
         }
 
         int gutter = GutterWidthFor(bounds.Width);
@@ -6998,6 +7036,12 @@ public sealed partial class Editor
             return;
         }
 
+        if (_wordWrap)
+        {
+            RenderWrappedLineNumbers(firstLine, rows, gutter);
+            return;
+        }
+
         int markerWidth = EditorMarkerWidth();
         int digits = gutter - 1 - markerWidth;
         long current = CursorLine();
@@ -7054,6 +7098,12 @@ public sealed partial class Editor
     {
         if (rows == 0 || _columns <= _editorLeft + gutter)
         {
+            return;
+        }
+
+        if (_wordWrap)
+        {
+            RenderWrappedTextLines(firstLine, rows, gutter);
             return;
         }
 
@@ -7220,6 +7270,19 @@ public sealed partial class Editor
         int gutter
     )
     {
+        if (_wordWrap)
+        {
+            RenderWrappedSelectionRange(
+                selectionStart,
+                selectionEnd,
+                linewise,
+                firstLine,
+                rows,
+                gutter
+            );
+            return;
+        }
+
         var style = _theme.SelectionStyle;
         long total = _document.LineCount;
 
@@ -7303,6 +7366,12 @@ public sealed partial class Editor
             return;
         }
 
+        if (_wordWrap)
+        {
+            RenderWrappedFindMatches(firstLine, rows, gutter);
+            return;
+        }
+
         var matchStyle = _theme.MatchStyle;
         var currentStyle = _theme.CurrentMatchStyle;
 
@@ -7359,6 +7428,12 @@ public sealed partial class Editor
 
     private void RenderCursorAt(long cursor, long firstLine, int rows, int gutter)
     {
+        if (_wordWrap)
+        {
+            RenderWrappedCursorAt(cursor, firstLine, rows, gutter);
+            return;
+        }
+
         long line = _document.LineOfOffset(cursor);
         if (line < firstLine || line >= firstLine + rows)
         {
@@ -8382,6 +8457,7 @@ public sealed partial class Editor
         RenderDapDebug();
         RenderPluginPanel();
         RenderStartupBenchmark();
+        RenderHelp();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

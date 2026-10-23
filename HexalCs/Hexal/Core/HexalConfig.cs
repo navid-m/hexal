@@ -24,6 +24,7 @@ public sealed class HexalConfig
             "debugAdapter": true,
             "showDiffLines": true,
             "showGitIgnored": false,
+            "wordWrap": false,
             "keepSidebarFocusOnOpen": true,
             "confirmQuitWithoutSaving": true,
             "searchMatchCaseEnabled": false
@@ -80,6 +81,11 @@ public sealed class HexalConfig
     public bool ShowDiffLines { get; init; } = true;
 
     public bool ShowGitIgnored { get; init; }
+
+    /// <summary>
+    /// When true, long editor lines are softly wrapped at the pane width.
+    /// </summary>
+    public bool WordWrap { get; init; }
 
     /// <summary>
     /// When true, opening a file from the sidebar keeps keyboard focus in the
@@ -206,6 +212,7 @@ public sealed class HexalConfig
                 ReadBool(root, "showDiffLines") ?? ReadBool(root, "show_diff_lines");
             bool? showGitIgnored =
                 ReadBool(root, "showGitIgnored") ?? ReadBool(root, "show_git_ignored");
+            bool? wordWrap = ReadBool(root, "wordWrap") ?? ReadBool(root, "word_wrap");
             bool? keepSidebarFocusOnOpen =
                 ReadBool(root, "keepSidebarFocusOnOpen")
                 ?? ReadBool(root, "keep_sidebar_focus_on_open");
@@ -246,6 +253,7 @@ public sealed class HexalConfig
                     ReadBool(editor, "showDiffLines") ?? ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??=
                     ReadBool(editor, "showGitIgnored") ?? ReadBool(editor, "show_git_ignored");
+                wordWrap ??= ReadBool(editor, "wordWrap") ?? ReadBool(editor, "word_wrap");
                 keepSidebarFocusOnOpen ??=
                     ReadBool(editor, "keepSidebarFocusOnOpen")
                     ?? ReadBool(editor, "keep_sidebar_focus_on_open");
@@ -272,6 +280,7 @@ public sealed class HexalConfig
                 DebugAdapter = debugAdapter ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
+                WordWrap = wordWrap ?? false,
                 KeepSidebarFocusOnOpen = keepSidebarFocusOnOpen ?? true,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,
                 SearchMatchCaseEnabled = searchMatchCaseEnabled ?? false,
@@ -322,6 +331,26 @@ public sealed class HexalConfig
         bool showGitIgnored,
         bool searchMatchCaseEnabled,
         out string error
+    ) =>
+        UpdateSettings(
+            path,
+            showDiffLines,
+            showGitIgnored,
+            searchMatchCaseEnabled,
+            wordWrap: null,
+            out error
+        );
+
+    public static bool UpdateWordWrap(string path, bool wordWrap, out string error) =>
+        UpdateSettings(path, null, null, null, wordWrap, out error);
+
+    private static bool UpdateSettings(
+        string path,
+        bool? showDiffLines,
+        bool? showGitIgnored,
+        bool? searchMatchCaseEnabled,
+        bool? wordWrap,
+        out string error
     )
     {
         error = string.Empty;
@@ -360,9 +389,22 @@ public sealed class HexalConfig
                 root = new JsonObject { ["version"] = 1, ["formatOnSave"] = false };
             }
 
-            root["showDiffLines"] = showDiffLines;
-            root["showGitIgnored"] = showGitIgnored;
-            root["searchMatchCaseEnabled"] = searchMatchCaseEnabled;
+            if (showDiffLines is { } diffLines)
+            {
+                root["showDiffLines"] = diffLines;
+            }
+            if (showGitIgnored is { } gitIgnored)
+            {
+                root["showGitIgnored"] = gitIgnored;
+            }
+            if (searchMatchCaseEnabled is { } matchCase)
+            {
+                root["searchMatchCaseEnabled"] = matchCase;
+            }
+            if (wordWrap is { } wrap)
+            {
+                root["wordWrap"] = wrap;
+            }
 
             string output = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, output + Environment.NewLine, new UTF8Encoding(false));

@@ -458,14 +458,5 @@ public sealed partial class Editor
         OpenPicker(PickerKind.Files, directory, "Open themes");
     }
 
-    private void ShowHelpReminder()
-    {
-        ClearMessage();
-        SetMessage(
-            "Ctrl+P palette | i insert | Esc normal | / find | \\ regex | ' regex replace | "
-                + ". find all | Ctrl+B sidebar | "
-                + "Ctrl+C comment | < > unindent/indent | Space+X cut | "
-                + ":w :wq :q :e :fmt :cw :cfg :s :t :gi :gdl :smc :vs :hs :cb :adi | u/Ctrl+R undo"
-        );
-    }
+    private void ShowHelpReminder() => OpenHelp();
 }
