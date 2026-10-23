@@ -117,14 +117,75 @@ public sealed partial class Editor
 
         foreach (SyntaxToken token in _lineTokens)
         {
-            if (token.Kind is SyntaxTokenKind.StringLiteral or SyntaxTokenKind.Comment &&
-                local > token.Start && local <= token.End)
+            if (token.Kind == SyntaxTokenKind.Comment)
+            {
+                if (local > token.Start && local <= token.End)
+                {
+                    return true;
+                }
+                continue;
+            }
+
+            if (token.Kind != SyntaxTokenKind.StringLiteral)
+            {
+                continue;
+            }
+
+            if (local > token.Start && local < token.End)
+            {
+                return true;
+            }
+
+            // The cursor immediately after a closed string is outside the
+            // string. Only unterminated strings extend to the end of the line.
+            if (local == token.End &&
+                !IsClosedStringToken(token, _lineBuffer.AsSpan(0, length)))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private bool IsClosedStringToken(SyntaxToken token,
+        ReadOnlySpan<byte> lineText)
+    {
+        if (token.Length == 0 || token.Start < 0 || token.End > lineText.Length)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> text = lineText[token.Start..token.End];
+        int quoteLength = 0;
+        foreach (byte[] quote in _language?.QuoteCharacterBytes ??
+                 Array.Empty<byte[]>())
+        {
+            if (text.EndsWith(quote))
+            {
+                quoteLength = quote.Length;
+                break;
+            }
+        }
+
+        if (quoteLength == 0 || text.Length <= quoteLength)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> escape = _language?.EscapeCharacterBytes ??
+                                    ReadOnlySpan<byte>.Empty;
+        int escapes = 0;
+        int index = text.Length - quoteLength;
+        while (escape.Length > 0 && index >= escape.Length &&
+               text.Slice(index - escape.Length, escape.Length)
+                   .SequenceEqual(escape))
+        {
+            ++escapes;
+            index -= escape.Length;
+        }
+
+        return escapes % 2 == 0;
     }
 
     private static bool TryParseOpenTagAtEnd(ReadOnlySpan<byte> text,
