@@ -12,18 +12,19 @@ public sealed partial class Editor
 
     private static readonly string[] SidebarFileMenuItems =
     {
-        "Open", "Rename", "Duplicate", "Copy to...", "Move to...", "Delete"
+        "Open", "New Folder", "Rename", "Duplicate", "Copy to...", "Move to...",
+        "Delete"
     };
 
     private static readonly string[] SidebarFolderMenuItems =
     {
-        "Expand/Collapse", "Rename", "Duplicate", "Copy to...", "Move to...",
-        "Delete"
+        "Expand/Collapse", "New Folder", "Rename", "Duplicate", "Copy to...",
+        "Move to...", "Delete"
     };
 
     private static readonly string[] SidebarMenuHotkeys =
     {
-        "O", "R", "D", "T", "M", "d"
+        "O", "X", "R", "D", "T", "M", "d"
     };
 
     private sealed class SidebarNode
@@ -412,11 +413,12 @@ public sealed partial class Editor
         int hotkeyIndex = character switch
         {
             'o' or 'O' => 0,
-            'r' or 'R' => 1,
-            'D' => 2,
-            'T' => 3,
-            'M' => 4,
-            'd' => 5,
+            'x' or 'X' => 1,
+            'r' or 'R' => 2,
+            'D' => 3,
+            'T' => 4,
+            'M' => 5,
+            'd' => 6,
             _ => -1
         };
         if (hotkeyIndex >= 0 && hotkeyIndex < items.Length)
@@ -473,21 +475,78 @@ public sealed partial class Editor
                 }
                 return;
             case 1:
-                BeginSidebarRename(node);
+                BeginSidebarNewFolder(node);
                 return;
             case 2:
-                DuplicateSidebarNode(node);
+                BeginSidebarRename(node);
                 return;
             case 3:
-                BeginSidebarCopy(node);
+                DuplicateSidebarNode(node);
                 return;
             case 4:
-                BeginSidebarMove(node);
+                BeginSidebarCopy(node);
                 return;
             case 5:
+                BeginSidebarMove(node);
+                return;
+            case 6:
                 RequestDeleteSidebarNode(node);
                 return;
         }
+    }
+
+    private void BeginSidebarNewFolder(SidebarNode node)
+    {
+        _sidebarFocused = _sidebarVisible;
+        string parent = node.IsDirectory
+            ? node.Path
+            : Path.GetDirectoryName(node.Path) ?? ProjectRoot();
+        RequestPrompt("New folder name: ", value =>
+            CompleteSidebarNewFolder(parent, value));
+    }
+
+    private void CompleteSidebarNewFolder(string parent, string? value)
+    {
+        _sidebarFocused = _sidebarVisible;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            SetMessage("New folder cancelled.");
+            RefreshSidebar(null);
+            return;
+        }
+
+        string name = value.Trim();
+        if (!IsValidSidebarName(name))
+        {
+            SetError("Invalid folder name.");
+            RefreshSidebar(null);
+            return;
+        }
+
+        string target = Path.Combine(parent, name);
+        if (File.Exists(target) || Directory.Exists(target))
+        {
+            SetError($"'{name}' already exists.");
+            RefreshSidebar(null);
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException or
+                                   PathTooLongException)
+        {
+            SetError($"Create folder failed: {ex.Message}");
+            RefreshSidebar(null);
+            return;
+        }
+
+        ExpandSidebarToPath(target);
+        RefreshSidebar(target);
+        SetMessage($"Created folder {name}");
     }
 
     private void BeginSidebarRename(SidebarNode node)
