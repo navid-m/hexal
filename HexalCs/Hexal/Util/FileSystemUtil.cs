@@ -165,6 +165,35 @@ public static class FileSystemUtil
         return true;
     }
 
+    /// <summary>
+    /// Expands a leading <c>~</c> to the current user's home directory. Both
+    /// <c>~/</c> and <c>~\</c> are accepted so the same command works on
+    /// POSIX and Windows. Other forms, such as <c>~user</c>, are left alone.
+    /// </summary>
+    public static string ExpandHomeDirectory(string path)
+    {
+        if (string.IsNullOrEmpty(path) || path[0] != '~')
+        {
+            return path;
+        }
+
+        if (path.Length == 1)
+        {
+            return HexalPaths.HomeDirectory;
+        }
+
+        char separator = path[1];
+        if (separator != '/' && separator != '\\')
+        {
+            return path;
+        }
+
+        string remainder = path[2..];
+        return remainder.Length == 0
+            ? HexalPaths.HomeDirectory
+            : Path.Combine(HexalPaths.HomeDirectory, remainder);
+    }
+
     public static string ParentDirectory(string path)
     {
         string parent = Path.GetDirectoryName(path) ?? string.Empty;

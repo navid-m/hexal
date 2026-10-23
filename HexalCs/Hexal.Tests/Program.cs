@@ -850,6 +850,33 @@ internal static class Program
 
         Check(FileSystemUtil.ReadFile(path, out byte[] contents, out error), "read file");
         CheckEqual(Text(contents), "new", "read contents", "new");
+
+        string home = HexalPaths.HomeDirectory;
+        CheckEqual(FileSystemUtil.ExpandHomeDirectory("~"), home, "expand bare home", home);
+        CheckEqual(
+            FileSystemUtil.ExpandHomeDirectory("~/notes.txt"),
+            System.IO.Path.Combine(home, "notes.txt"),
+            "expand home with forward slash",
+            System.IO.Path.Combine(home, "notes.txt")
+        );
+        CheckEqual(
+            FileSystemUtil.ExpandHomeDirectory("~\\notes.txt"),
+            System.IO.Path.Combine(home, "notes.txt"),
+            "expand home with backslash",
+            System.IO.Path.Combine(home, "notes.txt")
+        );
+        CheckEqual(
+            FileSystemUtil.ExpandHomeDirectory("~other/notes.txt"),
+            "~other/notes.txt",
+            "leave named-user home unchanged",
+            "~other/notes.txt"
+        );
+        CheckEqual(
+            FileSystemUtil.ExpandHomeDirectory("notes.txt"),
+            "notes.txt",
+            "leave relative path unchanged",
+            "notes.txt"
+        );
     }
 
     private static void TestFileSearch()

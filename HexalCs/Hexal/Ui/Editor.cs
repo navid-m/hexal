@@ -1767,7 +1767,7 @@ public sealed partial class Editor
             tokenEnd = Math.Clamp(tokenEnd, tokenStart, line.Length);
 
             string filter = line[tokenStart..tokenEnd];
-            List<string> items = FilterFiles(CompletionFiles(), filter);
+            List<string> items = FilterFileCompletionItems(filter);
             string prefix = line[..tokenStart];
 
             // ":e" has no separator yet; add one when the completion is
@@ -1909,12 +1909,16 @@ public sealed partial class Editor
 
         string selected = _completionItems[_completionSelected];
         CompletionKind kind = _completionKind;
-        string inserted =
-            kind == CompletionKind.Files ? CompletionPathForCommand(selected) : selected;
+        char quote = _completionQuote;
+        bool completeDirectory = false;
+        string inserted = selected;
 
         if (kind == CompletionKind.Files)
         {
-            if (_completionQuote == '\0')
+            inserted = CompletionPathForCommand(selected);
+            completeDirectory = IsDirectoryCompletionPath(inserted);
+
+            if (quote == '\0')
             {
                 if (NeedsPathQuotes(inserted))
                 {
@@ -1923,29 +1927,38 @@ public sealed partial class Editor
             }
             else
             {
-                if (_completionQuote == '"')
+                if (quote == '"')
                 {
                     inserted = inserted.Replace("\"", "\\\"");
                 }
 
-                if (_completionSuffix.Length == 0 || _completionSuffix[0] != _completionQuote)
+                if (_completionSuffix.Length == 0 || _completionSuffix[0] != quote)
                 {
-                    inserted += _completionQuote;
+                    inserted += quote;
                 }
             }
         }
 
         string line = _completionPrefix + inserted + _completionSuffix;
         int cursor = _completionPrefix.Length + inserted.Length;
+
+        // When completing a directory inside quotes, keep the editing position
+        // before the closing quote so the next typed character stays inside it.
+        if (completeDirectory && quote != '\0' && inserted.EndsWith(quote))
+        {
+            --cursor;
+        }
+
         CloseCompletion();
         _commandLine.Clear();
         _commandLine.Append(line);
         _commandCursor = Math.Clamp(cursor, 0, _commandLine.Length);
 
         // File completion is usually the last part of the command, so accept
-        // and run it in one step. Command names stay in command mode so the
-        // user can add arguments (for example, :e <file>).
-        if (kind == CompletionKind.Files)
+        // and run it in one step. Directory completions stay in command mode
+        // so the user can continue into the directory. Command names also stay
+        // in command mode to allow arguments (for example, :e <file>).
+        if (kind == CompletionKind.Files && !completeDirectory)
         {
             SubmitCommandLine();
         }
@@ -1958,7 +1971,15 @@ public sealed partial class Editor
     {
         try
         {
-            string fullPath = Path.GetFullPath(Path.Combine(ProjectRoot(), relativePath));
+            string expanded = FileSystemUtil.ExpandHomeDirectory(relativePath);
+            if (Path.IsPathRooted(expanded) || IsExplicitRelativePath(relativePath))
+            {
+                // Keep absolute paths, the user's "~/" spelling, and explicit
+                // "./" or "../" paths intact.
+                return relativePath;
+            }
+
+            string fullPath = Path.GetFullPath(Path.Combine(ProjectRoot(), expanded));
             return Path.GetRelativePath(Directory.GetCurrentDirectory(), fullPath);
         }
         catch (Exception ex)
@@ -1972,6 +1993,17 @@ public sealed partial class Editor
         {
             return relativePath;
         }
+    }
+
+    private static bool IsDirectoryCompletionPath(string path)
+    {
+        if (path.Length == 0)
+        {
+            return false;
+        }
+
+        char last = path[^1];
+        return last == Path.DirectorySeparatorChar || last == Path.AltDirectorySeparatorChar;
     }
 
     private static bool NeedsPathQuotes(string path)
@@ -2132,6 +2164,156 @@ public sealed partial class Editor
             result.Add(path);
         }
         return result;
+    }
+
+    private List<string> FilterFileCompletionItems(string filter)
+    {
+        if (
+            !TryGetExternalCompletionDirectory(
+                filter,
+                out string displayDirectory,
+                out string expandedDirectory,
+                out char separator
+            )
+        )
+        {
+            return FilterFiles(CompletionFiles(), filter);
+        }
+
+        string prefix = displayDirectory;
+        if (prefix.Length == 0)
+        {
+            prefix = separator.ToString();
+        }
+        else if (!IsPathSeparator(prefix[^1]))
+        {
+            prefix += separator;
+        }
+
+        var candidates = new List<string>();
+        try
+        {
+            foreach (string entry in Directory.EnumerateFileSystemEntries(expandedDirectory))
+            {
+                string name = Path.GetFileName(entry);
+                if (name.Length == 0)
+                {
+                    continue;
+                }
+
+                candidates.Add(
+                    Directory.Exists(entry)
+                        ? prefix + name + separator
+                        : prefix + name
+                );
+            }
+        }
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
+        {
+            // Listing an unreadable directory should leave the completion
+            // popup empty instead of interrupting command-line editing.
+        }
+
+        return FilterFiles(candidates, filter);
+    }
+
+    private static bool TryGetExternalCompletionDirectory(
+        string filter,
+        out string displayDirectory,
+        out string expandedDirectory,
+        out char separator
+    )
+    {
+        displayDirectory = string.Empty;
+        expandedDirectory = string.Empty;
+        separator = Path.DirectorySeparatorChar;
+
+        bool homePath =
+            filter.Length > 0
+            && filter[0] == '~'
+            && (filter.Length == 1 || IsPathSeparator(filter[1]));
+        bool explicitRelativePath = IsExplicitRelativePath(filter);
+        if (!homePath && !explicitRelativePath)
+        {
+            try
+            {
+                if (!Path.IsPathRooted(filter))
+                {
+                    return false;
+                }
+            }
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return false;
+            }
+        }
+
+        if (filter is "~" or "." or "..")
+        {
+            displayDirectory = filter;
+            expandedDirectory = FileSystemUtil.ExpandHomeDirectory(filter);
+            return true;
+        }
+
+        int lastSeparator = -1;
+        for (int index = filter.Length - 1; index >= 0; --index)
+        {
+            if (IsPathSeparator(filter[index]))
+            {
+                lastSeparator = index;
+                break;
+            }
+        }
+
+        if (lastSeparator < 0)
+        {
+            return false;
+        }
+
+        displayDirectory = filter[..(lastSeparator + 1)];
+        separator = filter[lastSeparator];
+        expandedDirectory = FileSystemUtil.ExpandHomeDirectory(displayDirectory);
+
+        try
+        {
+            if (!Path.IsPathRooted(expandedDirectory))
+            {
+                expandedDirectory = Path.GetFullPath(expandedDirectory);
+            }
+        }
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsPathSeparator(char character) =>
+        character == Path.DirectorySeparatorChar || character == Path.AltDirectorySeparatorChar;
+
+    private static bool IsExplicitRelativePath(string path)
+    {
+        if (path.Length == 0 || path[0] != '.')
+        {
+            return false;
+        }
+
+        if (path.Length == 1 || IsPathSeparator(path[1]))
+        {
+            return true;
+        }
+
+        return path[1] == '.'
+            && (path.Length == 2 || IsPathSeparator(path[2]));
     }
 
     private List<string> CompletionFiles()
@@ -4983,6 +5165,11 @@ public sealed partial class Editor
 
     private void StartSave(string? path, bool quitAfter, bool skipFormat = false)
     {
+        if (path is not null)
+        {
+            path = FileSystemUtil.ExpandHomeDirectory(path);
+        }
+
         if (_formatOperation is not null)
         {
             if (quitAfter)
@@ -5294,6 +5481,7 @@ public sealed partial class Editor
 
     private void OpenPathAt(string path, long line, long column)
     {
+        path = FileSystemUtil.ExpandHomeDirectory(path);
         Document? loaded = Document.Open(path, out string error);
         if (loaded is null)
         {

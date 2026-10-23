@@ -124,7 +124,9 @@ hexal [options] [file]
 | `--` | Treat remaining arguments as file names |
 
 With no file, Hexal starts with an unnamed empty buffer. Relative file names in
-`:e` and `:w` resolve against the current working directory.
+`:e` and `:w` resolve against the current working directory. A leading `~`
+expands to the user's home directory, and absolute or home paths can be
+completed with `Tab` without changing the workspace root.
 
 `hexal install-plugin <name>` clones `centralRepositoryUrl` from `.hexcfg` and
 installs the `<name>/` folder into the active plugins directory. Existing

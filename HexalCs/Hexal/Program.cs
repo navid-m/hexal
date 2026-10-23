@@ -204,7 +204,8 @@ internal static class Program
             var document = new Document();
             if (file.Length > 0)
             {
-                Document? loaded = Document.Open(file, out string openError);
+                string openPath = FileSystemUtil.ExpandHomeDirectory(file);
+                Document? loaded = Document.Open(openPath, out string openError);
                 if (loaded is null)
                 {
                     Console.Error.WriteLine($"hexal: {openError}");
