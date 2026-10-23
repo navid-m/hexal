@@ -9,7 +9,9 @@ namespace Hexal.Platform;
 internal sealed unsafe partial class PosixTerminal : ITerminal
 {
     private const int StdinFd = 0;
+    private const int StdoutFd = 1;
     private const int TcsFlush = 2;
+    private const int ORdWr = 2;
     private const int PollIn = 0x0001;
     private const int PollErr = 0x0008;
     private const int PollHup = 0x0010;
@@ -107,6 +109,16 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
     [LibraryImport("libc", EntryPoint = "poll", SetLastError = true)]
     private static partial int Poll(ref PollFd fds, nuint nfds, int timeout);
 
+    [LibraryImport("libc", EntryPoint = "open", SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int Open(string path, int flags);
+
+    [LibraryImport("libc", EntryPoint = "dup2", SetLastError = true)]
+    private static partial int Dup2(int oldFd, int newFd);
+
+    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static partial int Close(int fd);
+
     [LibraryImport("libc", EntryPoint = "read", SetLastError = true)]
     private static unsafe partial nint Read(int fd, byte* buffer, nuint count);
 
@@ -127,8 +139,14 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
 
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
         {
-            error = "standard input/output is not an interactive terminal";
-            return false;
+            // Editors such as git may launch Hexal with stdin redirected (for
+            // example to /dev/null) while still having a controlling terminal.
+            // Reattach the standard streams to /dev/tty so the editor remains
+            // usable and commits can be written normally.
+            if (!RedirectToControllingTerminal(out error))
+            {
+                return false;
+            }
         }
 
         if (_isMac)
@@ -697,6 +715,34 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             24 => Key.F12,
             _ => Key.Unknown
         };
+    }
+
+    private static bool RedirectToControllingTerminal(out string error)
+    {
+        error = string.Empty;
+
+        int ttyFd = Open("/dev/tty", ORdWr);
+        if (ttyFd < 0)
+        {
+            error = "standard input/output is not an interactive terminal: " +
+                    $"cannot open /dev/tty ({ErrnoMessage()})";
+            return false;
+        }
+
+        bool redirected = Dup2(ttyFd, StdinFd) >= 0 &&
+                          Dup2(ttyFd, StdoutFd) >= 0;
+        if (!redirected)
+        {
+            error = "cannot attach to the controlling terminal: " +
+                    ErrnoMessage();
+        }
+
+        if (ttyFd > StdoutFd)
+        {
+            Close(ttyFd);
+        }
+
+        return redirected;
     }
 
     private static string ErrnoMessage()
