@@ -1,0 +1,84 @@
+{
+    "id": "dockerfile",
+    "name": "Dockerfile",
+    "indentation": {
+        "style": "spaces",
+        "width": 4,
+        "tabWidth": 4
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [
+        ".dockerfile",
+        ".containerfile"
+    ],
+    "keywords": [
+        "ADD",
+        "ARG",
+        "CMD",
+        "COPY",
+        "ENTRYPOINT",
+        "ENV",
+        "EXPOSE",
+        "FROM",
+        "HEALTHCHECK",
+        "LABEL",
+        "MAINTAINER",
+        "ONBUILD",
+        "RUN",
+        "SHELL",
+        "STOPSIGNAL",
+        "USER",
+        "VOLUME",
+        "WORKDIR",
+        "AS",
+        "add",
+        "arg",
+        "cmd",
+        "copy",
+        "entrypoint",
+        "env",
+        "expose",
+        "from",
+        "healthcheck",
+        "label",
+        "maintainer",
+        "onbuild",
+        "run",
+        "shell",
+        "stopsignal",
+        "user",
+        "volume",
+        "workdir",
+        "as"
+    ],
+    "controlStatements": [],
+    "types": [],
+    "constants": [
+        "true",
+        "false",
+        "TRUE",
+        "FALSE"
+    ],
+    "comments": {
+        "line": "#"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\"",
+            "'"
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": [
+        "\\"
+    ],
+    "formatter": {
+        "command": "dockerfmt",
+        "arguments": [],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
+    }
+}

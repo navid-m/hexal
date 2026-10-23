@@ -1,0 +1,4 @@
+name = "Elixir"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Elixir"

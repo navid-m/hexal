@@ -1,0 +1,102 @@
+{
+    "id": "hare",
+    "name": "Hare",
+    "indentation": {
+        "style": "tabs",
+        "width": 8,
+        "tabWidth": 8
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [
+        ".ha"
+    ],
+    "keywords": [
+        "abort",
+        "align",
+        "alloc",
+        "append",
+        "as",
+        "assert",
+        "const",
+        "def",
+        "delete",
+        "done",
+        "enum",
+        "export",
+        "fn",
+        "free",
+        "insert",
+        "is",
+        "len",
+        "let",
+        "never",
+        "nomem",
+        "nullable",
+        "offset",
+        "opaque",
+        "size",
+        "static",
+        "struct",
+        "type",
+        "union",
+        "use",
+        "vaarg",
+        "vaend",
+        "valist",
+        "vastart"
+    ],
+    "controlStatements": [
+        "break",
+        "case",
+        "continue",
+        "defer",
+        "else",
+        "for",
+        "if",
+        "match",
+        "return",
+        "switch",
+        "yield"
+    ],
+    "types": [
+        "bool",
+        "char",
+        "f32",
+        "f64",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "int",
+        "rune",
+        "str",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "uint",
+        "uintptr",
+        "void"
+    ],
+    "constants": [
+        "true",
+        "false",
+        "null"
+    ],
+    "comments": {
+        "line": "//"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\"",
+            "'",
+            "`"
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": [
+        "=>"
+    ]
+}

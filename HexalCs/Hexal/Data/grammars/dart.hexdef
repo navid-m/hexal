@@ -1,0 +1,131 @@
+{
+    "id": "dart",
+    "name": "Dart",
+    "indentation": {
+        "style": "spaces",
+        "width": 2,
+        "tabWidth": 4
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [
+        ".dart"
+    ],
+    "keywords": [
+        "abstract",
+        "as",
+        "assert",
+        "async",
+        "await",
+        "base",
+        "class",
+        "const",
+        "covariant",
+        "deferred",
+        "dynamic",
+        "enum",
+        "export",
+        "extends",
+        "extension",
+        "external",
+        "factory",
+        "final",
+        "Function",
+        "get",
+        "hide",
+        "implements",
+        "import",
+        "in",
+        "interface",
+        "is",
+        "late",
+        "library",
+        "mixin",
+        "new",
+        "on",
+        "operator",
+        "part",
+        "required",
+        "rethrow",
+        "sealed",
+        "set",
+        "show",
+        "static",
+        "super",
+        "sync",
+        "this",
+        "typedef",
+        "var",
+        "void",
+        "when",
+        "with"
+    ],
+    "controlStatements": [
+        "break",
+        "case",
+        "catch",
+        "continue",
+        "default",
+        "do",
+        "else",
+        "finally",
+        "for",
+        "if",
+        "return",
+        "switch",
+        "throw",
+        "try",
+        "while",
+        "yield"
+    ],
+    "types": [
+        "bool",
+        "double",
+        "int",
+        "num",
+        "String",
+        "Object",
+        "Never",
+        "dynamic",
+        "void",
+        "List",
+        "Map",
+        "Set",
+        "Future",
+        "Stream",
+        "Iterable",
+        "Iterator",
+        "Duration",
+        "DateTime",
+        "RegExp",
+        "Function",
+        "Record"
+    ],
+    "constants": [
+        "true",
+        "false",
+        "null"
+    ],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\"",
+            "'"
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "formatter": {
+        "command": "dart",
+        "arguments": [
+            "format"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
+    }
+}

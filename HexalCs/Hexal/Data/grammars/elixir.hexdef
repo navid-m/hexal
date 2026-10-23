@@ -1,0 +1,137 @@
+{
+    "id": "elixir",
+    "name": "Elixir",
+    "indentation": {
+        "style": "spaces",
+        "width": 2,
+        "tabWidth": 4
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [
+        ".ex",
+        ".exs"
+    ],
+    "keywords": [
+        "def",
+        "defp",
+        "defmodule",
+        "defmacro",
+        "defmacrop",
+        "defstruct",
+        "defprotocol",
+        "defimpl",
+        "defdelegate",
+        "defguard",
+        "defguardp",
+        "defexception",
+        "defoverridable",
+        "defcallback",
+        "deftype",
+        "deftypedef",
+        "defrecord",
+        "defrecordp",
+        "use",
+        "import",
+        "require",
+        "alias",
+        "quote",
+        "unquote",
+        "unquote_splicing",
+        "super",
+        "__MODULE__",
+        "__ENV__",
+        "__DIR__",
+        "__CALLER__",
+        "__STACKTRACE__"
+    ],
+    "controlStatements": [
+        "after",
+        "and",
+        "case",
+        "catch",
+        "cond",
+        "do",
+        "else",
+        "end",
+        "fn",
+        "for",
+        "if",
+        "in",
+        "not",
+        "or",
+        "raise",
+        "receive",
+        "rescue",
+        "reraise",
+        "return",
+        "throw",
+        "try",
+        "unless",
+        "when",
+        "with"
+    ],
+    "types": [
+        "atom",
+        "binary",
+        "bitstring",
+        "boolean",
+        "charlist",
+        "float",
+        "function",
+        "integer",
+        "keyword",
+        "list",
+        "map",
+        "module",
+        "nil",
+        "pid",
+        "port",
+        "reference",
+        "struct",
+        "tuple"
+    ],
+    "constants": [
+        "true",
+        "false",
+        "nil"
+    ],
+    "comments": {
+        "line": "#"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\"",
+            "'"
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": [
+        "do",
+        "->",
+        "fn",
+        "else",
+        "rescue",
+        "catch",
+        "after"
+    ],
+    "unindentBefore": [
+        "end",
+        "else",
+        "catch",
+        "rescue",
+        "after"
+    ],
+    "formatter": {
+        "command": "mix",
+        "arguments": [
+            "format",
+            "--no-compile",
+            "-"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
+    }
+}
