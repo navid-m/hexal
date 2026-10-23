@@ -14,8 +14,8 @@ public sealed partial class Editor
 {
     private const int BottomLinePadding = 1;
     private const int MouseScrollLines = 3;
-    private const int PickerPreviewDebounceMs = 80;
     private const int MaxFindMatches = 50000;
+    private const int MaxPickerPreviewCacheEntries = 128;
 
     private static readonly byte[] Lf = { (byte)'\n' };
     private static readonly byte[] CrLf = { (byte)'\r', (byte)'\n' };
@@ -178,12 +178,9 @@ public sealed partial class Editor
     private string _pickerPreviewPath = string.Empty;
     private string _pickerPreviewStatus = string.Empty;
     private bool _pickerPreviewBinary;
-    private bool _pickerPreviewLoading;
-    private CancellationTokenSource? _pickerPreviewCancellation;
-    private Task<PickerPreviewResult>? _pickerPreviewTask;
-    private long _pickerPreviewGeneration;
-    private string _pickerPreviewPendingPath = string.Empty;
-    private long _pickerPreviewPendingAt;
+    private readonly Dictionary<string, FilePreview> _pickerPreviewCache =
+        new(StringComparer.Ordinal);
+    private readonly Queue<string> _pickerPreviewCacheOrder = new();
 
     private readonly List<LspCodeAction> _codeActions = new();
     private bool _pendingCodeActionResolve;
@@ -336,13 +333,6 @@ public sealed partial class Editor
         public List<string> Files = new();
         public List<FileSearchMatch> Matches = new();
         public string Error = string.Empty;
-    }
-
-    private sealed class PickerPreviewResult
-    {
-        public long Generation;
-        public string Path = string.Empty;
-        public FilePreview Preview = new();
     }
 
     private sealed class SaveOperation
@@ -499,14 +489,12 @@ public sealed partial class Editor
             // Pending background work needs a periodic wake-up so the UI can
             // report completion. Idle with no work uses a blocking read and
             // consumes no CPU.
-            bool previewPending = _pickerPreviewPendingPath.Length > 0;
             bool busy = _saveOperation is not null ||
                         _formatOperation is not null ||
                         _pickerTask is not null ||
-                        _pickerPreviewTask is not null || previewPending ||
                         _lsp.IsRunning || _lspDirty || _dap.IsRunning ||
                         _startupGrammarTask is not null;
-            int timeout = previewPending ? 16 : busy ? 50 : -1;
+            int timeout = busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
                 break;
@@ -1836,7 +1824,7 @@ public sealed partial class Editor
     }
 
     private static bool IsFileCompletionCommand(string command)
-        => command is "e" or "w";
+        => command is "e" or "w" or "debug" or "dbg";
 
     private string CompletionPathForCommand(string relativePath)
     {
@@ -2997,7 +2985,8 @@ public sealed partial class Editor
     private void OpenPicker(PickerKind kind, string? root = null,
         string? title = null)
     {
-        CancelPickerPreview();
+        _pickerPreviewCache.Clear();
+        _pickerPreviewCacheOrder.Clear();
         _pickerKind = kind;
         _pickerQuery.Clear();
         _pickerQueryCursor = 0;
@@ -3012,7 +3001,6 @@ public sealed partial class Editor
         _pickerPreviewPath = string.Empty;
         _pickerPreviewStatus = string.Empty;
         _pickerPreviewBinary = false;
-        _pickerPreviewPendingPath = string.Empty;
         _pendingG = false;
         _document.BreakUndoGroup();
         ClearMessage();
@@ -3047,7 +3035,6 @@ public sealed partial class Editor
         _pluginSelectCallback = null;
 
         CancelPickerWork();
-        CancelPickerPreview();
         _pickerKind = PickerKind.None;
         _pickerQuery.Clear();
         _pickerQueryCursor = 0;
@@ -3060,7 +3047,6 @@ public sealed partial class Editor
         _pickerPreviewLines.Clear();
         _pickerPreviewPath = string.Empty;
         _pickerPreviewStatus = string.Empty;
-        _pickerPreviewPendingPath = string.Empty;
         _codeActions.Clear();
         _pendingCodeActionResolve = false;
         _pluginSelectTitle = string.Empty;
@@ -3430,152 +3416,76 @@ public sealed partial class Editor
     {
         if (_pickerKind != PickerKind.Files)
         {
-            CancelPickerPreview();
             return;
         }
 
         if (_pickerSelected < 0 || _pickerSelected >= _pickerItems.Count)
         {
-            CancelPickerPreview();
             _pickerPreviewLines.Clear();
             _pickerPreviewPath = string.Empty;
             _pickerPreviewStatus = "No file selected";
+            _pickerPreviewBinary = false;
             return;
         }
 
         PickerItem item = _pickerItems[_pickerSelected];
-        if (item.Path.Length == 0)
+        if (item.Path.Length == 0 || PathsEqual(_pickerPreviewPath, item.Path))
         {
             return;
         }
 
-        if (PathsEqual(_pickerPreviewPath, item.Path) &&
-            (_pickerPreviewLoading || _pickerPreviewStatus.Length > 0 ||
-             _pickerPreviewLines.Count > 0))
+        if (!_pickerPreviewCache.TryGetValue(item.Path, out FilePreview? preview))
         {
-            _pickerPreviewPendingPath = string.Empty;
-            return;
+            preview = FileSearch.ReadPreview(item.Path);
+            CachePickerPreview(item.Path, preview);
         }
 
-        if (PathsEqual(_pickerPreviewPendingPath, item.Path))
-        {
-            return;
-        }
-
-        CancelPickerPreview();
-        _pickerPreviewPendingPath = item.Path;
-        _pickerPreviewPendingAt = Environment.TickCount64;
+        ApplyPickerPreview(item.Path, preview);
     }
 
-    private void StartPickerPreviewLoad(string path)
+    private void ApplyPickerPreview(string path, FilePreview preview)
     {
-        CancelPickerPreview();
-
-        long generation = ++_pickerPreviewGeneration;
-        var cancellation = new CancellationTokenSource();
-        _pickerPreviewCancellation = cancellation;
         _pickerPreviewPath = path;
         _pickerPreviewLines.Clear();
-        _pickerPreviewBinary = false;
-        _pickerPreviewStatus = string.Empty;
-        _pickerPreviewLoading = true;
+        _pickerPreviewLines.AddRange(preview.Lines);
+        _pickerPreviewBinary = preview.Binary;
 
-        _pickerPreviewTask = Task.Run(() => new PickerPreviewResult
+        if (preview.Error.Length > 0)
         {
-            Generation = generation,
-            Path = path,
-            Preview = FileSearch.ReadPreview(path)
-        }, cancellation.Token);
-    }
-
-    private void CancelPickerPreview()
-    {
-        _pickerPreviewCancellation?.Cancel();
-        _pickerPreviewCancellation?.Dispose();
-        _pickerPreviewCancellation = null;
-        _pickerPreviewTask = null;
-        _pickerPreviewLoading = false;
-        _pickerPreviewPendingPath = string.Empty;
-    }
-
-    private bool PollPickerPreview()
-    {
-        if (_pickerPreviewPendingPath.Length > 0)
-        {
-            if (Environment.TickCount64 - _pickerPreviewPendingAt <
-                PickerPreviewDebounceMs)
-            {
-                return false;
-            }
-
-            string pendingPath = _pickerPreviewPendingPath;
-            _pickerPreviewPendingPath = string.Empty;
-            if (_pickerKind == PickerKind.Files &&
-                _pickerSelected >= 0 && _pickerSelected < _pickerItems.Count &&
-                PathsEqual(_pickerItems[_pickerSelected].Path, pendingPath))
-            {
-                StartPickerPreviewLoad(pendingPath);
-                return true;
-            }
+            _pickerPreviewStatus = $"E: {preview.Error}";
         }
-
-        Task<PickerPreviewResult>? task = _pickerPreviewTask;
-        if (task is null || !task.IsCompleted)
-        {
-            return false;
-        }
-
-        _pickerPreviewTask = null;
-        _pickerPreviewCancellation?.Dispose();
-        _pickerPreviewCancellation = null;
-
-        PickerPreviewResult result;
-        try
-        {
-            result = task.GetAwaiter().GetResult();
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _pickerPreviewLoading = false;
-            _pickerPreviewStatus = $"E: {ex.Message}";
-            return true;
-        }
-
-        if (result.Generation != _pickerPreviewGeneration)
-        {
-            return false;
-        }
-
-        _pickerPreviewLoading = false;
-        _pickerPreviewPath = result.Path;
-        _pickerPreviewLines.Clear();
-        _pickerPreviewLines.AddRange(result.Preview.Lines);
-        _pickerPreviewBinary = result.Preview.Binary;
-
-        if (result.Preview.Error.Length > 0)
-        {
-            _pickerPreviewStatus = $"E: {result.Preview.Error}";
-        }
-        else if (result.Preview.Binary)
+        else if (preview.Binary)
         {
             _pickerPreviewStatus = "Binary file";
         }
-        else if (result.Preview.Lines.Count == 0)
+        else if (preview.Lines.Count == 0)
         {
             _pickerPreviewStatus = "Empty file";
         }
         else
         {
-            _pickerPreviewStatus = result.Preview.Truncated
-                ? $"First {result.Preview.Lines.Count} lines (truncated)"
-                : $"First {result.Preview.Lines.Count} line{(result.Preview.Lines.Count == 1 ? string.Empty : "s")}";
+            _pickerPreviewStatus = preview.Truncated
+                ? $"First {preview.Lines.Count} lines (truncated)"
+                : $"First {preview.Lines.Count} line{(preview.Lines.Count == 1 ? string.Empty : "s")}";
+        }
+    }
+
+    private void CachePickerPreview(string path, FilePreview preview)
+    {
+        if (_pickerPreviewCache.ContainsKey(path))
+        {
+            return;
         }
 
-        return true;
+        while (_pickerPreviewCache.Count >= MaxPickerPreviewCacheEntries &&
+               _pickerPreviewCacheOrder.Count > 0)
+        {
+            string oldest = _pickerPreviewCacheOrder.Dequeue();
+            _pickerPreviewCache.Remove(oldest);
+        }
+
+        _pickerPreviewCache[path] = preview;
+        _pickerPreviewCacheOrder.Enqueue(path);
     }
 
     private void StartPickerSearch()
@@ -4868,11 +4778,6 @@ public sealed partial class Editor
         {
             redraw = true;
         }
-        if (PollPickerPreview())
-        {
-            redraw = true;
-        }
-
         if (PollLsp())
         {
             redraw = true;
@@ -7891,12 +7796,6 @@ public sealed partial class Editor
         var errorStyle = _theme.ErrorStyle;
         int contentRows = Math.Max(0, height - 2);
         int contentWidth = Math.Max(0, width - 4);
-
-        if (_pickerPreviewLoading)
-        {
-            _screen.PutString(x + 2, y + 1, "Loading preview...", dimStyle, contentWidth);
-            return;
-        }
 
         if (_pickerPreviewStatus.StartsWith("E: ", StringComparison.Ordinal))
         {
