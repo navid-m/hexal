@@ -156,7 +156,11 @@ internal static class Program
                 entries = new[] { match };
             }
 
-            LanguageHealthTable.Write(entries, Console.Out);
+            LanguageHealthTable.Write(
+                entries,
+                Console.Out,
+                useColor: !Console.IsOutputRedirected
+            );
             return 0;
         }
         catch (Exception ex)

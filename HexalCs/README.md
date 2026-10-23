@@ -135,7 +135,9 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 
 `--health` prints one row per loaded grammar with the availability of its
 language server, formatter, debug adapter and syntax highlighting. Pass a
-language id to show only that row.
+language id to show only that row. When stdout is a terminal, available cells
+are lime green, unavailable configured cells are red, and unconfigured cells
+are cyan; headings and language names are white (headings bold).
 
 ### Keys
 
@@ -255,6 +257,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:q!` | Quit without saving |
 | `:e <file>` | Open a file |
 | `:e! <file>` | Open a file, discarding unsaved changes |
+| `:path` | Show the current file's absolute path in the message bar |
 | `:fmt` | Format the current buffer with its language formatter |
 | `:cw` | Remove trailing spaces and tabs from every line |
 | `:cfg` | Open the active configuration file |
@@ -673,6 +676,9 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | Nushell | `.nu` | `nu --lsp`, `nu-lsp` |
 | Elvish | `.elv` | `elvish -lsp` |
 | PureScript | `.purs` | `purescript-language-server` |
+| CoffeeScript | `.coffee`, `.litcoffee`, `.coffee.md` | `coffeescript-language-server` |
+| BibTeX | `.bib` | `texlab`, `bibtex-language-server` |
+| EEL2 | `.eel`, `.eel2`, `.jsfx`, `.jsfx-inc` | none (syntax highlighting only) |
 | XML | `.xml`, `.csproj`, `.rpp` | `lemminx`, `xml-language-server` |
 | C# | `.cs` | `csharp-ls`, `roslyn-language-server`, `omnisharp` |
 | C | `.h`, `.c` | `clangd` |

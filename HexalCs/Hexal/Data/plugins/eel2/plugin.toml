@@ -1,0 +1,6 @@
+name = "EEL2"
+version = "1.0"
+entry = "init.lua"
+description = "Language association for REAPER EEL2/JSFX"
+lazy = true
+language = "eel2"

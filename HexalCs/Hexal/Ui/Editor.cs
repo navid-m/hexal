@@ -112,6 +112,7 @@ public sealed partial class Editor
         "gdl",
         "gj",
         "gjp",
+        "path",
         "smc",
         "vs",
         "hs",
@@ -159,6 +160,7 @@ public sealed partial class Editor
         ["gdl"] = "Toggle git diff markers in the line-number gutter.",
         ["gj"] = "Jump to the next git diff line.",
         ["gjp"] = "Jump to the previous git diff line.",
+        ["path"] = "Show the current file's absolute path.",
         ["smc"] = "Toggle case-sensitive matching for all searches.",
         ["vs"] = "Split the current pane vertically (side by side).",
         ["hs"] = "Split the current pane horizontally (stacked).",
@@ -4308,6 +4310,15 @@ public sealed partial class Editor
                 JumpToPreviousDiffLine();
                 return;
 
+            case "path":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :path");
+                    return;
+                }
+                ShowCurrentPath();
+                return;
+
             case "smc":
                 if (arguments.Count != 0)
                 {
@@ -4596,6 +4607,25 @@ public sealed partial class Editor
     }
 
     private static bool IsFutureCommand(string name) => name is "sf" or "g" or "setup";
+
+    private void ShowCurrentPath()
+    {
+        if (_document.Path is null)
+        {
+            SetMessage("[No Name] has no file path.");
+            return;
+        }
+
+        try
+        {
+            SetMessage(Path.GetFullPath(_document.Path));
+        }
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            SetError($"path: {ex.Message}");
+        }
+    }
 
     private void FormatCurrentDocument() => FormatCurrentDocument(saveAfter: false);
 

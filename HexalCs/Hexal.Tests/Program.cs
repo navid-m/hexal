@@ -2223,6 +2223,9 @@ internal static class Program
             "nushell",
             "elvish",
             "purescript",
+            "coffeescript",
+            "bibtex",
+            "eel2",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -2293,6 +2296,18 @@ internal static class Program
             "purescript extension detection"
         );
         Check(
+            ReferenceEquals(bundled.Detect("app.coffee"), bundled.Find("coffeescript")),
+            "coffeescript extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("references.bib"), bundled.Find("bibtex")),
+            "bibtex extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("effect.eel"), bundled.Find("eel2")),
+            "eel2 extension detection"
+        );
+        Check(
             ReferenceEquals(bundled.Detect("Dockerfile"), bundled.Find("dockerfile")),
             "Dockerfile file name detection"
         );
@@ -2300,6 +2315,34 @@ internal static class Program
             ReferenceEquals(bundled.Detect("/repo/Containerfile"), bundled.Find("dockerfile")),
             "Containerfile file name detection"
         );
+
+        var healthOutput = new StringWriter();
+        LanguageHealthTable.Write(
+            new[]
+            {
+                new LanguageHealthEntry(
+                    "test",
+                    "missing-lsp",
+                    false,
+                    null,
+                    false,
+                    null,
+                    false,
+                    true
+                ),
+            },
+            healthOutput,
+            useColor: true
+        );
+        string healthText = healthOutput.ToString();
+        Check(healthText.Contains("\x1b[1;37m", StringComparison.Ordinal),
+            "health headings are bold white");
+        Check(healthText.Contains("\x1b[31m✘ missing-lsp", StringComparison.Ordinal),
+            "health unavailable server is red");
+        Check(healthText.Contains("\x1b[36mNone", StringComparison.Ordinal),
+            "health unconfigured cells are cyan");
+        Check(healthText.Contains("\x1b[38;5;118m✓", StringComparison.Ordinal),
+            "health available cells are lime green");
 
         var diffTokens = new List<SyntaxToken>();
         LanguageDefinition? dockerfileLanguage = bundled.Find("dockerfile");
