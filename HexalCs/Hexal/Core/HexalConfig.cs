@@ -25,6 +25,7 @@ public sealed class HexalConfig
             "debugAdapter": true,
             "showDiffLines": true,
             "showGitIgnored": false,
+            "keepSidebarFocusOnOpen": true,
             "confirmQuitWithoutSaving": true,
             "searchMatchCaseEnabled": false
         }
@@ -81,6 +82,13 @@ public sealed class HexalConfig
     public bool ShowDiffLines { get; init; } = true;
 
     public bool ShowGitIgnored { get; init; }
+
+    /// <summary>
+    /// When true, opening a file from the sidebar keeps keyboard focus in the
+    /// sidebar until it is closed with Ctrl+B. When false, focus moves to the
+    /// newly opened buffer.
+    /// </summary>
+    public bool KeepSidebarFocusOnOpen { get; init; } = true;
 
     /// <summary>
     /// When true, file-name filtering, in-file find and cross-file search all
@@ -192,6 +200,9 @@ public sealed class HexalConfig
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
                                    ReadBool(root, "show_git_ignored");
+            bool? keepSidebarFocusOnOpen =
+                ReadBool(root, "keepSidebarFocusOnOpen") ??
+                ReadBool(root, "keep_sidebar_focus_on_open");
             bool? confirmQuitWithoutSaving =
                 ReadBool(root, "confirmQuitWithoutSaving") ??
                 ReadBool(root, "confirm_quit_without_saving");
@@ -227,6 +238,9 @@ public sealed class HexalConfig
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
                                    ReadBool(editor, "show_git_ignored");
+                keepSidebarFocusOnOpen ??=
+                    ReadBool(editor, "keepSidebarFocusOnOpen") ??
+                    ReadBool(editor, "keep_sidebar_focus_on_open");
                 confirmQuitWithoutSaving ??=
                     ReadBool(editor, "confirmQuitWithoutSaving") ??
                     ReadBool(editor, "confirm_quit_without_saving");
@@ -253,6 +267,7 @@ public sealed class HexalConfig
                 DebugAdapter = debugAdapter ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
+                KeepSidebarFocusOnOpen = keepSidebarFocusOnOpen ?? true,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,
                 SearchMatchCaseEnabled = searchMatchCaseEnabled ?? false
             };

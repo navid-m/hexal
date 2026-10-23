@@ -349,7 +349,7 @@ public sealed partial class Editor
     private void OpenSidebarFile(SidebarNode node)
     {
         _sidebarMenuVisible = false;
-        _sidebarFocused = false;
+        _sidebarFocused = _config.KeepSidebarFocusOnOpen && _sidebarVisible;
         RequestOpen(node.Path, force: false);
     }
 

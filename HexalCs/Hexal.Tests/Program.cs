@@ -989,6 +989,8 @@ internal static class Program
         Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored &&
               config.ConfirmQuitWithoutSaving && !config.SearchMatchCaseEnabled,
             "display settings have defaults");
+        Check(config is not null && config.KeepSidebarFocusOnOpen,
+            "sidebar focus setting defaults on");
         Check(config is not null && !config.TrimTrailingWhitespaceOnSave &&
               config.SmartBackspace &&
               config.AutoDetectIndentationOnStartup &&
@@ -1072,6 +1074,20 @@ internal static class Program
             "parse nested search match case setting");
         Check(config is not null && config.SearchMatchCaseEnabled,
             "nested search match case setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"keepSidebarFocusOnOpen\": false}",
+                "test.hexcfg", out config, out error),
+            "parse sidebar focus setting");
+        Check(config is not null && !config.KeepSidebarFocusOnOpen,
+            "sidebar focus setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"keep_sidebar_focus_on_open\": false}}",
+                "test.hexcfg", out config, out error),
+            "parse nested sidebar focus setting");
+        Check(config is not null && !config.KeepSidebarFocusOnOpen,
+            "nested sidebar focus setting is read");
 
         Check(HexalConfig.TryParse(
                 "{\"confirmQuitWithoutSaving\": false}",

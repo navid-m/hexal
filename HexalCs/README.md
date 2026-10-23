@@ -458,6 +458,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "debugAdapter": true,
     "showDiffLines": true,
     "showGitIgnored": false,
+    "keepSidebarFocusOnOpen": true,
     "confirmQuitWithoutSaving": true,
     "searchMatchCaseEnabled": false
 }
@@ -493,9 +494,13 @@ must be used instead, matching Helix's behaviour.
 are enabled by default and use green for added lines, red for deleted lines and
 blue for modified lines. `showGitIgnored` controls whether files excluded by
 `.gitignore` appear in the sidebar, file picker and cross-file search.
+`keepSidebarFocusOnOpen` is enabled by default and keeps keyboard focus in the
+sidebar after opening a file; press `Ctrl+B` to close the sidebar and return to
+the buffer. Set it to `false` to move focus to the opened buffer immediately.
 `searchMatchCaseEnabled` makes file-name filtering, in-file find and
-cross-file search case-sensitive. These settings are toggled with `:gdl`,
-`:gi` and `:smc` and written back to the active configuration file.
+cross-file search case-sensitive. `showDiffLines`, `showGitIgnored` and
+`searchMatchCaseEnabled` are toggled with `:gdl`, `:gi` and `:smc` and written
+back to the active configuration file.
 
 The active configuration is `~/.hexal/.hexcfg` on every platform; a plain
 `~/.hexal/hexcfg` file is also accepted. `:cfg` opens the configuration file
