@@ -9,7 +9,7 @@ namespace Hexal;
 
 internal static class Program
 {
-    public const string Version = "0.1.2";
+    public const string Version = "0.1.3";
 
     public static int Main(string[] args) => RunHexal(args);
 
