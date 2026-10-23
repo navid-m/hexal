@@ -227,9 +227,17 @@ public sealed partial class Editor
         int gutter = GutterWidthFor(paneWidth);
         int textWidth = Math.Max(1, paneWidth - gutter);
         List<WrapRow> rows = BuildWrapRows(_topLine, paneHeight, textWidth);
-        if (localY < 0 || localY >= rows.Count)
+        if (localY < 0)
         {
             return false;
+        }
+
+        if (localY >= rows.Count)
+        {
+            // Clicking the empty space below the last wrapped row moves the
+            // cursor to the end of the document instead of doing nothing.
+            offset = _document.Size;
+            return true;
         }
 
         WrapRow row = rows[localY];

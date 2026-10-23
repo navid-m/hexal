@@ -2336,9 +2336,17 @@ public sealed partial class Editor
         }
 
         long line = _topLine + localY;
-        if (line < 0 || line >= _document.LineCount)
+        if (line < 0)
         {
             return false;
+        }
+
+        if (line >= _document.LineCount)
+        {
+            // Clicking the empty space below the last line moves the cursor to
+            // the end of the document instead of doing nothing.
+            offset = _document.Size;
+            return true;
         }
 
         int gutter = GutterWidthFor(bounds.Width);
