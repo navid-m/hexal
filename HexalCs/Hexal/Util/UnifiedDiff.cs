@@ -17,14 +17,17 @@ public static class UnifiedDiff
     {
         Equal,
         Delete,
-        Insert
+        Insert,
     }
 
     private readonly record struct Operation(
-        EditKind Kind, int OldIndex, int NewIndex, string Text);
+        EditKind Kind,
+        int OldIndex,
+        int NewIndex,
+        string Text
+    );
 
-    public static string Create(string oldLabel, string oldText,
-        string newLabel, string newText)
+    public static string Create(string oldLabel, string oldText, string newLabel, string newText)
     {
         string[] oldLines = SplitLines(oldText);
         string[] newLines = SplitLines(newText);
@@ -53,19 +56,16 @@ public static class UnifiedDiff
             switch (edit)
             {
                 case EditKind.Equal:
-                    operations.Add(new Operation(edit, oldIndex, newIndex,
-                        oldLines[oldIndex]));
+                    operations.Add(new Operation(edit, oldIndex, newIndex, oldLines[oldIndex]));
                     ++oldIndex;
                     ++newIndex;
                     break;
                 case EditKind.Delete:
-                    operations.Add(new Operation(edit, oldIndex, newIndex,
-                        oldLines[oldIndex]));
+                    operations.Add(new Operation(edit, oldIndex, newIndex, oldLines[oldIndex]));
                     ++oldIndex;
                     break;
                 case EditKind.Insert:
-                    operations.Add(new Operation(edit, oldIndex, newIndex,
-                        newLines[newIndex]));
+                    operations.Add(new Operation(edit, oldIndex, newIndex, newLines[newIndex]));
                     ++newIndex;
                     break;
             }
@@ -128,8 +128,7 @@ public static class UnifiedDiff
         return hash;
     }
 
-    private static void AppendHunks(StringBuilder output,
-        List<Operation> operations)
+    private static void AppendHunks(StringBuilder output, List<Operation> operations)
     {
         if (operations.Count == 0)
         {
@@ -179,8 +178,7 @@ public static class UnifiedDiff
         for (int index = 1; index < changes.Count; ++index)
         {
             int nextStart = Math.Max(0, changes[index] - ContextLines);
-            int nextEnd = Math.Min(operations.Count - 1,
-                changes[index] + ContextLines);
+            int nextEnd = Math.Min(operations.Count - 1, changes[index] + ContextLines);
             if (nextStart <= end + 1)
             {
                 end = Math.Max(end, nextEnd);
@@ -217,19 +215,28 @@ public static class UnifiedDiff
 
             int oldStart = oldAt[hunkStart] + 1;
             int newStart = newAt[hunkStart] + 1;
-            output.Append("@@ -").Append(oldStart).Append(',')
-                .Append(oldCount).Append(" +").Append(newStart).Append(',')
-                .Append(newCount).Append(" @@\n");
+            output
+                .Append("@@ -")
+                .Append(oldStart)
+                .Append(',')
+                .Append(oldCount)
+                .Append(" +")
+                .Append(newStart)
+                .Append(',')
+                .Append(newCount)
+                .Append(" @@\n");
 
             for (int index = hunkStart; index <= hunkEnd; ++index)
             {
                 Operation operation = operations[index];
-                output.Append(operation.Kind switch
-                {
-                    EditKind.Delete => '-',
-                    EditKind.Insert => '+',
-                    _ => ' '
-                });
+                output.Append(
+                    operation.Kind switch
+                    {
+                        EditKind.Delete => '-',
+                        EditKind.Insert => '+',
+                        _ => ' ',
+                    }
+                );
                 output.Append(operation.Text).Append('\n');
             }
         }
@@ -243,8 +250,8 @@ public static class UnifiedDiff
         int offset = max;
         var frontier = new int[max * 2 + 1];
         long frontierBytes = (long)frontier.Length * sizeof(int);
-        int depthBudget = (int)Math.Min(max, Math.Min(MaxDepth,
-            MemoryBudget / Math.Max(1L, frontierBytes)));
+        int depthBudget = (int)
+            Math.Min(max, Math.Min(MaxDepth, MemoryBudget / Math.Max(1L, frontierBytes)));
         var trace = new List<int[]>();
 
         for (int depth = 0; depth <= max; ++depth)
@@ -258,10 +265,13 @@ public static class UnifiedDiff
             for (int diagonal = -depth; diagonal <= depth; diagonal += 2)
             {
                 int x;
-                if (diagonal == -depth ||
-                    (diagonal != depth &&
-                     frontier[offset + diagonal - 1] <
-                     frontier[offset + diagonal + 1]))
+                if (
+                    diagonal == -depth
+                    || (
+                        diagonal != depth
+                        && frontier[offset + diagonal - 1] < frontier[offset + diagonal + 1]
+                    )
+                )
                 {
                     x = frontier[offset + diagonal + 1];
                 }
@@ -271,8 +281,7 @@ public static class UnifiedDiff
                 }
 
                 int y = x - diagonal;
-                while (x < oldCount && y < newCount &&
-                       oldLines[x] == newLines[y])
+                while (x < oldCount && y < newCount && oldLines[x] == newLines[y])
                 {
                     ++x;
                     ++y;
@@ -289,8 +298,13 @@ public static class UnifiedDiff
         return new List<EditKind>();
     }
 
-    private static List<EditKind> Backtrack(List<int[]> trace, int depth,
-        int offset, int oldCount, int newCount)
+    private static List<EditKind> Backtrack(
+        List<int[]> trace,
+        int depth,
+        int offset,
+        int oldCount,
+        int newCount
+    )
     {
         var edits = new List<EditKind>(oldCount + newCount);
         int x = oldCount;
@@ -301,10 +315,13 @@ public static class UnifiedDiff
             int[] frontier = trace[current];
             int diagonal = x - y;
             int previousDiagonal;
-            if (diagonal == -current ||
-                (diagonal != current &&
-                 frontier[offset + diagonal - 1] <
-                 frontier[offset + diagonal + 1]))
+            if (
+                diagonal == -current
+                || (
+                    diagonal != current
+                    && frontier[offset + diagonal - 1] < frontier[offset + diagonal + 1]
+                )
+            )
             {
                 previousDiagonal = diagonal + 1;
             }

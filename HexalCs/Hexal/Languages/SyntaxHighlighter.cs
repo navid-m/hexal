@@ -317,10 +317,7 @@ public sealed class SyntaxHighlighter
         return null;
     }
 
-    private static void MergeLineHighlights(
-        List<SyntaxToken> tokens,
-        List<SyntaxToken> highlights
-    )
+    private static void MergeLineHighlights(List<SyntaxToken> tokens, List<SyntaxToken> highlights)
     {
         var merged = new List<SyntaxToken>(tokens.Count + highlights.Count);
         int index = 0;

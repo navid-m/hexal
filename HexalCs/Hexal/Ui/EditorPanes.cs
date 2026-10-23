@@ -737,11 +737,10 @@ public sealed partial class Editor
         try
         {
             long total = _document.LineCount;
-            long maxTop = _wordWrap
-                ? Math.Max(0, total - 1)
-                : total > visibleRows
-                    ? total - visibleRows
-                    : 0;
+            long maxTop =
+                _wordWrap ? Math.Max(0, total - 1)
+                : total > visibleRows ? total - visibleRows
+                : 0;
             if (_topLine > maxTop)
             {
                 _topLine = maxTop;

@@ -81,6 +81,7 @@ public sealed partial class Editor
         "wq",
         "q",
         "fmt",
+        "fmta",
         "cw",
         "cfg",
         "rcfg",
@@ -130,6 +131,7 @@ public sealed partial class Editor
         ["wq"] = "Write the current buffer, then quit when saving finishes.",
         ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
         ["fmt"] = "Format the current buffer with its language formatter.",
+        ["fmta"] = "Format all non-ignored workspace files with the given extension.",
         ["cw"] = "Remove trailing spaces and tabs from every line.",
         ["cfg"] = "Open (or create) the Hexal configuration file.",
         ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
@@ -555,6 +557,7 @@ public sealed partial class Editor
                 _saveOperation is not null
                 || _formatOperation is not null
                 || _sidebarFormatOperation is not null
+                || _workspaceFormatOperation is not null
                 || _pickerTask is not null
                 || _lsp.IsRunning
                 || _lspDirty
@@ -2201,11 +2204,7 @@ public sealed partial class Editor
                     continue;
                 }
 
-                candidates.Add(
-                    Directory.Exists(entry)
-                        ? prefix + name + separator
-                        : prefix + name
-                );
+                candidates.Add(Directory.Exists(entry) ? prefix + name + separator : prefix + name);
             }
         }
         catch (Exception ex)
@@ -2312,8 +2311,7 @@ public sealed partial class Editor
             return true;
         }
 
-        return path[1] == '.'
-            && (path.Length == 2 || IsPathSeparator(path[2]));
+        return path[1] == '.' && (path.Length == 2 || IsPathSeparator(path[2]));
     }
 
     private List<string> CompletionFiles()
@@ -4417,6 +4415,15 @@ public sealed partial class Editor
                 FormatCurrentDocument();
                 return;
 
+            case "fmta":
+                if (arguments.Count != 1)
+                {
+                    SetError("usage: :fmta <extension>");
+                    return;
+                }
+                FormatWorkspaceExtension(arguments[0]);
+                return;
+
             case "cw":
                 if (arguments.Count != 0)
                 {
@@ -5265,6 +5272,10 @@ public sealed partial class Editor
             redraw = true;
         }
         if (PollSidebarFormat())
+        {
+            redraw = true;
+        }
+        if (PollWorkspaceFormat())
         {
             redraw = true;
         }

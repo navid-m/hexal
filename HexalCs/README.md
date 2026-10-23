@@ -261,6 +261,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:e! <file>` | Open a file, discarding unsaved changes |
 | `:path` | Show the current file's absolute path in the message bar |
 | `:fmt` | Format the current buffer with its language formatter |
+| `:fmta <ext>` | Format every non-ignored workspace file with the extension |
 | `:cw` | Remove trailing spaces and tabs from every line |
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
@@ -450,7 +451,10 @@ Canonical schema:
 ### Formatting
 
 `:fmt` formats the current buffer with the language's configured formatter.
-Formatter commands are data-only and are never run through a shell.
+`:fmta <ext>` formats every matching file under the workspace in the background,
+skipping git-ignored paths regardless of the `:gi` setting. The currently open
+buffer is left untouched. Formatter commands are data-only and are never run
+through a shell.
 
 - `formatter.command` is the executable name or path.
 - `formatter.arguments` is an array of arguments. `{file}` and `{path}` expand

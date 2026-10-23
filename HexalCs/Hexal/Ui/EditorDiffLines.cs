@@ -149,9 +149,7 @@ public sealed partial class Editor
 
         if (target < 0)
         {
-            SetMessage(forward
-                ? "No next git diff line."
-                : "No previous git diff line.");
+            SetMessage(forward ? "No next git diff line." : "No previous git diff line.");
             return;
         }
 

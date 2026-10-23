@@ -471,8 +471,7 @@ public sealed partial class Editor
             if (SidebarSelectionCount == 2)
             {
                 List<SidebarNode> selected = SelectedSidebarNodes();
-                if (selected.Count == 2 && !selected[0].IsDirectory &&
-                    !selected[1].IsDirectory)
+                if (selected.Count == 2 && !selected[0].IsDirectory && !selected[1].IsDirectory)
                 {
                     return SidebarTwoFileMenuItems;
                 }
@@ -1422,7 +1421,7 @@ public sealed partial class Editor
             return;
         }
 
-        if (_sidebarFormatOperation is not null)
+        if (_sidebarFormatOperation is not null || _workspaceFormatOperation is not null)
         {
             SetMessage("Batch formatting is already in progress.");
             return;

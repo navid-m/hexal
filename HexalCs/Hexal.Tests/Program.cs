@@ -1084,27 +1084,34 @@ internal static class Program
 
     private static void TestUnifiedDiff()
     {
-        string modified = UnifiedDiff.Create("old.txt", "a\nb\nc\n", "new.txt",
-            "a\nB\nc\n");
-        Check(modified.Contains("--- old.txt", StringComparison.Ordinal),
-            "unified diff old header");
-        Check(modified.Contains("+++ new.txt", StringComparison.Ordinal),
-            "unified diff new header");
-        Check(modified.Contains("@@ -1,3 +1,3 @@", StringComparison.Ordinal),
-            "unified diff hunk header");
-        Check(modified.Contains("\n-b\n", StringComparison.Ordinal) &&
-              modified.Contains("\n+B\n", StringComparison.Ordinal),
-            "unified diff changed lines");
+        string modified = UnifiedDiff.Create("old.txt", "a\nb\nc\n", "new.txt", "a\nB\nc\n");
+        Check(
+            modified.Contains("--- old.txt", StringComparison.Ordinal),
+            "unified diff old header"
+        );
+        Check(
+            modified.Contains("+++ new.txt", StringComparison.Ordinal),
+            "unified diff new header"
+        );
+        Check(
+            modified.Contains("@@ -1,3 +1,3 @@", StringComparison.Ordinal),
+            "unified diff hunk header"
+        );
+        Check(
+            modified.Contains("\n-b\n", StringComparison.Ordinal)
+                && modified.Contains("\n+B\n", StringComparison.Ordinal),
+            "unified diff changed lines"
+        );
 
-        string inserted = UnifiedDiff.Create("old.txt", "a\nc\n", "new.txt",
-            "a\nb\nc\n");
-        Check(inserted.Contains("@@ -1,2 +1,3 @@", StringComparison.Ordinal) &&
-              inserted.Contains("\n+b\n", StringComparison.Ordinal),
-            "unified diff inserted line");
+        string inserted = UnifiedDiff.Create("old.txt", "a\nc\n", "new.txt", "a\nb\nc\n");
+        Check(
+            inserted.Contains("@@ -1,2 +1,3 @@", StringComparison.Ordinal)
+                && inserted.Contains("\n+b\n", StringComparison.Ordinal),
+            "unified diff inserted line"
+        );
 
         string equal = UnifiedDiff.Create("old.txt", "a\n", "new.txt", "a\n");
-        Check(!equal.Contains("@@", StringComparison.Ordinal),
-            "unified diff omits identical hunk");
+        Check(!equal.Contains("@@", StringComparison.Ordinal), "unified diff omits identical hunk");
     }
 
     private static ulong[] LineHashes(params string[] lines)
@@ -1401,12 +1408,7 @@ internal static class Program
         );
 
         Check(
-            HexalConfig.TryParse(
-                "{\"wordWrap\": true}",
-                "test.hexcfg",
-                out config,
-                out error
-            ),
+            HexalConfig.TryParse("{\"wordWrap\": true}", "test.hexcfg", out config, out error),
             "parse word wrap setting"
         );
         Check(config is not null && config.WordWrap, "word wrap setting is read");
@@ -2411,14 +2413,22 @@ internal static class Program
             useColor: true
         );
         string healthText = healthOutput.ToString();
-        Check(healthText.Contains("\x1b[1;37m", StringComparison.Ordinal),
-            "health headings are bold white");
-        Check(healthText.Contains("\x1b[31m✘ missing-lsp", StringComparison.Ordinal),
-            "health unavailable server is red");
-        Check(healthText.Contains("\x1b[36mNone", StringComparison.Ordinal),
-            "health unconfigured cells are cyan");
-        Check(healthText.Contains("\x1b[38;5;118m✓", StringComparison.Ordinal),
-            "health available cells are lime green");
+        Check(
+            healthText.Contains("\x1b[1;37m", StringComparison.Ordinal),
+            "health headings are bold white"
+        );
+        Check(
+            healthText.Contains("\x1b[31m✘ missing-lsp", StringComparison.Ordinal),
+            "health unavailable server is red"
+        );
+        Check(
+            healthText.Contains("\x1b[36mNone", StringComparison.Ordinal),
+            "health unconfigured cells are cyan"
+        );
+        Check(
+            healthText.Contains("\x1b[38;5;118m✓", StringComparison.Ordinal),
+            "health available cells are lime green"
+        );
 
         var diffTokens = new List<SyntaxToken>();
         LanguageDefinition? dotenvLanguage = bundled.Find("dotenv");

@@ -101,6 +101,7 @@ public sealed partial class Editor
 
         Section("Formatting and configuration");
         Entry(":fmt", "Format the current buffer with its language formatter");
+        Entry(":fmta <ext>", "Format all non-ignored workspace files with an extension");
         Entry(":ww", "Toggle word wrap (persisted to .hexcfg)");
         Entry(":cw", "Trim trailing whitespace from every line");
         Entry(":cfg / :rcfg", "Open .hexcfg / reload configuration");

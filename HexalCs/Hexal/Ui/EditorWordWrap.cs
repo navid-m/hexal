@@ -82,10 +82,7 @@ public sealed partial class Editor
             int cellWidth = RuneCellWidth(rune, visual);
             bool isSpace = rune.Value is ' ' or '\t';
 
-            if (
-                visual + cellWidth - segmentVisualStart > width
-                && runeStart > segmentStart
-            )
+            if (visual + cellWidth - segmentVisualStart > width && runeStart > segmentStart)
             {
                 int breakAt = lastBreak > segmentStart ? lastBreak : runeStart;
                 long endVisual = lastBreak > segmentStart ? lastBreakVisual : visual;
@@ -242,9 +239,8 @@ public sealed partial class Editor
 
         WrapRow row = rows[localY];
         int length = _document.CopyLineText(row.Line, ref _lineBuffer, out _);
-        long visual = localX > gutter
-            ? row.Segment.VisualStart + (localX - gutter)
-            : row.Segment.VisualStart;
+        long visual =
+            localX > gutter ? row.Segment.VisualStart + (localX - gutter) : row.Segment.VisualStart;
         int local = UnicodeUtil.ByteOffsetForVisualColumn(
             _lineBuffer.AsSpan(0, length),
             visual,
@@ -315,9 +311,8 @@ public sealed partial class Editor
                 x = 0;
             }
 
-            Style style = wrapped.Line == current
-                ? _theme.CurrentLineNumberStyle
-                : _theme.MutedStyle;
+            Style style =
+                wrapped.Line == current ? _theme.CurrentLineNumberStyle : _theme.MutedStyle;
             if (highlight is { } highlightStyle)
             {
                 style.Bg = highlightStyle.Bg;
@@ -365,19 +360,13 @@ public sealed partial class Editor
             while (offset < end)
             {
                 int runeStart = offset;
-                while (
-                    tokenIndex < _lineTokens.Count
-                    && _lineTokens[tokenIndex].End <= runeStart
-                )
+                while (tokenIndex < _lineTokens.Count && _lineTokens[tokenIndex].End <= runeStart)
                 {
                     ++tokenIndex;
                 }
 
                 SyntaxTokenKind tokenKind = SyntaxTokenKind.Default;
-                if (
-                    tokenIndex < _lineTokens.Count
-                    && _lineTokens[tokenIndex].Start <= runeStart
-                )
+                if (tokenIndex < _lineTokens.Count && _lineTokens[tokenIndex].Start <= runeStart)
                 {
                     tokenKind = _lineTokens[tokenIndex].Kind;
                 }
@@ -489,10 +478,7 @@ public sealed partial class Editor
 
             int length = _document.CopyLineText(line, ref _lineBuffer, out _);
             long segmentStart = lineStart + wrapped.Segment.StartByte;
-            long segmentEnd = Math.Min(
-                lineEnd,
-                segmentStart + wrapped.Segment.LengthBytes
-            );
+            long segmentEnd = Math.Min(lineEnd, segmentStart + wrapped.Segment.LengthBytes);
             long fromSegment = Math.Max(from, segmentStart);
             long toSegment = Math.Min(to, segmentEnd);
             if (toSegment <= fromSegment)
