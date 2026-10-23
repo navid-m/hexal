@@ -2218,6 +2218,7 @@ internal static class Program
             "scheme",
             "supercollider",
             "ocaml",
+            "erlang",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -2262,6 +2263,14 @@ internal static class Program
         Check(
             ReferenceEquals(bundled.Detect("script.nix"), bundled.Find("nix")),
             "nix extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("server.erl"), bundled.Find("erlang")),
+            "erlang extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("app.app.src"), bundled.Find("erlang")),
+            "erlang compound extension detection"
         );
         Check(
             ReferenceEquals(bundled.Detect("Dockerfile"), bundled.Find("dockerfile")),
