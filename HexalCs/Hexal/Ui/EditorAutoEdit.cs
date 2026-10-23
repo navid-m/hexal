@@ -415,19 +415,37 @@ public sealed partial class Editor
     private static bool IsWhitespace(byte value)
         => value is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n';
 
-    private void AutoDetectIndentation()
+    private void AutoDetectIndentation(bool announce = true)
     {
         (bool useTabs, int width) = DetectDocumentIndentation(_document);
         if (useTabs)
         {
             _document.SetIndentTabs(width);
-            SetMessage($"Detected tabs; document indentation set to tabs (width {width}).");
+            if (announce)
+            {
+                SetMessage(
+                    $"Detected tabs; document indentation set to tabs (width {width}).");
+            }
         }
         else
         {
             _document.SetIndentSpaces(width);
-            SetMessage($"Detected spaces; document indentation set to {width} spaces.");
+            if (announce)
+            {
+                SetMessage(
+                    $"Detected spaces; document indentation set to {width} spaces.");
+            }
         }
+    }
+
+    private void AutoDetectIndentationOnOpen()
+    {
+        if (!_config.AutoDetectIndentationOnStartup || _document.Size == 0)
+        {
+            return;
+        }
+
+        AutoDetectIndentation(announce: false);
     }
 
     private static (bool UseTabs, int Width) DetectDocumentIndentation(

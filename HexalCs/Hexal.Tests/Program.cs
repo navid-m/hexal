@@ -980,7 +980,8 @@ internal static class Program
               config.ConfirmQuitWithoutSaving && !config.SearchMatchCaseEnabled,
             "display settings have defaults");
         Check(config is not null && !config.TrimTrailingWhitespaceOnSave &&
-              config.SmartBackspace,
+              config.SmartBackspace &&
+              config.AutoDetectIndentationOnStartup,
             "whitespace settings have defaults");
 
         Check(HexalConfig.TryParse(
@@ -999,6 +1000,20 @@ internal static class Program
         Check(config is not null && config.TrimTrailingWhitespaceOnSave &&
               !config.SmartBackspace,
             "nested whitespace settings are read");
+
+        Check(HexalConfig.TryParse(
+                "{\"autoDetectIndentationOnStartup\": false}",
+                "test.hexcfg", out config, out error),
+            "parse auto-detect indentation setting");
+        Check(config is not null && !config.AutoDetectIndentationOnStartup,
+            "auto-detect indentation setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"auto_detect_indentation_on_startup\": false}}",
+                "test.hexcfg", out config, out error),
+            "parse nested auto-detect indentation setting");
+        Check(config is not null && !config.AutoDetectIndentationOnStartup,
+            "nested auto-detect indentation setting is read");
 
         Check(HexalConfig.TryParse(
                 "{\"showDiffLines\": false, \"showGitIgnored\": true, " +

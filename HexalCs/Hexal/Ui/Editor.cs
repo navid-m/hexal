@@ -372,6 +372,7 @@ public sealed partial class Editor
         _themes = ThemeRegistry.LoadDefault(out string themeError);
         _theme = _themes.ActiveTheme;
         RefreshLanguage();
+        AutoDetectIndentationOnOpen();
         RefreshFileStamp();
         RefreshDiffLines();
         SnapCursor();
@@ -770,6 +771,7 @@ public sealed partial class Editor
         ResetLsp();
         _document = loaded;
         RefreshLanguage();
+        AutoDetectIndentationOnOpen();
 
         if (_mode == Mode.Select)
         {
@@ -4846,6 +4848,7 @@ public sealed partial class Editor
         ResetLsp();
         _document = loaded;
         RefreshLanguage();
+        AutoDetectIndentationOnOpen();
         _cursor = 0;
         _topLine = 0;
         _leftColumn = 0;

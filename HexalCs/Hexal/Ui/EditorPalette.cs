@@ -62,7 +62,7 @@ public sealed partial class Editor
             CloseCurrentBuffer);
         AddPaletteCommand("Detect document indentation",
             "Infer tabs or spaces and the indent width from the current buffer.",
-            AutoDetectIndentation);
+            () => AutoDetectIndentation());
         AddPaletteCommand("Open theme selector",
             "Search and preview installed themes.",
             () => OpenPicker(PickerKind.Themes));

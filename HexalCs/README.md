@@ -411,6 +411,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "formatOnSave": false,
     "trimTrailingWhitespaceOnSave": false,
     "smartBackspace": true,
+    "autoDetectIndentationOnStartup": true,
     "showDiffLines": true,
     "showGitIgnored": false,
     "confirmQuitWithoutSaving": true,
@@ -422,7 +423,9 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
 line before each save; the same cleanup is available on demand with `:cw`.
 `smartBackspace` is enabled by default and makes Backspace remove the whole
 indentation run when only spaces or tabs precede the cursor; set it to `false`
-to delete one character at a time.
+to delete one character at a time. `autoDetectIndentationOnStartup` is enabled
+by default and infers the indentation style and width whenever a non-empty
+buffer is opened; blank new buffers are left using the language defaults.
 
 `confirmQuitWithoutSaving` controls whether `:q` asks for confirmation when
 there are unsaved changes. When set to `false`, the quit is refused and `:q!`

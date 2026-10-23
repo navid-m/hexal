@@ -15,6 +15,7 @@ public sealed class HexalConfig
             "formatOnSave": false,
             "trimTrailingWhitespaceOnSave": false,
             "smartBackspace": true,
+            "autoDetectIndentationOnStartup": true,
             "showDiffLines": true,
             "showGitIgnored": false,
             "confirmQuitWithoutSaving": true,
@@ -38,6 +39,12 @@ public sealed class HexalConfig
     /// whitespace precedes the cursor on the line.
     /// </summary>
     public bool SmartBackspace { get; init; } = true;
+
+    /// <summary>
+    /// When true, opening a non-empty buffer infers its indentation style and
+    /// width instead of relying on the language defaults.
+    /// </summary>
+    public bool AutoDetectIndentationOnStartup { get; init; } = true;
 
     public bool ShowDiffLines { get; init; } = true;
 
@@ -136,6 +143,9 @@ public sealed class HexalConfig
                 ReadBool(root, "trim_trailing_whitespace_on_save");
             bool? smartBackspace = ReadBool(root, "smartBackspace") ??
                                    ReadBool(root, "smart_backspace");
+            bool? autoDetectIndentationOnStartup =
+                ReadBool(root, "autoDetectIndentationOnStartup") ??
+                ReadBool(root, "auto_detect_indentation_on_startup");
             bool? showDiffLines = ReadBool(root, "showDiffLines") ??
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
@@ -157,6 +167,9 @@ public sealed class HexalConfig
                     ReadBool(editor, "trim_trailing_whitespace_on_save");
                 smartBackspace ??= ReadBool(editor, "smartBackspace") ??
                                    ReadBool(editor, "smart_backspace");
+                autoDetectIndentationOnStartup ??=
+                    ReadBool(editor, "autoDetectIndentationOnStartup") ??
+                    ReadBool(editor, "auto_detect_indentation_on_startup");
                 showDiffLines ??= ReadBool(editor, "showDiffLines") ??
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
@@ -176,6 +189,8 @@ public sealed class HexalConfig
                 TrimTrailingWhitespaceOnSave =
                     trimTrailingWhitespaceOnSave ?? false,
                 SmartBackspace = smartBackspace ?? true,
+                AutoDetectIndentationOnStartup =
+                    autoDetectIndentationOnStartup ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,
