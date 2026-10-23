@@ -15,8 +15,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 {
     private LuaPluginManager? _plugins;
     private readonly LspManager _lsp = new();
-    private readonly Dictionary<string, string> _pluginStatus =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _pluginStatus = new(StringComparer.Ordinal);
     private bool _lspDirty;
     private long _lspDirtySince;
 
@@ -44,10 +43,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
         long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         _plugins.LoadAll();
-        _benchmark?.AddSince("Plugins", "Load all", phaseStart,
-            $"{_plugins.PluginCount} running, " +
-            $"{_plugins.DeferredPluginCount} deferred, " +
-            $"{_plugins.Errors.Count} errors");
+        _benchmark?.AddSince(
+            "Plugins",
+            "Load all",
+            phaseStart,
+            $"{_plugins.PluginCount} running, "
+                + $"{_plugins.DeferredPluginCount} deferred, "
+                + $"{_plugins.Errors.Count} errors"
+        );
 
         if (_plugins.Errors.Count > 0)
         {
@@ -64,10 +67,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             SetMessage(message);
         }
 
-        _plugins.FireEvent("editor_started", new Dictionary<string, object?>
-        {
-            ["api_version"] = 1
-        });
+        _plugins.FireEvent(
+            "editor_started",
+            new Dictionary<string, object?> { ["api_version"] = 1 }
+        );
         _plugins.FireEvent("buffer_opened", CurrentBufferData());
         _plugins.ActivateLuaLsp();
     }
@@ -89,16 +92,22 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         int pluginCount = _plugins.PluginCount;
         _plugins.FireEvent("editor_shutdown");
         _plugins.Dispose();
-        _benchmark?.AddSince("Plugins (shutdown)", "Unload all", phaseStart,
-            $"{pluginCount} plugins");
+        _benchmark?.AddSince(
+            "Plugins (shutdown)",
+            "Unload all",
+            phaseStart,
+            $"{pluginCount} plugins"
+        );
         _plugins = null;
         _lsp.Stop();
         _pluginStatus.Clear();
         _lspDirty = false;
     }
 
-    private void FirePluginEvent(string eventName,
-        IReadOnlyDictionary<string, object?>? data = null)
+    private void FirePluginEvent(
+        string eventName,
+        IReadOnlyDictionary<string, object?>? data = null
+    )
     {
         _plugins?.FireEvent(eventName, data);
         if (string.Equals(eventName, "buffer_opened", StringComparison.Ordinal))
@@ -107,8 +116,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
     }
 
-    private void EmitInputEvents(Document documentBefore, long revisionBefore,
-        long cursorBefore)
+    private void EmitInputEvents(Document documentBefore, long revisionBefore, long cursorBefore)
     {
         if (!ReferenceEquals(documentBefore, _document))
         {
@@ -134,11 +142,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         if (_cursor != cursorBefore && _plugins.HasSubscribers("cursor_moved"))
         {
             PluginCursor cursor = GetCursor();
-            FirePluginEvent("cursor_moved", new Dictionary<string, object?>
-            {
-                ["line"] = cursor.Line,
-                ["column"] = cursor.Column
-            });
+            FirePluginEvent(
+                "cursor_moved",
+                new Dictionary<string, object?>
+                {
+                    ["line"] = cursor.Line,
+                    ["column"] = cursor.Column,
+                }
+            );
         }
     }
 
@@ -149,7 +160,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             ["id"] = CurrentBufferId,
             ["path"] = _document.Path,
             ["modified"] = _document.IsDirty,
-            ["language"] = _language?.Id
+            ["language"] = _language?.Id,
         };
     }
 
@@ -199,11 +210,15 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 return;
             case Key.Left:
                 _pluginPromptCursor = UnicodeUtil.PreviousBoundary(
-                    _pluginPromptText.ToString(), _pluginPromptCursor);
+                    _pluginPromptText.ToString(),
+                    _pluginPromptCursor
+                );
                 return;
             case Key.Right:
                 _pluginPromptCursor = UnicodeUtil.NextBoundary(
-                    _pluginPromptText.ToString(), _pluginPromptCursor);
+                    _pluginPromptText.ToString(),
+                    _pluginPromptCursor
+                );
                 return;
             case Key.Home:
                 _pluginPromptCursor = 0;
@@ -245,16 +260,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     {
         var promptStyle = _theme.AccentStyle;
         string label = _pluginPromptLabel;
-        _screen.PutString(BottomLinePadding, row, label, promptStyle,
-            _columns - BottomLinePadding);
+        _screen.PutString(BottomLinePadding, row, label, promptStyle, _columns - BottomLinePadding);
 
         long labelWidth = UnicodeUtil.ColumnWidth(label);
         string text = _pluginPromptText.ToString();
         int remaining = _columns - BottomLinePadding - (int)labelWidth;
         if (remaining > 0)
         {
-            _screen.PutString(BottomLinePadding + (int)labelWidth, row, text,
-                baseStyle, remaining);
+            _screen.PutString(BottomLinePadding + (int)labelWidth, row, text, baseStyle, remaining);
         }
 
         long cursorColumn = UnicodeUtil.VisualColumn(text, _pluginPromptCursor, 1);
@@ -267,8 +280,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
     }
 
-    private void OpenPluginPicker(string title, IReadOnlyList<string> items,
-        Action<int?> callback)
+    private void OpenPluginPicker(string title, IReadOnlyList<string> items, Action<int?> callback)
     {
         _pluginSelectTitle = title;
         _pluginSelectItems.Clear();
@@ -295,9 +307,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 case LspEventKind.Diagnostics:
                 {
                     int count = lspEvent.Diagnostics.Count;
-                    _pluginStatus["lsp"] = count == 0
-                        ? $"LSP: {lspEvent.ServerName}"
-                        : $"LSP: {lspEvent.ServerName} ({count})";
+                    _pluginStatus["lsp"] =
+                        count == 0
+                            ? $"LSP: {lspEvent.ServerName}"
+                            : $"LSP: {lspEvent.ServerName} ({count})";
 
                     if (_pickerKind == PickerKind.Problems)
                     {
@@ -309,23 +322,27 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                         var diagnostics = new List<object?>(count);
                         foreach (LspDiagnostic diagnostic in lspEvent.Diagnostics)
                         {
-                            diagnostics.Add(new Dictionary<string, object?>
-                            {
-                                ["line"] = diagnostic.Line,
-                                ["column"] = diagnostic.Column,
-                                ["severity"] = diagnostic.Severity,
-                                ["message"] = diagnostic.Message,
-                                ["source"] = diagnostic.Source
-                            });
+                            diagnostics.Add(
+                                new Dictionary<string, object?>
+                                {
+                                    ["line"] = diagnostic.Line,
+                                    ["column"] = diagnostic.Column,
+                                    ["severity"] = diagnostic.Severity,
+                                    ["message"] = diagnostic.Message,
+                                    ["source"] = diagnostic.Source,
+                                }
+                            );
                         }
 
-                        _plugins.FireEvent("__lsp_diagnostics",
+                        _plugins.FireEvent(
+                            "__lsp_diagnostics",
                             new Dictionary<string, object?>
                             {
                                 ["server"] = lspEvent.ServerName,
                                 ["uri"] = lspEvent.Uri,
-                                ["diagnostics"] = diagnostics
-                            });
+                                ["diagnostics"] = diagnostics,
+                            }
+                        );
                     }
                     break;
                 }
@@ -387,7 +404,9 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                         }
                         else
                         {
-                            SetMessage("The language server returned no changes for this code action.");
+                            SetMessage(
+                                "The language server returned no changes for this code action."
+                            );
                         }
                     }
                     break;
@@ -423,8 +442,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             }
         }
 
-        if (_lspDirty && _lsp.IsInitialized &&
-            Environment.TickCount64 - _lspDirtySince >= 150)
+        if (_lspDirty && _lsp.IsInitialized && Environment.TickCount64 - _lspDirtySince >= 150)
         {
             _lsp.DidChange(GetText());
             _lspDirty = false;
@@ -463,8 +481,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         long start = _document.LineStart(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         int byteOffset = (int)Math.Clamp(_cursor - start, 0, length);
-        return ((int)line, LspPositions.ByteOffsetToUtf16Column(
-            _lineBuffer.AsSpan(0, length), byteOffset));
+        return (
+            (int)line,
+            LspPositions.ByteOffsetToUtf16Column(_lineBuffer.AsSpan(0, length), byteOffset)
+        );
     }
 
     private bool EnsureLspReady(string feature)
@@ -543,8 +563,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return;
         }
 
-        long column = LspColumnToByteOffset(path, location.Line,
-            location.Character);
+        long column = LspColumnToByteOffset(path, location.Line, location.Character);
 
         if (_document.Path is not null && SamePath(_document.Path, path))
         {
@@ -566,8 +585,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
 
         (int line, int character) = CursorLspPosition();
-        List<LspDiagnostic> diagnostics =
-            _lsp.SnapshotDiagnosticsForPath(_document.Path!);
+        List<LspDiagnostic> diagnostics = _lsp.SnapshotDiagnosticsForPath(_document.Path!);
         _pendingCodeActionResolve = false;
 
         if (!_lsp.RequestCodeActions(_document.Path!, line, character, diagnostics))
@@ -597,8 +615,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         SetMessage("Requesting document symbols...");
     }
 
-    private void OpenDocumentSymbolPicker(
-        IReadOnlyList<LspDocumentSymbol> symbols)
+    private void OpenDocumentSymbolPicker(IReadOnlyList<LspDocumentSymbol> symbols)
     {
         if (symbols.Count == 0)
         {
@@ -610,8 +627,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         foreach (LspDocumentSymbol symbol in symbols)
         {
             int indent = Math.Min(symbol.Depth, 12) * 2;
-            string label = new string(' ', indent) +
-                           $"{SymbolKindName(symbol.Kind)} {symbol.Name}";
+            string label = new string(' ', indent) + $"{SymbolKindName(symbol.Kind)} {symbol.Name}";
             if (symbol.Detail.Length > 0)
             {
                 label += $"  {symbol.Detail}";
@@ -619,37 +635,39 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             labels.Add(label);
         }
 
-        OpenPluginPicker("Symbols", labels, index =>
-        {
-            if (index is null || index.Value < 0 ||
-                index.Value >= symbols.Count)
+        OpenPluginPicker(
+            "Symbols",
+            labels,
+            index =>
             {
-                SetMessage("Symbol picker cancelled.");
-                return;
-            }
+                if (index is null || index.Value < 0 || index.Value >= symbols.Count)
+                {
+                    SetMessage("Symbol picker cancelled.");
+                    return;
+                }
 
-            LspDocumentSymbol symbol = symbols[index.Value];
-            string path = LspManager.UriToPath(symbol.Uri);
-            if (string.IsNullOrEmpty(path))
-            {
-                SetError("The language server returned an invalid symbol location.");
-                return;
-            }
+                LspDocumentSymbol symbol = symbols[index.Value];
+                string path = LspManager.UriToPath(symbol.Uri);
+                if (string.IsNullOrEmpty(path))
+                {
+                    SetError("The language server returned an invalid symbol location.");
+                    return;
+                }
 
-            long column = LspColumnToByteOffset(path, symbol.Line,
-                symbol.Character);
-            ClearMessage();
-            if (_document.Path is not null && SamePath(_document.Path, path))
-            {
-                RecordJump(_cursor);
-                MoveToLineColumn(symbol.Line, column);
+                long column = LspColumnToByteOffset(path, symbol.Line, symbol.Character);
+                ClearMessage();
+                if (_document.Path is not null && SamePath(_document.Path, path))
+                {
+                    RecordJump(_cursor);
+                    MoveToLineColumn(symbol.Line, column);
+                }
+                else
+                {
+                    RecordJump(_cursor);
+                    RequestOpen(path, force: false, symbol.Line, column);
+                }
             }
-            else
-            {
-                RecordJump(_cursor);
-                RequestOpen(path, force: false, symbol.Line, column);
-            }
-        });
+        );
     }
 
     private static string SymbolKindName(int kind)
@@ -682,7 +700,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             24 => "Event",
             25 => "Operator",
             26 => "TypeParameter",
-            _ => "Symbol"
+            _ => "Symbol",
         };
     }
 
@@ -721,23 +739,35 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         bool inCode = false;
         bool codeStartInBlock = false;
 
-        foreach (string rawLine in text.Replace("\r\n", "\n").Replace('\r', '\n')
-                     .Split('\n'))
+        foreach (string rawLine in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
         {
-            bool isFence = TryHoverFence(rawLine, out char currentFence,
-                out int currentLength, out string info);
+            bool isFence = TryHoverFence(
+                rawLine,
+                out char currentFence,
+                out int currentLength,
+                out string info
+            );
 
             if (inCode)
             {
-                if (isFence && currentFence == fenceChar &&
-                    currentLength >= fenceLength && info.Length == 0)
+                if (
+                    isFence
+                    && currentFence == fenceChar
+                    && currentLength >= fenceLength
+                    && info.Length == 0
+                )
                 {
                     inCode = false;
                     continue;
                 }
 
-                AddHoverCodeLine(rawLine, ResolveHoverLanguage(codeInfo),
-                    contentWidth, _hoverLines, ref codeStartInBlock);
+                AddHoverCodeLine(
+                    rawLine,
+                    ResolveHoverLanguage(codeInfo),
+                    contentWidth,
+                    _hoverLines,
+                    ref codeStartInBlock
+                );
                 continue;
             }
 
@@ -772,8 +802,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         ClearMessage();
     }
 
-    private static bool TryHoverFence(string line, out char fence,
-        out int count, out string info)
+    private static bool TryHoverFence(string line, out char fence, out int count, out string info)
     {
         fence = '\0';
         count = 0;
@@ -843,14 +872,19 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             "py" => "python",
             "golang" => "go",
             "pyx" => "cython",
-            _ => id
+            _ => id,
         };
 
         return _languages.Find(id);
     }
 
-    private void AddHoverCodeLine(string line, LanguageDefinition? language,
-        int width, List<HoverLine> destination, ref bool startInBlock)
+    private void AddHoverCodeLine(
+        string line,
+        LanguageDefinition? language,
+        int width,
+        List<HoverLine> destination,
+        ref bool startInBlock
+    )
     {
         if (line.Length == 0)
         {
@@ -863,8 +897,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         bool endInBlock = startInBlock;
         if (language is not null)
         {
-            SyntaxHighlighter.GetLineTokens(language, text, startInBlock, tokens,
-                out endInBlock);
+            SyntaxHighlighter.GetLineTokens(language, text, startInBlock, tokens, out endInBlock);
         }
         startInBlock = endInBlock;
 
@@ -883,8 +916,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             }
 
             SyntaxTokenKind kind = SyntaxTokenKind.Default;
-            if (tokenIndex < tokens.Count &&
-                tokens[tokenIndex].Start <= runeStart)
+            if (tokenIndex < tokens.Count && tokens[tokenIndex].Start <= runeStart)
             {
                 kind = tokens[tokenIndex].Kind;
             }
@@ -941,8 +973,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
     }
 
-    private static void AddHoverSegment(HoverLine line, string text,
-        SyntaxTokenKind kind)
+    private static void AddHoverSegment(HoverLine line, string text, SyntaxTokenKind kind)
     {
         if (text.Length == 0)
         {
@@ -959,8 +990,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         line.Segments.Add(new HoverSegment(text, kind));
     }
 
-    private static void WrapHoverLine(string line, int width,
-        List<HoverLine> destination)
+    private static void WrapHoverLine(string line, int width, List<HoverLine> destination)
     {
         width = Math.Max(1, width);
         int offset = 0;
@@ -983,8 +1013,9 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             }
 
             var hoverLine = new HoverLine();
-            hoverLine.Segments.Add(new HoverSegment(
-                line.Substring(offset, take).TrimEnd(), SyntaxTokenKind.Default));
+            hoverLine.Segments.Add(
+                new HoverSegment(line.Substring(offset, take).TrimEnd(), SyntaxTokenKind.Default)
+            );
             destination.Add(hoverLine);
             offset += take;
             while (offset < line.Length && line[offset] == ' ')
@@ -1006,9 +1037,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     {
         _pendingCodeActionResolve = false;
 
-        if (action.NeedsResolve || (action.Edits.Count == 0 &&
-                                    action.Command.Length == 0 &&
-                                    action.Raw is not null))
+        if (
+            action.NeedsResolve
+            || (action.Edits.Count == 0 && action.Command.Length == 0 && action.Raw is not null)
+        )
         {
             if (_lsp.ResolveCodeAction(action))
             {
@@ -1022,23 +1054,27 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         int changedFiles = 0;
         var failures = new List<string>();
 
-        foreach (IGrouping<string, LspTextEdit> group in
-                 action.Edits.GroupBy(edit => edit.Uri, StringComparer.Ordinal))
+        foreach (
+            IGrouping<string, LspTextEdit> group in action.Edits.GroupBy(
+                edit => edit.Uri,
+                StringComparer.Ordinal
+            )
+        )
         {
             string path;
             try
             {
                 path = Path.GetFullPath(LspManager.UriToPath(group.Key));
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 failures.Add(ex.Message);
                 continue;
             }
 
-            bool isCurrent = _document.Path is not null &&
-                             PathsEqual(Path.GetFullPath(_document.Path), path);
+            bool isCurrent =
+                _document.Path is not null && PathsEqual(Path.GetFullPath(_document.Path), path);
 
             if (isCurrent)
             {
@@ -1114,25 +1150,30 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     /// positions using the pre-edit line index and applied from the end of the
     /// document backwards so earlier offsets remain valid.
     /// </summary>
-    private static bool TryApplyTextEdits(Document document,
-        List<LspTextEdit> edits, out string error)
+    private static bool TryApplyTextEdits(
+        Document document,
+        List<LspTextEdit> edits,
+        out string error
+    )
     {
         error = string.Empty;
         var resolved = new List<(long Start, long End, byte[] Text)>(edits.Count);
 
         foreach (LspTextEdit edit in edits)
         {
-            if (edit.StartLine < 0 || edit.EndLine < 0 ||
-                edit.StartLine >= document.LineCount || edit.EndLine >= document.LineCount)
+            if (
+                edit.StartLine < 0
+                || edit.EndLine < 0
+                || edit.StartLine >= document.LineCount
+                || edit.EndLine >= document.LineCount
+            )
             {
                 error = "code action references a line outside the document";
                 return false;
             }
 
-            long start = LinePositionToOffset(document, edit.StartLine,
-                edit.StartCharacter);
-            long end = LinePositionToOffset(document, edit.EndLine,
-                edit.EndCharacter);
+            long start = LinePositionToOffset(document, edit.StartLine, edit.StartCharacter);
+            long end = LinePositionToOffset(document, edit.EndLine, edit.EndCharacter);
             if (end < start)
             {
                 error = "code action has an inverted edit range";
@@ -1165,8 +1206,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         return true;
     }
 
-    private static long LinePositionToOffset(Document document, int line,
-        int utf16Character)
+    private static long LinePositionToOffset(Document document, int line, int utf16Character)
     {
         line = (int)Math.Clamp(line, 0, document.LineCount - 1);
         long start = document.LineStart(line);
@@ -1195,8 +1235,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return false;
         }
 
-        if (_lsp.IsRunning &&
-            string.Equals(_lsp.ServerName, server.Name, StringComparison.Ordinal))
+        if (_lsp.IsRunning && string.Equals(_lsp.ServerName, server.Name, StringComparison.Ordinal))
         {
             return true;
         }
@@ -1206,12 +1245,11 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         {
             Name = server.Name,
             LanguageId = _language?.Id ?? server.Filetypes.FirstOrDefault() ?? string.Empty,
-            Transport = transport
+            Transport = transport,
         };
 
         _lspDirty = false;
-        if (_lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot,
-                out string error))
+        if (_lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot, out string error))
         {
             return true;
         }
@@ -1222,9 +1260,13 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
     public void StopLuaLsp(string name)
     {
-        if (_lsp.IsRunning &&
-            (string.IsNullOrEmpty(name) ||
-             string.Equals(_lsp.ServerName, name, StringComparison.Ordinal)))
+        if (
+            _lsp.IsRunning
+            && (
+                string.IsNullOrEmpty(name)
+                || string.Equals(_lsp.ServerName, name, StringComparison.Ordinal)
+            )
+        )
         {
             _lsp.Stop();
             _pluginStatus.Remove("lsp");
@@ -1261,8 +1303,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         long line = CursorLine();
         long lineStart = _document.LineStart(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-        long column = ScalarColumn(_lineBuffer.AsSpan(0, length),
-            (int)(_cursor - lineStart));
+        long column = ScalarColumn(_lineBuffer.AsSpan(0, length), (int)(_cursor - lineStart));
         return new PluginCursor(line, column);
     }
 
@@ -1305,16 +1346,26 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         long endLineStart = _document.LineStart(endLine);
 
         int startLength = _document.CopyLineText(startLine, ref _lineBuffer, out _);
-        long startColumn = ScalarColumn(_lineBuffer.AsSpan(0, startLength),
-            (int)Math.Clamp(start - startLineStart, 0, startLength));
+        long startColumn = ScalarColumn(
+            _lineBuffer.AsSpan(0, startLength),
+            (int)Math.Clamp(start - startLineStart, 0, startLength)
+        );
 
         int endLength = _document.CopyLineText(endLine, ref _lineBuffer, out _);
-        long endColumn = ScalarColumn(_lineBuffer.AsSpan(0, endLength),
-            (int)Math.Clamp(end - endLineStart, 0, endLength));
+        long endColumn = ScalarColumn(
+            _lineBuffer.AsSpan(0, endLength),
+            (int)Math.Clamp(end - endLineStart, 0, endLength)
+        );
 
         string text = Encoding.UTF8.GetString(_document.Range(start, end - start));
-        return new PluginSelection(startLine, startColumn, endLine, endColumn,
-            text, _selectionLinewise);
+        return new PluginSelection(
+            startLine,
+            startColumn,
+            endLine,
+            endColumn,
+            text,
+            _selectionLinewise
+        );
     }
 
     public bool InsertText(string text, out string error)
@@ -1335,12 +1386,13 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         return true;
     }
 
-    public bool ReplaceRange(object? start, object? finish, string text,
-        out string error)
+    public bool ReplaceRange(object? start, object? finish, string text, out string error)
     {
         error = string.Empty;
-        if (!TryPluginOffset(start, out long startOffset, out error) ||
-            !TryPluginOffset(finish, out long endOffset, out error))
+        if (
+            !TryPluginOffset(start, out long startOffset, out error)
+            || !TryPluginOffset(finish, out long endOffset, out error)
+        )
         {
             return false;
         }
@@ -1397,8 +1449,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         ClearMessage();
     }
 
-    public void RequestSelect(string title, IReadOnlyList<string> items,
-        Action<int?> callback)
+    public void RequestSelect(string title, IReadOnlyList<string> items, Action<int?> callback)
     {
         OpenPluginPicker(title ?? "Select", items, callback);
     }
@@ -1413,14 +1464,15 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
 
         _lspDirty = false;
-        return _lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot,
-            out error);
+        return _lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot, out error);
     }
 
     public void StopLsp(string? name)
     {
-        if (string.IsNullOrEmpty(name) ||
-            string.Equals(_lsp.ServerName, name, StringComparison.OrdinalIgnoreCase))
+        if (
+            string.IsNullOrEmpty(name)
+            || string.Equals(_lsp.ServerName, name, StringComparison.OrdinalIgnoreCase)
+        )
         {
             _lsp.Stop();
             _pluginStatus.Remove("lsp");
@@ -1428,8 +1480,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
     }
 
-    public bool ExecuteCommand(string name, IReadOnlyList<string> args,
-        out string error)
+    public bool ExecuteCommand(string name, IReadOnlyList<string> args, out string error)
     {
         error = string.Empty;
         if (_plugins is not null && _plugins.HasCommand(name))
@@ -1458,8 +1509,17 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             case null:
                 error = "position is required";
                 return false;
-            case byte or sbyte or short or ushort or int or uint or long or ulong or
-                 float or double or decimal:
+            case byte
+            or sbyte
+            or short
+            or ushort
+            or int
+            or uint
+            or long
+            or ulong
+            or float
+            or double
+            or decimal:
                 offset = Convert.ToInt64(value, CultureInfo.InvariantCulture);
                 return true;
             case LuaTable table:
@@ -1482,8 +1542,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
                 long lineStart = _document.LineStart(line);
                 int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-                int local = ByteOffsetForScalarColumn(_lineBuffer.AsSpan(0, length),
-                    column);
+                int local = ByteOffsetForScalarColumn(_lineBuffer.AsSpan(0, length), column);
                 offset = Math.Clamp(lineStart + local, lineStart, _document.LineEnd(line));
                 return true;
             }

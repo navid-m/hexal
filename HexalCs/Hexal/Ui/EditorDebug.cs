@@ -6,8 +6,7 @@ namespace Hexal.Ui;
 public sealed partial class Editor
 {
     private readonly DapManager _dap = new();
-    private readonly Dictionary<string, SortedSet<int>> _breakpoints =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SortedSet<int>> _breakpoints = new(StringComparer.Ordinal);
 
     private string _dapStatus = string.Empty;
     private string _dapStoppedPath = string.Empty;
@@ -22,8 +21,9 @@ public sealed partial class Editor
     private readonly List<DapScope> _debugScopes = new();
     private readonly List<DapScopeVariables> _debugScopedVariables = new();
     private readonly List<string> _debugWatches = new();
-    private readonly Dictionary<string, DapWatchValue> _debugWatchValues =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DapWatchValue> _debugWatchValues = new(
+        StringComparer.Ordinal
+    );
 
     private readonly record struct DapLaunchContext(
         string Workspace,
@@ -31,7 +31,8 @@ public sealed partial class Editor
         string FileDirectory,
         string FileName,
         string FileNameWithoutExtension,
-        string? Executable);
+        string? Executable
+    );
 
     private int EditorMarkerWidth() => _showDiffLines ? 1 : 0;
 
@@ -58,22 +59,14 @@ public sealed partial class Editor
         {
             // A red tint tuned to the theme's background luminance keeps the
             // breakpoint line visible without washing out syntax colours.
-            background = dark
-                ? Theme.Rgb(78, 18, 25)
-                : Theme.Rgb(247, 207, 212);
+            background = dark ? Theme.Rgb(78, 18, 25) : Theme.Rgb(247, 207, 212);
         }
         else
         {
-            background = dark
-                ? Theme.Rgb(56, 44, 14)
-                : Theme.Rgb(250, 235, 190);
+            background = dark ? Theme.Rgb(56, 44, 14) : Theme.Rgb(250, 235, 190);
         }
 
-        return new Style
-        {
-            Fg = _theme.Foreground,
-            Bg = background
-        };
+        return new Style { Fg = _theme.Foreground, Bg = background };
     }
 
     private bool ThemeBackgroundIsDark()
@@ -99,18 +92,18 @@ public sealed partial class Editor
                 int green = (value / 6) % 6;
                 int blue = value % 6;
                 int[] levels = { 0, 95, 135, 175, 215, 255 };
-                double luminance = 0.2126 * levels[red] +
-                                   0.7152 * levels[green] +
-                                   0.0722 * levels[blue];
+                double luminance =
+                    0.2126 * levels[red] + 0.7152 * levels[green] + 0.0722 * levels[blue];
                 return luminance < 128;
             }
 
             return background < 244;
         }
 
-        double trueColorLuminance = 0.2126 * Theme.Red(background) +
-                                    0.7152 * Theme.Green(background) +
-                                    0.0722 * Theme.Blue(background);
+        double trueColorLuminance =
+            0.2126 * Theme.Red(background)
+            + 0.7152 * Theme.Green(background)
+            + 0.0722 * Theme.Blue(background);
         return trueColorLuminance < 128;
     }
 
@@ -142,22 +135,24 @@ public sealed partial class Editor
         }
 
         string path = DebugPathForCurrentDocument();
-        return path.Length > 0 &&
-               _breakpoints.TryGetValue(path, out SortedSet<int>? lines) &&
-               lines.Contains((int)line);
+        return path.Length > 0
+            && _breakpoints.TryGetValue(path, out SortedSet<int>? lines)
+            && lines.Contains((int)line);
     }
 
     private bool IsCurrentDebugLine(long line)
     {
-        if (!_dapStopped || _dapStoppedLine < 0 ||
-            _dapStoppedPath.Length == 0)
+        if (!_dapStopped || _dapStoppedLine < 0 || _dapStoppedPath.Length == 0)
         {
             return false;
         }
 
-        return _dapStoppedLine == line &&
-               string.Equals(DebugPathForCurrentDocument(), _dapStoppedPath,
-                   StringComparison.Ordinal);
+        return _dapStoppedLine == line
+            && string.Equals(
+                DebugPathForCurrentDocument(),
+                _dapStoppedPath,
+                StringComparison.Ordinal
+            );
     }
 
     private void ToggleBreakpoint()
@@ -169,9 +164,11 @@ public sealed partial class Editor
 
         if (_language?.Debugger is null)
         {
-            SetError(_language is null
-                ? "no language is active for breakpoints"
-                : $"no debug adapter is configured for {_language.Name}");
+            SetError(
+                _language is null
+                    ? "no language is active for breakpoints"
+                    : $"no debug adapter is configured for {_language.Name}"
+            );
             return;
         }
 
@@ -205,9 +202,11 @@ public sealed partial class Editor
             _breakpoints.Remove(path);
         }
 
-        SetMessage(removed
-            ? $"Breakpoint removed at line {line + 1}."
-            : $"Breakpoint set at line {line + 1}.");
+        SetMessage(
+            removed
+                ? $"Breakpoint removed at line {line + 1}."
+                : $"Breakpoint set at line {line + 1}."
+        );
 
         if (_dap.IsInitialized)
         {
@@ -266,8 +265,10 @@ public sealed partial class Editor
     private void RemoveDebugWatch(string expression)
     {
         string value = expression.Trim();
-        if (_debugWatches.RemoveAll(watch =>
-                string.Equals(watch, value, StringComparison.Ordinal)) == 0)
+        if (
+            _debugWatches.RemoveAll(watch => string.Equals(watch, value, StringComparison.Ordinal))
+            == 0
+        )
         {
             SetError($"not watching '{value}'");
             return;
@@ -344,29 +345,28 @@ public sealed partial class Editor
             _debugVariableLines.Add(("Watches", _theme.AccentStyle));
             foreach (string expression in _debugWatches)
             {
-                if (_debugWatchValues.TryGetValue(expression,
-                        out DapWatchValue? watch))
+                if (_debugWatchValues.TryGetValue(expression, out DapWatchValue? watch))
                 {
                     if (watch.Error.Length > 0)
                     {
                         _debugVariableLines.Add(
-                            ($"  {expression} = <{watch.Error}>",
-                                _theme.ErrorStyle));
+                            ($"  {expression} = <{watch.Error}>", _theme.ErrorStyle)
+                        );
                     }
                     else
                     {
-                        string type = watch.Type.Length > 0
-                            ? $" ({watch.Type})"
-                            : string.Empty;
+                        string type = watch.Type.Length > 0 ? $" ({watch.Type})" : string.Empty;
                         _debugVariableLines.Add(
-                            ($"  {expression} = {SanitizeDebugValue(watch.Value)}{type}",
-                                _theme.TextStyle));
+                            (
+                                $"  {expression} = {SanitizeDebugValue(watch.Value)}{type}",
+                                _theme.TextStyle
+                            )
+                        );
                     }
                 }
                 else
                 {
-                    _debugVariableLines.Add(
-                        ($"  {expression} = …", _theme.MutedStyle));
+                    _debugVariableLines.Add(($"  {expression} = …", _theme.MutedStyle));
                 }
             }
             _debugVariableLines.Add((string.Empty, _theme.TextStyle));
@@ -374,33 +374,33 @@ public sealed partial class Editor
 
         if (_debugScopes.Count == 0)
         {
-            _debugVariableLines.Add((
-                _dap.IsStopped ? "Waiting for scopes…" : "Not stopped.",
-                _theme.MutedStyle));
+            _debugVariableLines.Add(
+                (_dap.IsStopped ? "Waiting for scopes…" : "Not stopped.", _theme.MutedStyle)
+            );
             return;
         }
 
         foreach (DapScope scope in _debugScopes)
         {
             _debugVariableLines.Add(($"[{scope.Name}]", _theme.AccentStyle));
-            DapScopeVariables? values = _debugScopedVariables.FirstOrDefault(
-                item => string.Equals(item.Name, scope.Name,
-                    StringComparison.Ordinal));
+            DapScopeVariables? values = _debugScopedVariables.FirstOrDefault(item =>
+                string.Equals(item.Name, scope.Name, StringComparison.Ordinal)
+            );
             if (values is null || values.Variables.Count == 0)
             {
-                _debugVariableLines.Add(("  (no variables)",
-                    _theme.MutedStyle));
+                _debugVariableLines.Add(("  (no variables)", _theme.MutedStyle));
                 continue;
             }
 
             foreach (DapVariable variable in values.Variables)
             {
-                string type = variable.Type.Length > 0
-                    ? $" ({variable.Type})"
-                    : string.Empty;
+                string type = variable.Type.Length > 0 ? $" ({variable.Type})" : string.Empty;
                 _debugVariableLines.Add(
-                    ($"  {variable.Name} = {SanitizeDebugValue(variable.Value)}{type}",
-                        _theme.TextStyle));
+                    (
+                        $"  {variable.Name} = {SanitizeDebugValue(variable.Value)}{type}",
+                        _theme.TextStyle
+                    )
+                );
             }
         }
     }
@@ -427,9 +427,11 @@ public sealed partial class Editor
 
         if (_language?.Debugger is not { } debugger)
         {
-            SetError(_language is null
-                ? "no language is active for debugging"
-                : $"no debug adapter is configured for {_language.Name}");
+            SetError(
+                _language is null
+                    ? "no language is active for debugging"
+                    : $"no debug adapter is configured for {_language.Name}"
+            );
             return;
         }
 
@@ -445,9 +447,10 @@ public sealed partial class Editor
             return;
         }
 
-        string? executable = arguments.Count == 1
-            ? NormalizeDebugPath(arguments[0])
-            : FindDefaultDebugExecutable(_document.Path);
+        string? executable =
+            arguments.Count == 1
+                ? NormalizeDebugPath(arguments[0])
+                : FindDefaultDebugExecutable(_document.Path);
 
         if (executable is null && DebuggerUsesExecutable(debugger.Configuration))
         {
@@ -471,7 +474,8 @@ public sealed partial class Editor
             fileDirectory,
             fileName,
             fileNameWithoutExtension,
-            executable);
+            executable
+        );
 
         if (!TryResolveDapNode(configuration, context, out string resolveError))
         {
@@ -479,8 +483,16 @@ public sealed partial class Editor
             return;
         }
 
-        if (_dap.TryStart(debugger, sourcePath, _workspaceRoot, configuration,
-                _breakpoints, out string error))
+        if (
+            _dap.TryStart(
+                debugger,
+                sourcePath,
+                _workspaceRoot,
+                configuration,
+                _breakpoints,
+                out string error
+            )
+        )
         {
             _dapStatus = $"DBG: starting {debugger.Adapter}";
             _dapStopped = false;
@@ -667,20 +679,19 @@ public sealed partial class Editor
             case DapEventKind.StoppedLocation:
             {
                 _dapStopped = true;
-                _dapStoppedPath = dapEvent.Path.Length > 0
-                    ? NormalizeDebugPath(dapEvent.Path)
-                    : string.Empty;
+                _dapStoppedPath =
+                    dapEvent.Path.Length > 0 ? NormalizeDebugPath(dapEvent.Path) : string.Empty;
                 _dapStoppedLine = dapEvent.Line;
-                string location = dapEvent.Line >= 0 && dapEvent.Path.Length > 0
-                    ? $"{Path.GetFileName(dapEvent.Path)}:{dapEvent.Line + 1}"
-                    : "an unknown location";
+                string location =
+                    dapEvent.Line >= 0 && dapEvent.Path.Length > 0
+                        ? $"{Path.GetFileName(dapEvent.Path)}:{dapEvent.Line + 1}"
+                        : "an unknown location";
                 _dapStatus = $"DBG: stopped {location}";
                 SetMessage($"Debug: stopped at {location}.");
 
                 if (dapEvent.Line >= 0 && dapEvent.Path.Length > 0)
                 {
-                    if (_document.Path is not null &&
-                        SamePath(_document.Path, dapEvent.Path))
+                    if (_document.Path is not null && SamePath(_document.Path, dapEvent.Path))
                     {
                         MoveToLineColumn(dapEvent.Line, 0);
                     }
@@ -787,15 +798,18 @@ public sealed partial class Editor
                 }
                 return false;
             case JsonValue value:
-                return value.TryGetValue(out string? text) &&
-                       text.Contains("${executable}", StringComparison.Ordinal);
+                return value.TryGetValue(out string? text)
+                    && text.Contains("${executable}", StringComparison.Ordinal);
             default:
                 return false;
         }
     }
 
-    private static bool TryResolveDapNode(JsonNode? node, DapLaunchContext context,
-        out string error)
+    private static bool TryResolveDapNode(
+        JsonNode? node,
+        DapLaunchContext context,
+        out string error
+    )
     {
         error = string.Empty;
         switch (node)
@@ -805,18 +819,15 @@ public sealed partial class Editor
                 foreach (string key in obj.Select(pair => pair.Key).ToList())
                 {
                     JsonNode? value = obj[key];
-                    if (value is JsonValue jsonValue &&
-                        jsonValue.TryGetValue(out string? text))
+                    if (value is JsonValue jsonValue && jsonValue.TryGetValue(out string? text))
                     {
-                        if (!TryResolveDapString(text!, context, out string resolved,
-                                out error))
+                        if (!TryResolveDapString(text!, context, out string resolved, out error))
                         {
                             return false;
                         }
                         obj[key] = resolved;
                     }
-                    else if (value is not null &&
-                             !TryResolveDapNode(value, context, out error))
+                    else if (value is not null && !TryResolveDapNode(value, context, out error))
                     {
                         return false;
                     }
@@ -829,18 +840,15 @@ public sealed partial class Editor
                 for (int index = 0; index < array.Count; ++index)
                 {
                     JsonNode? value = array[index];
-                    if (value is JsonValue jsonValue &&
-                        jsonValue.TryGetValue(out string? text))
+                    if (value is JsonValue jsonValue && jsonValue.TryGetValue(out string? text))
                     {
-                        if (!TryResolveDapString(text!, context, out string resolved,
-                                out error))
+                        if (!TryResolveDapString(text!, context, out string resolved, out error))
                         {
                             return false;
                         }
                         array[index] = resolved;
                     }
-                    else if (value is not null &&
-                             !TryResolveDapNode(value, context, out error))
+                    else if (value is not null && !TryResolveDapNode(value, context, out error))
                     {
                         return false;
                     }
@@ -853,17 +861,22 @@ public sealed partial class Editor
         }
     }
 
-    private static bool TryResolveDapString(string text, DapLaunchContext context,
-        out string resolved, out string error)
+    private static bool TryResolveDapString(
+        string text,
+        DapLaunchContext context,
+        out string resolved,
+        out string error
+    )
     {
-        resolved = text
-            .Replace("${workspace}", context.Workspace, StringComparison.Ordinal)
+        resolved = text.Replace("${workspace}", context.Workspace, StringComparison.Ordinal)
             .Replace("${file}", context.File, StringComparison.Ordinal)
-            .Replace("${fileDir}", context.FileDirectory,
-                StringComparison.Ordinal)
+            .Replace("${fileDir}", context.FileDirectory, StringComparison.Ordinal)
             .Replace("${fileBasename}", context.FileName, StringComparison.Ordinal)
-            .Replace("${fileBasenameNoExtension}",
-                context.FileNameWithoutExtension, StringComparison.Ordinal);
+            .Replace(
+                "${fileBasenameNoExtension}",
+                context.FileNameWithoutExtension,
+                StringComparison.Ordinal
+            );
 
         error = string.Empty;
         if (!resolved.Contains("${executable}", StringComparison.Ordinal))
@@ -873,13 +886,13 @@ public sealed partial class Editor
 
         if (string.IsNullOrEmpty(context.Executable))
         {
-            error = "debug: ${executable} is set but no program was provided; " +
-                    "use :debug <program>";
+            error =
+                "debug: ${executable} is set but no program was provided; "
+                + "use :debug <program>";
             return false;
         }
 
-        resolved = resolved.Replace("${executable}", context.Executable,
-            StringComparison.Ordinal);
+        resolved = resolved.Replace("${executable}", context.Executable, StringComparison.Ordinal);
         return true;
     }
 
@@ -899,7 +912,7 @@ public sealed partial class Editor
             Path.Combine(_workspaceRoot, "zig-out", "bin", name),
             Path.Combine(_workspaceRoot, "out", name),
             Path.Combine(directory, "build", name),
-            Path.Combine(directory, "bin", name)
+            Path.Combine(directory, "bin", name),
         };
 
         foreach (string candidate in candidates)
@@ -919,8 +932,8 @@ public sealed partial class Editor
         {
             return Path.GetFullPath(path);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return path;
         }

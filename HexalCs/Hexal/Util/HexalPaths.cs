@@ -46,8 +46,8 @@ public static class HexalPaths
             {
                 return Path.GetFullPath(directory);
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 return directory;
             }
@@ -56,8 +56,7 @@ public static class HexalPaths
 
     public static string BinaryDataDirectory => Path.Combine(BinaryDirectory, "data");
 
-    public static string FallbackDataDirectory =>
-        Path.Combine(HexalHomeDirectory, "data");
+    public static string FallbackDataDirectory => Path.Combine(HexalHomeDirectory, "data");
 
     public static string GrammarDirectory
     {
@@ -88,8 +87,11 @@ public static class HexalPaths
 
     public static string ActiveThemePath => Path.Combine(HexalHomeDirectory, "theme");
 
-    public static string ResolveDataDirectory(string binaryDirectory,
-        string homeDirectory, string name)
+    public static string ResolveDataDirectory(
+        string binaryDirectory,
+        string homeDirectory,
+        string name
+    )
     {
         string portable = Path.Combine(binaryDirectory, "data", name);
         if (Directory.Exists(portable))
@@ -113,11 +115,18 @@ public static class HexalPaths
                 File.WriteAllText(path, string.Empty);
             }
 
-            File.AppendAllText(path,
-                $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {message}{Environment.NewLine}");
+            File.AppendAllText(
+                path,
+                $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {message}{Environment.NewLine}"
+            );
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             // Logging must never prevent the editor from starting.
         }
@@ -148,28 +157,34 @@ public static class HexalPaths
             _pluginDirectory = hasPortablePlugins
                 ? portablePlugins
                 : Path.Combine(homeData, "plugins");
-            _themeDirectory = hasPortableThemes
-                ? portableThemes
-                : Path.Combine(homeData, "themes");
+            _themeDirectory = hasPortableThemes ? portableThemes : Path.Combine(homeData, "themes");
 
             Log($"Hexal binary directory: {BinaryDirectory}");
 
             if (!hasPortableGrammars && !hasPortablePlugins && !hasPortableThemes)
             {
-                Log("Could not find grammars, plugins and themes relative to binary path, " +
-                    "falling back to ~/.hexal directory");
+                Log(
+                    "Could not find grammars, plugins and themes relative to binary path, "
+                        + "falling back to ~/.hexal directory"
+                );
             }
             else
             {
-                Log(hasPortableGrammars
-                    ? $"Using grammars from binary-relative path: {_grammarDirectory}"
-                    : $"Could not find grammars relative to binary path, falling back to {_grammarDirectory}");
-                Log(hasPortablePlugins
-                    ? $"Using plugins from binary-relative path: {_pluginDirectory}"
-                    : $"Could not find plugins relative to binary path, falling back to {_pluginDirectory}");
-                Log(hasPortableThemes
-                    ? $"Using themes from binary-relative path: {_themeDirectory}"
-                    : $"Could not find themes relative to binary path, falling back to {_themeDirectory}");
+                Log(
+                    hasPortableGrammars
+                        ? $"Using grammars from binary-relative path: {_grammarDirectory}"
+                        : $"Could not find grammars relative to binary path, falling back to {_grammarDirectory}"
+                );
+                Log(
+                    hasPortablePlugins
+                        ? $"Using plugins from binary-relative path: {_pluginDirectory}"
+                        : $"Could not find plugins relative to binary path, falling back to {_pluginDirectory}"
+                );
+                Log(
+                    hasPortableThemes
+                        ? $"Using themes from binary-relative path: {_themeDirectory}"
+                        : $"Could not find themes relative to binary path, falling back to {_themeDirectory}"
+                );
             }
         }
     }

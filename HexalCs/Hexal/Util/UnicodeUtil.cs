@@ -96,8 +96,11 @@ public static class UnicodeUtil
 
         offset = Math.Min(offset, text.Length);
         int candidate = offset - 1;
-        if (candidate > 0 && char.IsLowSurrogate(text[candidate]) &&
-            char.IsHighSurrogate(text[candidate - 1]))
+        if (
+            candidate > 0
+            && char.IsLowSurrogate(text[candidate])
+            && char.IsHighSurrogate(text[candidate - 1])
+        )
         {
             return candidate - 1;
         }
@@ -112,8 +115,11 @@ public static class UnicodeUtil
             return text.Length;
         }
 
-        if (char.IsHighSurrogate(text[offset]) && offset + 1 < text.Length &&
-            char.IsLowSurrogate(text[offset + 1]))
+        if (
+            char.IsHighSurrogate(text[offset])
+            && offset + 1 < text.Length
+            && char.IsLowSurrogate(text[offset + 1])
+        )
         {
             return offset + 2;
         }
@@ -123,14 +129,22 @@ public static class UnicodeUtil
 
     public static bool IsWide(uint cp)
     {
-        return InRange(cp, 0x1100, 0x115F) || InRange(cp, 0x2329, 0x232A) ||
-               InRange(cp, 0x2E80, 0x303E) || InRange(cp, 0x3041, 0x33FF) ||
-               InRange(cp, 0x3400, 0x4DBF) || InRange(cp, 0x4E00, 0x9FFF) ||
-               InRange(cp, 0xA000, 0xA4CF) || InRange(cp, 0xA960, 0xA97F) ||
-               InRange(cp, 0xAC00, 0xD7A3) || InRange(cp, 0xF900, 0xFAFF) ||
-               InRange(cp, 0xFE10, 0xFE19) || InRange(cp, 0xFE30, 0xFE6F) ||
-               InRange(cp, 0xFF00, 0xFF60) || InRange(cp, 0xFFE0, 0xFFE6) ||
-               InRange(cp, 0x1F300, 0x1FAFF) || InRange(cp, 0x20000, 0x3FFFD);
+        return InRange(cp, 0x1100, 0x115F)
+            || InRange(cp, 0x2329, 0x232A)
+            || InRange(cp, 0x2E80, 0x303E)
+            || InRange(cp, 0x3041, 0x33FF)
+            || InRange(cp, 0x3400, 0x4DBF)
+            || InRange(cp, 0x4E00, 0x9FFF)
+            || InRange(cp, 0xA000, 0xA4CF)
+            || InRange(cp, 0xA960, 0xA97F)
+            || InRange(cp, 0xAC00, 0xD7A3)
+            || InRange(cp, 0xF900, 0xFAFF)
+            || InRange(cp, 0xFE10, 0xFE19)
+            || InRange(cp, 0xFE30, 0xFE6F)
+            || InRange(cp, 0xFF00, 0xFF60)
+            || InRange(cp, 0xFFE0, 0xFFE6)
+            || InRange(cp, 0x1F300, 0x1FAFF)
+            || InRange(cp, 0x20000, 0x3FFFD);
     }
 
     public static int DisplayWidth(uint cp)
@@ -140,14 +154,24 @@ public static class UnicodeUtil
             return 0;
         }
 
-        if (InRange(cp, 0x0300, 0x036F) || InRange(cp, 0x0483, 0x0489) ||
-            InRange(cp, 0x0591, 0x05BD) || InRange(cp, 0x0610, 0x061A) ||
-            InRange(cp, 0x064B, 0x065F) || InRange(cp, 0x0670, 0x0670) ||
-            InRange(cp, 0x06D6, 0x06DC) || InRange(cp, 0x0E31, 0x0E31) ||
-            InRange(cp, 0x0E34, 0x0E3A) || InRange(cp, 0x1AB0, 0x1AFF) ||
-            InRange(cp, 0x1DC0, 0x1DFF) || InRange(cp, 0x200B, 0x200F) ||
-            InRange(cp, 0x20D0, 0x20FF) || InRange(cp, 0xFE00, 0xFE0F) ||
-            InRange(cp, 0xFE20, 0xFE2F) || InRange(cp, 0xE0100, 0xE01EF))
+        if (
+            InRange(cp, 0x0300, 0x036F)
+            || InRange(cp, 0x0483, 0x0489)
+            || InRange(cp, 0x0591, 0x05BD)
+            || InRange(cp, 0x0610, 0x061A)
+            || InRange(cp, 0x064B, 0x065F)
+            || InRange(cp, 0x0670, 0x0670)
+            || InRange(cp, 0x06D6, 0x06DC)
+            || InRange(cp, 0x0E31, 0x0E31)
+            || InRange(cp, 0x0E34, 0x0E3A)
+            || InRange(cp, 0x1AB0, 0x1AFF)
+            || InRange(cp, 0x1DC0, 0x1DFF)
+            || InRange(cp, 0x200B, 0x200F)
+            || InRange(cp, 0x20D0, 0x20FF)
+            || InRange(cp, 0xFE00, 0xFE0F)
+            || InRange(cp, 0xFE20, 0xFE2F)
+            || InRange(cp, 0xE0100, 0xE01EF)
+        )
         {
             return 0;
         }
@@ -211,8 +235,7 @@ public static class UnicodeUtil
         return column;
     }
 
-    public static long ColumnWidth(ReadOnlySpan<char> text)
-        => VisualColumn(text, text.Length, 1);
+    public static long ColumnWidth(ReadOnlySpan<char> text) => VisualColumn(text, text.Length, 1);
 
     public static int ByteOffsetForVisualColumn(ReadOnlySpan<byte> line, long column, int tabWidth)
     {
@@ -262,8 +285,11 @@ public static class UnicodeUtil
         }
 
         char first = text[offset];
-        if (char.IsHighSurrogate(first) && offset + 1 < text.Length &&
-            char.IsLowSurrogate(text[offset + 1]))
+        if (
+            char.IsHighSurrogate(first)
+            && offset + 1 < text.Length
+            && char.IsLowSurrogate(text[offset + 1])
+        )
         {
             uint value = (uint)char.ConvertToUtf32(first, text[offset + 1]);
             offset += 2;
@@ -280,12 +306,9 @@ public static class UnicodeUtil
         return first;
     }
 
-    public static string FormatLong(long value)
-        => value.ToString(CultureInfo.InvariantCulture);
+    public static string FormatLong(long value) => value.ToString(CultureInfo.InvariantCulture);
 
-    private static bool InRange(uint value, uint low, uint high)
-        => value >= low && value <= high;
+    private static bool InRange(uint value, uint low, uint high) => value >= low && value <= high;
 
-    private static bool IsContinuation(byte value)
-        => (value & 0xC0) == 0x80;
+    private static bool IsContinuation(byte value) => (value & 0xC0) == 0x80;
 }

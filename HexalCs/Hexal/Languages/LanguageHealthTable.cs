@@ -12,16 +12,19 @@ public static class LanguageHealthTable
     private const int FormatterWidth = 18;
     private const int DebugAdapterWidth = 18;
 
-    public static void Write(IReadOnlyList<LanguageHealthEntry> entries,
-        TextWriter writer)
+    public static void Write(IReadOnlyList<LanguageHealthEntry> entries, TextWriter writer)
     {
-        WriteRow(writer, "Language", "Language server", "Formatter",
-            "Debug adapter", "Highlight");
+        WriteRow(writer, "Language", "Language server", "Formatter", "Debug adapter", "Highlight");
         foreach (LanguageHealthEntry entry in entries)
         {
-            WriteRow(writer, entry.Language, ServerCell(entry),
-                FormatterCell(entry), DebugAdapterCell(entry),
-                entry.Highlighting ? "✓" : "✘");
+            WriteRow(
+                writer,
+                entry.Language,
+                ServerCell(entry),
+                FormatterCell(entry),
+                DebugAdapterCell(entry),
+                entry.Highlighting ? "✓" : "✘"
+            );
         }
     }
 
@@ -55,15 +58,22 @@ public static class LanguageHealthTable
         return $"{(entry.DebugAdapterAvailable ? "✓" : "✘")} {entry.DebugAdapter}";
     }
 
-    private static void WriteRow(TextWriter writer, string language, string server,
-        string formatter, string debugAdapter, string highlight)
+    private static void WriteRow(
+        TextWriter writer,
+        string language,
+        string server,
+        string formatter,
+        string debugAdapter,
+        string highlight
+    )
     {
         writer.WriteLine(
-            $"{Cell(language, LanguageWidth)} " +
-            $"{Cell(server, ServerWidth)} " +
-            $"{Cell(formatter, FormatterWidth)} " +
-            $"{Cell(debugAdapter, DebugAdapterWidth)} " +
-            highlight);
+            $"{Cell(language, LanguageWidth)} "
+                + $"{Cell(server, ServerWidth)} "
+                + $"{Cell(formatter, FormatterWidth)} "
+                + $"{Cell(debugAdapter, DebugAdapterWidth)} "
+                + highlight
+        );
     }
 
     private static string Cell(string value, int width)

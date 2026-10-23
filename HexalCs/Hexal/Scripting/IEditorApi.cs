@@ -10,7 +10,8 @@ public readonly record struct PluginSelection(
     long EndLine,
     long EndColumn,
     string Text,
-    bool Linewise);
+    bool Linewise
+);
 
 public readonly record struct PluginPanelSegment(string Text, string Style);
 
@@ -32,8 +33,7 @@ public sealed class PluginPanelOptions
 
     public long Selected { get; init; }
 
-    public IReadOnlyList<PluginPanelLine> Lines { get; init; } =
-        Array.Empty<PluginPanelLine>();
+    public IReadOnlyList<PluginPanelLine> Lines { get; init; } = Array.Empty<PluginPanelLine>();
 }
 
 /// <summary>
@@ -69,11 +69,13 @@ public interface IEditorApi
 
     void RequestSelect(string title, IReadOnlyList<string> items, Action<int?> callback);
 
-    int OpenPluginPanel(PluginPanelOptions options,
-        Func<string, long, bool>? onKey, string pluginId);
+    int OpenPluginPanel(
+        PluginPanelOptions options,
+        Func<string, long, bool>? onKey,
+        string pluginId
+    );
 
-    void SetPluginPanelLines(int panelId,
-        IReadOnlyList<PluginPanelLine> lines);
+    void SetPluginPanelLines(int panelId, IReadOnlyList<PluginPanelLine> lines);
 
     void SetPluginPanelTitle(int panelId, string title);
 

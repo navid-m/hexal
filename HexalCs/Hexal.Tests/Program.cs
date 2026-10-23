@@ -1798,12 +1798,11 @@ internal static class Program
         }
 
         LanguageDefinition? csharpLanguage = bundled.Find("csharp");
-        Check(csharpLanguage?.Formatter?.Command == "dotnet" &&
-              csharpLanguage.Formatter.Arguments.Count == 4 &&
-              csharpLanguage.Formatter.Arguments[0] == "csharpier" &&
-              csharpLanguage.Formatter.Arguments[1] == "format" &&
-              csharpLanguage.Formatter.Arguments[2] == "--stdin-path" &&
-              csharpLanguage.Formatter.Arguments[3] == "{path}" &&
+        Check(csharpLanguage?.Formatter?.Command == "csharpier" &&
+              csharpLanguage.Formatter.Arguments.Count == 3 &&
+              csharpLanguage.Formatter.Arguments[0] == "format" &&
+              csharpLanguage.Formatter.Arguments[1] == "--stdin-path" &&
+              csharpLanguage.Formatter.Arguments[2] == "{path}" &&
               csharpLanguage.Formatter.UsesStdin &&
               !csharpLanguage.Formatter.WritesFile,
             "csharpier formats C# through stdin/stdout");

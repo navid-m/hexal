@@ -22,7 +22,7 @@ public enum DapEventKind
     Scopes,
     Variables,
     WatchValue,
-    Error
+    Error,
 }
 
 public sealed class DapEvent
@@ -37,10 +37,8 @@ public sealed class DapEvent
     public int ThreadId { get; init; }
     public int ExitCode { get; init; }
     public string Reason { get; init; } = string.Empty;
-    public IReadOnlyList<DapBreakpoint> Breakpoints { get; init; } =
-        Array.Empty<DapBreakpoint>();
-    public IReadOnlyList<DapScope> Scopes { get; init; } =
-        Array.Empty<DapScope>();
+    public IReadOnlyList<DapBreakpoint> Breakpoints { get; init; } = Array.Empty<DapBreakpoint>();
+    public IReadOnlyList<DapScope> Scopes { get; init; } = Array.Empty<DapScope>();
     public IReadOnlyList<DapScopeVariables> ScopedVariables { get; init; } =
         Array.Empty<DapScopeVariables>();
     public DapWatchValue? Watch { get; init; }
@@ -65,8 +63,7 @@ public sealed class DapManager : IDisposable
     private readonly object _logLock = new();
     private readonly ConcurrentQueue<DapEvent> _events = new();
     private readonly Dictionary<long, PendingRequest> _pendingRequests = new();
-    private readonly Dictionary<string, SortedSet<int>> _breakpoints =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SortedSet<int>> _breakpoints = new(StringComparer.Ordinal);
     private readonly List<DapScope> _currentScopes = new();
     private readonly Dictionary<int, List<DapVariable>> _variablesByReference = new();
     private readonly Queue<string> _log = new();
@@ -103,7 +100,8 @@ public sealed class DapManager : IDisposable
         int Generation = 0,
         int VariablesReference = 0,
         string ScopeName = "",
-        string Expression = "");
+        string Expression = ""
+    );
 
     public bool IsRunning
     {
@@ -149,10 +147,14 @@ public sealed class DapManager : IDisposable
         }
     }
 
-    public bool TryStart(DebuggerConfig config, string sourcePath,
-        string workspaceRoot, JsonObject launchConfiguration,
+    public bool TryStart(
+        DebuggerConfig config,
+        string sourcePath,
+        string workspaceRoot,
+        JsonObject launchConfiguration,
         IReadOnlyDictionary<string, SortedSet<int>> breakpoints,
-        out string error)
+        out string error
+    )
     {
         error = string.Empty;
 
@@ -174,13 +176,13 @@ public sealed class DapManager : IDisposable
         try
         {
             sourceFull = Path.GetFullPath(sourcePath);
-            workspaceFull = !string.IsNullOrWhiteSpace(workspaceRoot) &&
-                            Directory.Exists(workspaceRoot)
-                ? Path.GetFullPath(workspaceRoot)
-                : Path.GetDirectoryName(sourceFull) ?? ".";
+            workspaceFull =
+                !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
+                    ? Path.GetFullPath(workspaceRoot)
+                    : Path.GetDirectoryName(sourceFull) ?? ".";
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             error = ex.Message;
             return false;
@@ -195,8 +197,7 @@ public sealed class DapManager : IDisposable
             _adapterPath = adapter;
             _sourcePath = sourceFull;
             _workspaceRoot = workspaceFull;
-            _launchConfiguration =
-                (JsonObject)launchConfiguration.DeepClone();
+            _launchConfiguration = (JsonObject)launchConfiguration.DeepClone();
             _breakpoints.Clear();
             foreach ((string path, SortedSet<int> lines) in breakpoints)
             {
@@ -225,7 +226,7 @@ public sealed class DapManager : IDisposable
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                StandardErrorEncoding = Encoding.UTF8
+                StandardErrorEncoding = Encoding.UTF8,
             };
             foreach (string argument in config.Arguments)
             {
@@ -233,9 +234,11 @@ public sealed class DapManager : IDisposable
             }
 
             string arguments = string.Join(' ', config.Arguments);
-            LogInfo($"starting {config.Adapter}: {adapter}" +
-                    (arguments.Length > 0 ? $" {arguments}" : string.Empty) +
-                    $" (cwd {workspaceFull})");
+            LogInfo(
+                $"starting {config.Adapter}: {adapter}"
+                    + (arguments.Length > 0 ? $" {arguments}" : string.Empty)
+                    + $" (cwd {workspaceFull})"
+            );
 
             try
             {
@@ -252,37 +255,36 @@ public sealed class DapManager : IDisposable
                 {
                     processId = _process.Id;
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or
-                                           NotSupportedException)
+                catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
                 {
                     processId = -1;
                 }
 
-                LogInfo(processId > 0
-                    ? $"adapter process started (pid {processId})"
-                    : "adapter process started");
+                LogInfo(
+                    processId > 0
+                        ? $"adapter process started (pid {processId})"
+                        : "adapter process started"
+                );
 
                 _input = _process.StandardInput.BaseStream;
                 _cancellation = new CancellationTokenSource();
                 CancellationToken token = _cancellation.Token;
-                _readerTask = Task.Run(() =>
-                    ReadLoop(_process.StandardOutput.BaseStream, token));
-                _stderrTask = Task.Run(() =>
-                    ReadStandardError(_process.StandardError, token));
+                _readerTask = Task.Run(() => ReadLoop(_process.StandardOutput.BaseStream, token));
+                _stderrTask = Task.Run(() => ReadStandardError(_process.StandardError, token));
 
                 SendInitializeLocked();
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Started,
-                    AdapterName = _adapterName
-                });
-                HexalPaths.Log(
-                    $"DAP started: {config.Adapter} ({adapter}) for {sourceFull}");
+                Enqueue(new DapEvent { Kind = DapEventKind.Started, AdapterName = _adapterName });
+                HexalPaths.Log($"DAP started: {config.Adapter} ({adapter}) for {sourceFull}");
                 return true;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       InvalidOperationException or NotSupportedException or
-                                       System.ComponentModel.Win32Exception)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or InvalidOperationException
+                            or NotSupportedException
+                            or System.ComponentModel.Win32Exception
+                )
             {
                 error = $"cannot start debug adapter '{config.Adapter}': {ex.Message}";
                 StopLocked();
@@ -340,8 +342,7 @@ public sealed class DapManager : IDisposable
     {
         lock (_stateLock)
         {
-            if (_process is null || !_initialized || !_stopped ||
-                _stoppedFrameId <= 0)
+            if (_process is null || !_initialized || !_stopped || _stoppedFrameId <= 0)
             {
                 return false;
             }
@@ -350,11 +351,10 @@ public sealed class DapManager : IDisposable
             _currentScopes.Clear();
             _variablesByReference.Clear();
             _pendingVariablesResponses = 0;
-            SendRequestLocked(new PendingRequest("scopes", generation),
-                new JsonObject
-                {
-                    ["frameId"] = _stoppedFrameId
-                });
+            SendRequestLocked(
+                new PendingRequest("scopes", generation),
+                new JsonObject { ["frameId"] = _stoppedFrameId }
+            );
             return true;
         }
     }
@@ -368,19 +368,20 @@ public sealed class DapManager : IDisposable
 
         lock (_stateLock)
         {
-            if (_process is null || !_initialized || !_stopped ||
-                _stoppedFrameId <= 0)
+            if (_process is null || !_initialized || !_stopped || _stoppedFrameId <= 0)
             {
                 return false;
             }
 
-            SendRequestLocked(new PendingRequest("evaluate", _variablesGeneration,
-                Expression: expression), new JsonObject
+            SendRequestLocked(
+                new PendingRequest("evaluate", _variablesGeneration, Expression: expression),
+                new JsonObject
                 {
                     ["expression"] = expression,
                     ["frameId"] = _stoppedFrameId,
-                    ["context"] = "watch"
-                });
+                    ["context"] = "watch",
+                }
+            );
             return true;
         }
     }
@@ -391,17 +392,13 @@ public sealed class DapManager : IDisposable
         {
             if (_process is not null && _initialized)
             {
-                SendRequestLocked("disconnect", new JsonObject
-                {
-                    ["terminateDebuggee"] = true
-                });
+                SendRequestLocked("disconnect", new JsonObject { ["terminateDebuggee"] = true });
             }
             StopLocked();
         }
     }
 
-    public bool TryDequeueEvent(out DapEvent dapEvent)
-        => _events.TryDequeue(out dapEvent!);
+    public bool TryDequeueEvent(out DapEvent dapEvent) => _events.TryDequeue(out dapEvent!);
 
     public string BuildDebugReport()
     {
@@ -425,9 +422,7 @@ public sealed class DapManager : IDisposable
         {
             adapterName = _adapterName;
             adapterPath = _adapterPath;
-            arguments = _config is null
-                ? string.Empty
-                : string.Join(' ', _config.Arguments);
+            arguments = _config is null ? string.Empty : string.Join(' ', _config.Arguments);
             workspace = _workspaceRoot;
             source = _sourcePath;
             running = _process is not null;
@@ -438,9 +433,12 @@ public sealed class DapManager : IDisposable
             stoppedPath = _stoppedPath;
             stoppedLine = _stoppedLine;
             pendingCount = _pendingRequests.Count;
-            pendingMethods = string.Join(", ", _pendingRequests.Values
-                .Select(request => request.Command)
-                .Distinct(StringComparer.Ordinal));
+            pendingMethods = string.Join(
+                ", ",
+                _pendingRequests
+                    .Values.Select(request => request.Command)
+                    .Distinct(StringComparer.Ordinal)
+            );
 
             if (_process is not null)
             {
@@ -448,8 +446,7 @@ public sealed class DapManager : IDisposable
                 {
                     processId = _process.Id;
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or
-                                           NotSupportedException)
+                catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
                 {
                     processId = -1;
                 }
@@ -458,32 +455,24 @@ public sealed class DapManager : IDisposable
 
         var builder = new StringBuilder();
         builder.AppendLine("Hexal DAP diagnostics");
-        builder.Append("Generated: ").AppendLine(
-            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-        builder.Append("Adapter: ").AppendLine(adapterName.Length > 0
-            ? adapterName
-            : "(none)");
-        builder.Append("Command: ").AppendLine(adapterPath.Length > 0
-            ? adapterPath
-            : "(none)");
-        builder.Append("Arguments: ").AppendLine(arguments.Length > 0
-            ? arguments
-            : "(none)");
-        builder.Append("State: ")
+        builder.Append("Generated: ").AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        builder.Append("Adapter: ").AppendLine(adapterName.Length > 0 ? adapterName : "(none)");
+        builder.Append("Command: ").AppendLine(adapterPath.Length > 0 ? adapterPath : "(none)");
+        builder.Append("Arguments: ").AppendLine(arguments.Length > 0 ? arguments : "(none)");
+        builder
+            .Append("State: ")
             .Append(running ? "running" : "stopped")
             .Append(initialized ? ", initialized" : ", not initialized")
             .Append(configurationDone ? ", configured" : ", not configured")
             .Append(stopped ? ", paused" : ", running")
             .AppendLine();
-        builder.Append("Process ID: ").AppendLine(processId > 0
-            ? processId.ToString()
-            : "(none)");
+        builder.Append("Process ID: ").AppendLine(processId > 0 ? processId.ToString() : "(none)");
         builder.Append("Workspace: ").AppendLine(workspace);
         builder.Append("Source: ").AppendLine(source);
         builder.Append("Stopped thread: ").AppendLine(stoppedThread.ToString());
-        builder.Append("Stop location: ").AppendLine(stoppedLine >= 0
-            ? $"{stoppedPath}:{stoppedLine + 1}"
-            : "(none)");
+        builder
+            .Append("Stop location: ")
+            .AppendLine(stoppedLine >= 0 ? $"{stoppedPath}:{stoppedLine + 1}" : "(none)");
         builder.Append("Pending requests: ").Append(pendingCount);
         if (pendingMethods.Length > 0)
         {
@@ -493,7 +482,10 @@ public sealed class DapManager : IDisposable
         builder.Append("Breakpoints: ").AppendLine(_breakpoints.Count.ToString());
         foreach ((string path, SortedSet<int> lines) in _breakpoints)
         {
-            builder.Append("  ").Append(path).Append(": ")
+            builder
+                .Append("  ")
+                .Append(path)
+                .Append(": ")
                 .AppendLine(string.Join(", ", lines.Select(line => line + 1)));
         }
         builder.Append("File log: ").AppendLine(HexalPaths.LogPath);
@@ -565,7 +557,9 @@ public sealed class DapManager : IDisposable
 
     private void SendInitializeLocked()
     {
-        SendRequestLocked("initialize", new JsonObject
+        SendRequestLocked(
+            "initialize",
+            new JsonObject
             {
                 ["clientID"] = "hexal",
                 ["clientName"] = "Hexal",
@@ -576,8 +570,9 @@ public sealed class DapManager : IDisposable
                 ["supportsVariableType"] = true,
                 ["supportsVariablePaging"] = true,
                 ["supportsRunInTerminalRequest"] = false,
-                ["locale"] = "en-US"
-            });
+                ["locale"] = "en-US",
+            }
+        );
     }
 
     private void HandleInitializeResponseLocked()
@@ -589,9 +584,11 @@ public sealed class DapManager : IDisposable
             ? new JsonObject()
             : (JsonObject)_launchConfiguration.DeepClone();
         string request = "launch";
-        if (launch["request"] is JsonValue requestValue &&
-            requestValue.TryGetValue(out string? configuredRequest) &&
-            !string.IsNullOrWhiteSpace(configuredRequest))
+        if (
+            launch["request"] is JsonValue requestValue
+            && requestValue.TryGetValue(out string? configuredRequest)
+            && !string.IsNullOrWhiteSpace(configuredRequest)
+        )
         {
             request = configuredRequest!;
         }
@@ -608,18 +605,13 @@ public sealed class DapManager : IDisposable
     private void HandleInitializedEventLocked()
     {
         _adapterInitialized = true;
-        Enqueue(new DapEvent
-        {
-            Kind = DapEventKind.Initialized,
-            AdapterName = _adapterName
-        });
+        Enqueue(new DapEvent { Kind = DapEventKind.Initialized, AdapterName = _adapterName });
         ConfigureAdapterIfReadyLocked();
     }
 
     private void ConfigureAdapterIfReadyLocked()
     {
-        if (!_initialized || !_launchSent || !_adapterInitialized ||
-            _configurationDone)
+        if (!_initialized || !_launchSent || !_adapterInitialized || _configurationDone)
         {
             return;
         }
@@ -641,23 +633,20 @@ public sealed class DapManager : IDisposable
         {
             foreach (int line in lines)
             {
-                breakpoints.Add((JsonNode)new JsonObject
-                {
-                    ["line"] = line + 1
-                });
+                breakpoints.Add((JsonNode)new JsonObject { ["line"] = line + 1 });
             }
         }
 
-        SendRequestLocked("setBreakpoints", new JsonObject
-        {
-            ["source"] = new JsonObject
+        SendRequestLocked(
+            "setBreakpoints",
+            new JsonObject
             {
-                ["path"] = path
-            },
-            ["breakpoints"] = breakpoints,
-            ["linesStartAt1"] = true,
-            ["sourceModified"] = false
-        });
+                ["source"] = new JsonObject { ["path"] = path },
+                ["breakpoints"] = breakpoints,
+                ["linesStartAt1"] = true,
+                ["sourceModified"] = false,
+            }
+        );
     }
 
     private bool SendThreadRequest(string command, bool clearStopped)
@@ -676,10 +665,7 @@ public sealed class DapManager : IDisposable
                 return false;
             }
 
-            SendRequestLocked(command, new JsonObject
-            {
-                ["threadId"] = _stoppedThreadId
-            });
+            SendRequestLocked(command, new JsonObject { ["threadId"] = _stoppedThreadId });
 
             if (clearStopped)
             {
@@ -692,21 +678,23 @@ public sealed class DapManager : IDisposable
         }
     }
 
-    private long SendRequestLocked(string command, JsonObject arguments)
-        => SendRequestLocked(new PendingRequest(command), arguments);
+    private long SendRequestLocked(string command, JsonObject arguments) =>
+        SendRequestLocked(new PendingRequest(command), arguments);
 
     private long SendRequestLocked(PendingRequest request, JsonObject arguments)
     {
         long sequence = Interlocked.Increment(ref _nextSequence);
         _pendingRequests[sequence] = request;
 
-        SendMessage(new JsonObject
-        {
-            ["seq"] = sequence,
-            ["type"] = "request",
-            ["command"] = request.Command,
-            ["arguments"] = arguments
-        });
+        SendMessage(
+            new JsonObject
+            {
+                ["seq"] = sequence,
+                ["type"] = "request",
+                ["command"] = request.Command,
+                ["arguments"] = arguments,
+            }
+        );
         return sequence;
     }
 
@@ -728,8 +716,7 @@ public sealed class DapManager : IDisposable
             string json = message.ToJsonString();
             LogOutbound(message, json);
             byte[] body = Encoding.UTF8.GetBytes(json);
-            byte[] header = Encoding.ASCII.GetBytes(
-                $"Content-Length: {body.Length}\r\n\r\n");
+            byte[] header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
 
             lock (_writeLock)
             {
@@ -738,8 +725,8 @@ public sealed class DapManager : IDisposable
                 input.Flush();
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                   InvalidOperationException)
+        catch (Exception ex)
+            when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             LogInfo($"send failed: {ex.Message}");
             EnqueueError(ex.Message);
@@ -774,16 +761,15 @@ public sealed class DapManager : IDisposable
                 {
                     HandleMessage(body);
                 }
-                catch (Exception ex) when (ex is JsonException or
-                                           InvalidOperationException or
-                                           ArgumentException)
+                catch (Exception ex)
+                    when (ex is JsonException or InvalidOperationException or ArgumentException)
                 {
                     LogInfo($"invalid DAP message: {ex.Message}");
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                   InvalidOperationException)
+        catch (Exception ex)
+            when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             if (!token.IsCancellationRequested)
             {
@@ -796,12 +782,14 @@ public sealed class DapManager : IDisposable
             if (!token.IsCancellationRequested)
             {
                 LogInfo("adapter output closed");
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Terminated,
-                    AdapterName = _adapterName,
-                    Message = "adapter output closed"
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.Terminated,
+                        AdapterName = _adapterName,
+                        Message = "adapter output closed",
+                    }
+                );
             }
         }
     }
@@ -825,8 +813,8 @@ public sealed class DapManager : IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                   InvalidOperationException)
+        catch (Exception ex)
+            when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             // Stderr is diagnostic only.
         }
@@ -850,8 +838,9 @@ public sealed class DapManager : IDisposable
         {
             long requestSequence = ReadLong(root, "request_seq");
             string command = ReadString(root, "command");
-            bool success = root.TryGetProperty("success", out JsonElement successValue) &&
-                           successValue.ValueKind == JsonValueKind.True;
+            bool success =
+                root.TryGetProperty("success", out JsonElement successValue)
+                && successValue.ValueKind == JsonValueKind.True;
 
             PendingRequest pending;
             lock (_stateLock)
@@ -878,15 +867,17 @@ public sealed class DapManager : IDisposable
         // sessions. Reply with a protocol error so strict adapters do not wait
         // forever for a response.
         long sequence = Interlocked.Increment(ref _nextSequence);
-        SendMessage(new JsonObject
-        {
-            ["seq"] = sequence,
-            ["type"] = "response",
-            ["request_seq"] = requestSequence,
-            ["success"] = false,
-            ["command"] = command,
-            ["message"] = $"unsupported DAP request: {command}"
-        });
+        SendMessage(
+            new JsonObject
+            {
+                ["seq"] = sequence,
+                ["type"] = "response",
+                ["request_seq"] = requestSequence,
+                ["success"] = false,
+                ["command"] = command,
+                ["message"] = $"unsupported DAP request: {command}",
+            }
+        );
     }
 
     private void HandleEvent(string eventName, JsonElement body)
@@ -910,22 +901,27 @@ public sealed class DapManager : IDisposable
                     _stoppedThreadId = threadId;
                     _stopReason = reason;
                     ClearDebugStateLocked();
-                    Enqueue(new DapEvent
-                    {
-                        Kind = DapEventKind.Stopped,
-                        AdapterName = _adapterName,
-                        ThreadId = threadId,
-                        Reason = reason
-                    });
+                    Enqueue(
+                        new DapEvent
+                        {
+                            Kind = DapEventKind.Stopped,
+                            AdapterName = _adapterName,
+                            ThreadId = threadId,
+                            Reason = reason,
+                        }
+                    );
 
                     if (threadId > 0)
                     {
-                        SendRequestLocked("stackTrace", new JsonObject
-                        {
-                            ["threadId"] = threadId,
-                            ["startFrame"] = 0,
-                            ["levels"] = 1
-                        });
+                        SendRequestLocked(
+                            "stackTrace",
+                            new JsonObject
+                            {
+                                ["threadId"] = threadId,
+                                ["startFrame"] = 0,
+                                ["levels"] = 1,
+                            }
+                        );
                     }
                 }
                 return;
@@ -940,33 +936,33 @@ public sealed class DapManager : IDisposable
                     _stoppedLine = -1;
                     ClearDebugStateLocked();
                 }
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Continued,
-                    AdapterName = _adapterName
-                });
+                Enqueue(new DapEvent { Kind = DapEventKind.Continued, AdapterName = _adapterName });
                 return;
 
             case "exited":
             {
                 int exitCode = ReadInt(body, "exitCode");
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Exited,
-                    AdapterName = _adapterName,
-                    ExitCode = exitCode,
-                    Message = $"exit code {exitCode}"
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.Exited,
+                        AdapterName = _adapterName,
+                        ExitCode = exitCode,
+                        Message = $"exit code {exitCode}",
+                    }
+                );
                 return;
             }
 
             case "terminated":
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Terminated,
-                    AdapterName = _adapterName,
-                    Message = "debug session terminated"
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.Terminated,
+                        AdapterName = _adapterName,
+                        Message = "debug session terminated",
+                    }
+                );
                 lock (_stateLock)
                 {
                     StopLocked();
@@ -974,13 +970,15 @@ public sealed class DapManager : IDisposable
                 return;
 
             case "output":
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Output,
-                    AdapterName = _adapterName,
-                    Category = ReadString(body, "category"),
-                    Output = ReadString(body, "output")
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.Output,
+                        AdapterName = _adapterName,
+                        Category = ReadString(body, "category"),
+                        Output = ReadString(body, "output"),
+                    }
+                );
                 return;
 
             case "breakpoint":
@@ -988,27 +986,27 @@ public sealed class DapManager : IDisposable
                 DapBreakpoint? breakpoint = ParseBreakpoint(body);
                 if (breakpoint is not null)
                 {
-                    Enqueue(new DapEvent
-                    {
-                        Kind = DapEventKind.Breakpoints,
-                        AdapterName = _adapterName,
-                        Breakpoints = new[] { breakpoint }
-                    });
+                    Enqueue(
+                        new DapEvent
+                        {
+                            Kind = DapEventKind.Breakpoints,
+                            AdapterName = _adapterName,
+                            Breakpoints = new[] { breakpoint },
+                        }
+                    );
                 }
                 return;
             }
         }
     }
 
-    private void HandleResponse(PendingRequest request, JsonElement root,
-        bool success)
+    private void HandleResponse(PendingRequest request, JsonElement root, bool success)
     {
         string command = request.Command;
         if (!success)
         {
             string message = ReadString(root, "message");
-            if (message.Length == 0 &&
-                root.TryGetProperty("body", out JsonElement errorBody))
+            if (message.Length == 0 && root.TryGetProperty("body", out JsonElement errorBody))
             {
                 message = ReadString(errorBody, "error");
             }
@@ -1031,22 +1029,30 @@ public sealed class DapManager : IDisposable
                         return;
                     }
                 }
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.WatchValue,
-                    AdapterName = _adapterName,
-                    Watch = new DapWatchValue(request.Expression, string.Empty,
-                        string.Empty, message)
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.WatchValue,
+                        AdapterName = _adapterName,
+                        Watch = new DapWatchValue(
+                            request.Expression,
+                            string.Empty,
+                            string.Empty,
+                            message
+                        ),
+                    }
+                );
                 return;
             }
 
-            Enqueue(new DapEvent
-            {
-                Kind = DapEventKind.Error,
-                AdapterName = _adapterName,
-                Message = message
-            });
+            Enqueue(
+                new DapEvent
+                {
+                    Kind = DapEventKind.Error,
+                    AdapterName = _adapterName,
+                    Message = message,
+                }
+            );
             return;
         }
 
@@ -1070,12 +1076,14 @@ public sealed class DapManager : IDisposable
                 return;
 
             case "setBreakpoints":
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.Breakpoints,
-                    AdapterName = _adapterName,
-                    Breakpoints = ParseBreakpoints(result)
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.Breakpoints,
+                        AdapterName = _adapterName,
+                        Breakpoints = ParseBreakpoints(result),
+                    }
+                );
                 return;
 
             case "stackTrace":
@@ -1083,15 +1091,19 @@ public sealed class DapManager : IDisposable
                 string path = string.Empty;
                 int line = -1;
                 int frameId = 0;
-                if (result.ValueKind == JsonValueKind.Object &&
-                    result.TryGetProperty("stackFrames", out JsonElement frames) &&
-                    frames.ValueKind == JsonValueKind.Array &&
-                    frames.GetArrayLength() > 0)
+                if (
+                    result.ValueKind == JsonValueKind.Object
+                    && result.TryGetProperty("stackFrames", out JsonElement frames)
+                    && frames.ValueKind == JsonValueKind.Array
+                    && frames.GetArrayLength() > 0
+                )
                 {
                     JsonElement frame = frames[0];
                     frameId = ReadInt(frame, "id");
-                    if (frame.TryGetProperty("source", out JsonElement source) &&
-                        source.ValueKind == JsonValueKind.Object)
+                    if (
+                        frame.TryGetProperty("source", out JsonElement source)
+                        && source.ValueKind == JsonValueKind.Object
+                    )
                     {
                         path = ReadString(source, "path");
                         if (path.Length == 0)
@@ -1114,14 +1126,16 @@ public sealed class DapManager : IDisposable
                     _stoppedLine = line;
                 }
 
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.StoppedLocation,
-                    AdapterName = _adapterName,
-                    Path = path,
-                    Line = line,
-                    Reason = _stopReason
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.StoppedLocation,
+                        AdapterName = _adapterName,
+                        Path = path,
+                        Line = line,
+                        Reason = _stopReason,
+                    }
+                );
                 return;
             }
 
@@ -1148,12 +1162,14 @@ public sealed class DapManager : IDisposable
                         }
                     }
 
-                    Enqueue(new DapEvent
-                    {
-                        Kind = DapEventKind.Scopes,
-                        AdapterName = _adapterName,
-                        Scopes = scopes
-                    });
+                    Enqueue(
+                        new DapEvent
+                        {
+                            Kind = DapEventKind.Scopes,
+                            AdapterName = _adapterName,
+                            Scopes = scopes,
+                        }
+                    );
 
                     if (_pendingVariablesResponses == 0)
                     {
@@ -1168,13 +1184,15 @@ public sealed class DapManager : IDisposable
                             continue;
                         }
 
-                        SendRequestLocked(new PendingRequest("variables",
-                                request.Generation, scope.VariablesReference,
-                                scope.Name),
-                            new JsonObject
-                            {
-                                ["variablesReference"] = scope.VariablesReference
-                            });
+                        SendRequestLocked(
+                            new PendingRequest(
+                                "variables",
+                                request.Generation,
+                                scope.VariablesReference,
+                                scope.Name
+                            ),
+                            new JsonObject { ["variablesReference"] = scope.VariablesReference }
+                        );
                     }
                 }
                 return;
@@ -1195,22 +1213,25 @@ public sealed class DapManager : IDisposable
                         return;
                     }
                 }
-                Enqueue(new DapEvent
-                {
-                    Kind = DapEventKind.WatchValue,
-                    AdapterName = _adapterName,
-                    Watch = new DapWatchValue(request.Expression,
-                        ReadString(result, "result"),
-                        ReadString(result, "type"),
-                        string.Empty)
-                });
+                Enqueue(
+                    new DapEvent
+                    {
+                        Kind = DapEventKind.WatchValue,
+                        AdapterName = _adapterName,
+                        Watch = new DapWatchValue(
+                            request.Expression,
+                            ReadString(result, "result"),
+                            ReadString(result, "type"),
+                            string.Empty
+                        ),
+                    }
+                );
                 return;
             }
         }
     }
 
-    private void CompleteVariablesRequest(PendingRequest request,
-        List<DapVariable> variables)
+    private void CompleteVariablesRequest(PendingRequest request, List<DapVariable> variables)
     {
         lock (_stateLock)
         {
@@ -1237,29 +1258,35 @@ public sealed class DapManager : IDisposable
         var scoped = new List<DapScopeVariables>(_currentScopes.Count);
         foreach (DapScope scope in _currentScopes)
         {
-            List<DapVariable> variables = scope.VariablesReference > 0 &&
-                                          _variablesByReference.TryGetValue(
-                                              scope.VariablesReference,
-                                              out List<DapVariable>? found)
-                ? found
-                : new List<DapVariable>();
+            List<DapVariable> variables =
+                scope.VariablesReference > 0
+                && _variablesByReference.TryGetValue(
+                    scope.VariablesReference,
+                    out List<DapVariable>? found
+                )
+                    ? found
+                    : new List<DapVariable>();
             scoped.Add(new DapScopeVariables(scope.Name, variables));
         }
 
-        Enqueue(new DapEvent
-        {
-            Kind = DapEventKind.Variables,
-            AdapterName = _adapterName,
-            ScopedVariables = scoped
-        });
+        Enqueue(
+            new DapEvent
+            {
+                Kind = DapEventKind.Variables,
+                AdapterName = _adapterName,
+                ScopedVariables = scoped,
+            }
+        );
     }
 
     private static List<DapScope> ParseScopes(JsonElement result)
     {
         var scopes = new List<DapScope>();
-        if (result.ValueKind != JsonValueKind.Object ||
-            !result.TryGetProperty("scopes", out JsonElement array) ||
-            array.ValueKind != JsonValueKind.Array)
+        if (
+            result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("scopes", out JsonElement array)
+            || array.ValueKind != JsonValueKind.Array
+        )
         {
             return scopes;
         }
@@ -1271,11 +1298,14 @@ public sealed class DapManager : IDisposable
                 continue;
             }
 
-            scopes.Add(new DapScope(
-                ReadString(item, "name"),
-                ReadInt(item, "variablesReference"),
-                item.TryGetProperty("expensive", out JsonElement expensive) &&
-                expensive.ValueKind == JsonValueKind.True));
+            scopes.Add(
+                new DapScope(
+                    ReadString(item, "name"),
+                    ReadInt(item, "variablesReference"),
+                    item.TryGetProperty("expensive", out JsonElement expensive)
+                        && expensive.ValueKind == JsonValueKind.True
+                )
+            );
         }
         return scopes;
     }
@@ -1283,9 +1313,11 @@ public sealed class DapManager : IDisposable
     private static List<DapVariable> ParseVariables(JsonElement result)
     {
         var variables = new List<DapVariable>();
-        if (result.ValueKind != JsonValueKind.Object ||
-            !result.TryGetProperty("variables", out JsonElement array) ||
-            array.ValueKind != JsonValueKind.Array)
+        if (
+            result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("variables", out JsonElement array)
+            || array.ValueKind != JsonValueKind.Array
+        )
         {
             return variables;
         }
@@ -1298,12 +1330,15 @@ public sealed class DapManager : IDisposable
             }
 
             int reference = ReadInt(item, "variablesReference");
-            variables.Add(new DapVariable(
-                ReadString(item, "name"),
-                ReadString(item, "value"),
-                ReadString(item, "type"),
-                reference,
-                ReadString(item, "evaluateName")));
+            variables.Add(
+                new DapVariable(
+                    ReadString(item, "name"),
+                    ReadString(item, "value"),
+                    ReadString(item, "type"),
+                    reference,
+                    ReadString(item, "evaluateName")
+                )
+            );
         }
         return variables;
     }
@@ -1311,9 +1346,11 @@ public sealed class DapManager : IDisposable
     private static List<DapBreakpoint> ParseBreakpoints(JsonElement result)
     {
         var breakpoints = new List<DapBreakpoint>();
-        if (result.ValueKind != JsonValueKind.Object ||
-            !result.TryGetProperty("breakpoints", out JsonElement array) ||
-            array.ValueKind != JsonValueKind.Array)
+        if (
+            result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("breakpoints", out JsonElement array)
+            || array.ValueKind != JsonValueKind.Array
+        )
         {
             return breakpoints;
         }
@@ -1337,35 +1374,38 @@ public sealed class DapManager : IDisposable
         }
 
         int line = ReadInt(element, "line");
-        bool verified = element.TryGetProperty("verified",
-                            out JsonElement verifiedElement) &&
-                        verifiedElement.ValueKind == JsonValueKind.True;
+        bool verified =
+            element.TryGetProperty("verified", out JsonElement verifiedElement)
+            && verifiedElement.ValueKind == JsonValueKind.True;
         string message = ReadString(element, "message");
         return line > 0 ? new DapBreakpoint(line, verified, message) : null;
     }
 
     private static int ReadInt(JsonElement element, string property)
     {
-        return element.TryGetProperty(property, out JsonElement value) &&
-               value.ValueKind == JsonValueKind.Number &&
-               value.TryGetInt32(out int number)
+        return
+            element.TryGetProperty(property, out JsonElement value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out int number)
             ? number
             : 0;
     }
 
     private static long ReadLong(JsonElement element, string property)
     {
-        return element.TryGetProperty(property, out JsonElement value) &&
-               value.ValueKind == JsonValueKind.Number &&
-               value.TryGetInt64(out long number)
+        return
+            element.TryGetProperty(property, out JsonElement value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt64(out long number)
             ? number
             : 0;
     }
 
     private static string ReadString(JsonElement element, string property)
     {
-        return element.TryGetProperty(property, out JsonElement value) &&
-               value.ValueKind == JsonValueKind.String
+        return
+            element.TryGetProperty(property, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : string.Empty;
     }
@@ -1376,8 +1416,8 @@ public sealed class DapManager : IDisposable
         {
             return Path.GetFullPath(path);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return path;
         }
@@ -1400,9 +1440,10 @@ public sealed class DapManager : IDisposable
 
             int separator = line.IndexOf(':');
             string name = separator > 0 ? line[..separator].Trim() : string.Empty;
-            if (string.Equals(name, "Content-Length",
-                    StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(line[(separator + 1)..].Trim(), out int length))
+            if (
+                string.Equals(name, "Content-Length", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(line[(separator + 1)..].Trim(), out int length)
+            )
             {
                 contentLength = length;
             }
@@ -1480,9 +1521,12 @@ public sealed class DapManager : IDisposable
                 _process.Kill(entireProcessTree: true);
             }
         }
-        catch (Exception ex) when (ex is InvalidOperationException or
-                                   System.ComponentModel.Win32Exception or
-                                   NotSupportedException)
+        catch (Exception ex)
+            when (ex
+                    is InvalidOperationException
+                        or System.ComponentModel.Win32Exception
+                        or NotSupportedException
+            )
         {
             // Best effort process cleanup.
         }
@@ -1528,19 +1572,23 @@ public sealed class DapManager : IDisposable
 
     private void EnqueueError(string message)
     {
-        Enqueue(new DapEvent
-        {
-            Kind = DapEventKind.Error,
-            AdapterName = _adapterName,
-            Message = message
-        });
+        Enqueue(
+            new DapEvent
+            {
+                Kind = DapEventKind.Error,
+                AdapterName = _adapterName,
+                Message = message,
+            }
+        );
     }
 
     private void LogOutbound(JsonObject message, string json)
     {
-        if (message["command"] is JsonValue commandValue &&
-            commandValue.TryGetValue(out string? command) &&
-            command is "stackTrace")
+        if (
+            message["command"] is JsonValue commandValue
+            && commandValue.TryGetValue(out string? command)
+            && command is "stackTrace"
+        )
         {
             LogTraffic("-->", "stackTrace");
             return;
@@ -1560,14 +1608,12 @@ public sealed class DapManager : IDisposable
         }
         if (text.Length > MaxLogEntryLength)
         {
-            text = text[..MaxLogEntryLength] +
-                   $"\n… truncated ({text.Length} chars total)";
+            text = text[..MaxLogEntryLength] + $"\n… truncated ({text.Length} chars total)";
         }
 
         lock (_logLock)
         {
-            _log.Enqueue(
-                $"{DateTime.Now:HH:mm:ss.fff} {channel} {text}");
+            _log.Enqueue($"{DateTime.Now:HH:mm:ss.fff} {channel} {text}");
             while (_log.Count > MaxLogEntries)
             {
                 _log.Dequeue();

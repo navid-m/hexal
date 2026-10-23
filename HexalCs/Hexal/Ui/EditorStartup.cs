@@ -22,13 +22,10 @@ public sealed partial class Editor
         if (!_postRenderStartupDone)
         {
             _postRenderStartupDone = true;
-            long postRenderStarted = _benchmark is null
-                ? 0
-                : Stopwatch.GetTimestamp();
+            long postRenderStarted = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
             AutoDetectIndentationOnOpen();
             RefreshDiffLines();
-            _benchmark?.AddSince("Startup", "Post-render initialization",
-                postRenderStarted);
+            _benchmark?.AddSince("Startup", "Post-render initialization", postRenderStarted);
             redraw = true;
         }
 
@@ -52,9 +49,12 @@ public sealed partial class Editor
         _languages = languages;
         if (_benchmark is not null && _startupGrammarStarted != 0)
         {
-            _benchmark.AddSince("Internal", "Grammar registry",
+            _benchmark.AddSince(
+                "Internal",
+                "Grammar registry",
                 _startupGrammarStarted,
-                $"{_languages.Languages.Count} definitions");
+                $"{_languages.Languages.Count} definitions"
+            );
             _startupGrammarStarted = 0;
         }
 

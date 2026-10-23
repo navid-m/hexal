@@ -11,8 +11,13 @@ public static class PluginInstaller
 {
     private const int CloneTimeoutMs = 120_000;
 
-    public static bool TryInstall(string name, string repositoryUrl,
-        string pluginDirectory, out string installedPath, out string error)
+    public static bool TryInstall(
+        string name,
+        string repositoryUrl,
+        string pluginDirectory,
+        out string installedPath,
+        out string error
+    )
     {
         installedPath = string.Empty;
         error = string.Empty;
@@ -35,9 +40,14 @@ public static class PluginInstaller
             Directory.CreateDirectory(pluginDirectory);
             destination = Path.Combine(Path.GetFullPath(pluginDirectory), name);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             error = ex.Message;
             return false;
@@ -49,8 +59,10 @@ public static class PluginInstaller
             return false;
         }
 
-        string temporaryRoot = Path.Combine(Path.GetTempPath(),
-            "hexal-plugin-" + Guid.NewGuid().ToString("N"));
+        string temporaryRoot = Path.Combine(
+            Path.GetTempPath(),
+            "hexal-plugin-" + Guid.NewGuid().ToString("N")
+        );
         try
         {
             Directory.CreateDirectory(temporaryRoot);
@@ -67,16 +79,20 @@ public static class PluginInstaller
                 return false;
             }
 
-            string staging = destination + ".installing-" +
-                             Guid.NewGuid().ToString("N");
+            string staging = destination + ".installing-" + Guid.NewGuid().ToString("N");
             try
             {
                 CopyDirectory(source, staging);
                 Directory.Move(staging, destination);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                            or PathTooLongException
+                )
             {
                 TryDeleteDirectory(staging);
                 error = ex.Message;
@@ -86,9 +102,14 @@ public static class PluginInstaller
             installedPath = destination;
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             error = ex.Message;
             return false;
@@ -99,8 +120,7 @@ public static class PluginInstaller
         }
     }
 
-    private static bool CloneRepository(string repositoryUrl, string directory,
-        out string error)
+    private static bool CloneRepository(string repositoryUrl, string directory, out string error)
     {
         error = string.Empty;
         var startInfo = new ProcessStartInfo
@@ -109,7 +129,7 @@ public static class PluginInstaller
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            CreateNoWindow = true
+            CreateNoWindow = true,
         };
         startInfo.ArgumentList.Add("clone");
         startInfo.ArgumentList.Add("--depth");
@@ -133,8 +153,7 @@ public static class PluginInstaller
             using var cancellation = new CancellationTokenSource(CloneTimeoutMs);
             try
             {
-                process.WaitForExitAsync(cancellation.Token)
-                    .GetAwaiter().GetResult();
+                process.WaitForExitAsync(cancellation.Token).GetAwaiter().GetResult();
             }
             catch (OperationCanceledException)
             {
@@ -161,16 +180,21 @@ public static class PluginInstaller
                 return true;
             }
 
-            error = detail.Length > 0
-                ? detail
-                : output.Length > 0
-                    ? output
-                    : $"git clone exited with code {process.ExitCode}";
+            error =
+                detail.Length > 0 ? detail
+                : output.Length > 0 ? output
+                : $"git clone exited with code {process.ExitCode}";
             return false;
         }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or
-                                   IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is Win32Exception
+                        or InvalidOperationException
+                        or IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = $"cannot run git: {ex.Message}";
             return false;
@@ -184,8 +208,10 @@ public static class PluginInstaller
             return false;
         }
 
-        if (name.Contains(Path.DirectorySeparatorChar) ||
-            name.Contains(Path.AltDirectorySeparatorChar))
+        if (
+            name.Contains(Path.DirectorySeparatorChar)
+            || name.Contains(Path.AltDirectorySeparatorChar)
+        )
         {
             return false;
         }
@@ -199,8 +225,7 @@ public static class PluginInstaller
 
         foreach (string file in Directory.GetFiles(source))
         {
-            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)),
-                overwrite: false);
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: false);
         }
 
         foreach (string directory in Directory.GetDirectories(source))
@@ -211,8 +236,7 @@ public static class PluginInstaller
                 continue;
             }
 
-            CopyDirectory(directory,
-                Path.Combine(destination, Path.GetFileName(directory)));
+            CopyDirectory(directory, Path.Combine(destination, Path.GetFileName(directory)));
         }
     }
 

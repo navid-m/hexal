@@ -161,8 +161,10 @@ public sealed class PieceTable
         length = Math.Min(length, total - offset);
         if (length > int.MaxValue)
         {
-            throw new ArgumentOutOfRangeException(nameof(length),
-                "a single managed range cannot exceed int.MaxValue bytes");
+            throw new ArgumentOutOfRangeException(
+                nameof(length),
+                "a single managed range cannot exceed int.MaxValue bytes"
+            );
         }
 
         byte[] result = new byte[(int)length];
@@ -186,8 +188,10 @@ public sealed class PieceTable
         length = Math.Min(length, total - offset);
         if (length > int.MaxValue)
         {
-            throw new ArgumentOutOfRangeException(nameof(length),
-                "a single managed range cannot exceed int.MaxValue bytes");
+            throw new ArgumentOutOfRangeException(
+                nameof(length),
+                "a single managed range cannot exceed int.MaxValue bytes"
+            );
         }
 
         int needed = (int)length;
@@ -369,8 +373,9 @@ public sealed class PieceTable
                 int local = (int)(offset - nodeStart);
                 Node current = _nodes[node];
                 Chunk chunk = SourceChunk(current);
-                return line + NewlinesOf(current.Left) +
-                       CountNewlines(chunk.Data, current.Offset, local);
+                return line
+                    + NewlinesOf(current.Left)
+                    + CountNewlines(chunk.Data, current.Offset, local);
             }
 
             line += NewlinesOf(_nodes[node].Left) + _nodes[node].PieceNewlines;
@@ -452,8 +457,10 @@ public sealed class PieceTable
             while (position < end)
             {
                 int pieceEnd = ChooseChunkEnd(chunk.Data, position, end);
-                insertedRoot = Merge(insertedRoot,
-                    MakeNode(true, chunkIndex, position, pieceEnd - position));
+                insertedRoot = Merge(
+                    insertedRoot,
+                    MakeNode(true, chunkIndex, position, pieceEnd - position)
+                );
                 position = pieceEnd;
             }
 
@@ -483,8 +490,8 @@ public sealed class PieceTable
         return maxEnd;
     }
 
-    private Chunk SourceChunk(in Node node)
-        => node.FromAdd ? _added[node.ChunkIndex] : _original[node.ChunkIndex];
+    private Chunk SourceChunk(in Node node) =>
+        node.FromAdd ? _added[node.ChunkIndex] : _original[node.ChunkIndex];
 
     private int MakeNode(bool fromAdd, int chunkIndex, int offset, int length)
     {
@@ -497,7 +504,7 @@ public sealed class PieceTable
             ChunkIndex = chunkIndex,
             Offset = offset,
             Length = length,
-            Priority = NextPriority()
+            Priority = NextPriority(),
         };
 
         Chunk chunk = fromAdd ? _added[chunkIndex] : _original[chunkIndex];
@@ -666,7 +673,7 @@ public sealed class PieceTable
             Offset = original.Offset,
             Length = localOffset,
             PieceNewlines = leftNewlines,
-            Priority = original.Priority
+            Priority = original.Priority,
         };
         Update(leftHalf);
 
@@ -680,7 +687,7 @@ public sealed class PieceTable
             Offset = original.Offset + localOffset,
             Length = original.Length - localOffset,
             PieceNewlines = original.PieceNewlines - leftNewlines,
-            Priority = original.Priority
+            Priority = original.Priority,
         };
         Update(rightHalf);
 
@@ -689,8 +696,14 @@ public sealed class PieceTable
         right = rightHalf;
     }
 
-    private void CollectRange(int node, long baseOffset, long begin, long end,
-                              Span<byte> destination, ref int written)
+    private void CollectRange(
+        int node,
+        long baseOffset,
+        long begin,
+        long end,
+        Span<byte> destination,
+        ref int written
+    )
     {
         if (node < 0 || begin >= end)
         {
@@ -704,8 +717,14 @@ public sealed class PieceTable
 
         if (begin < nodeStart)
         {
-            CollectRange(current.Left, baseOffset, begin, Math.Min(end, nodeStart),
-                destination, ref written);
+            CollectRange(
+                current.Left,
+                baseOffset,
+                begin,
+                Math.Min(end, nodeStart),
+                destination,
+                ref written
+            );
         }
 
         if (begin < nodeEnd && end > nodeStart)
@@ -713,15 +732,20 @@ public sealed class PieceTable
             int from = (int)(Math.Max(begin, nodeStart) - nodeStart);
             int to = (int)(Math.Min(end, nodeEnd) - nodeStart);
             Chunk chunk = SourceChunk(current);
-            chunk.Data.AsSpan(current.Offset + from, to - from)
-                .CopyTo(destination[written..]);
+            chunk.Data.AsSpan(current.Offset + from, to - from).CopyTo(destination[written..]);
             written += to - from;
         }
 
         if (end > nodeEnd)
         {
-            CollectRange(current.Right, nodeEnd, Math.Max(begin, nodeEnd), end,
-                destination, ref written);
+            CollectRange(
+                current.Right,
+                nodeEnd,
+                Math.Max(begin, nodeEnd),
+                end,
+                destination,
+                ref written
+            );
         }
     }
 
@@ -734,8 +758,9 @@ public sealed class PieceTable
 
         Node current = _nodes[node];
         CollectPieceRefs(current.Left, pieces);
-        pieces.Add(new PieceRef(current.FromAdd, current.ChunkIndex,
-            current.Offset, current.Length));
+        pieces.Add(
+            new PieceRef(current.FromAdd, current.ChunkIndex, current.Offset, current.Length)
+        );
         CollectPieceRefs(current.Right, pieces);
     }
 

@@ -27,11 +27,12 @@ public sealed partial class Editor
 
     private void RefreshPluginManagerItems(bool keepSelection)
     {
-        string selectedId = keepSelection &&
-                            _pluginManagerSelected >= 0 &&
-                            _pluginManagerSelected < _pluginManagerItems.Count
-            ? _pluginManagerItems[_pluginManagerSelected].Id
-            : string.Empty;
+        string selectedId =
+            keepSelection
+            && _pluginManagerSelected >= 0
+            && _pluginManagerSelected < _pluginManagerItems.Count
+                ? _pluginManagerItems[_pluginManagerSelected].Id
+                : string.Empty;
 
         _pluginManagerItems.Clear();
         if (_plugins is not null)
@@ -44,8 +45,7 @@ public sealed partial class Editor
         {
             for (int i = 0; i < _pluginManagerItems.Count; ++i)
             {
-                if (string.Equals(_pluginManagerItems[i].Id, selectedId,
-                        StringComparison.Ordinal))
+                if (string.Equals(_pluginManagerItems[i].Id, selectedId, StringComparison.Ordinal))
                 {
                     _pluginManagerSelected = i;
                     break;
@@ -53,11 +53,17 @@ public sealed partial class Editor
             }
         }
 
-        _pluginManagerSelected = Math.Clamp(_pluginManagerSelected, 0,
-            Math.Max(0, _pluginManagerItems.Count - 1));
+        _pluginManagerSelected = Math.Clamp(
+            _pluginManagerSelected,
+            0,
+            Math.Max(0, _pluginManagerItems.Count - 1)
+        );
         int rows = PluginManagerListRows();
-        _pluginManagerTop = Math.Clamp(_pluginManagerTop, 0,
-            Math.Max(0, _pluginManagerItems.Count - rows));
+        _pluginManagerTop = Math.Clamp(
+            _pluginManagerTop,
+            0,
+            Math.Max(0, _pluginManagerItems.Count - rows)
+        );
     }
 
     private void HandlePluginManagerInput(InputEvent inputEvent)
@@ -133,9 +139,8 @@ public sealed partial class Editor
         }
     }
 
-    private PluginInfo? SelectedPluginManagerItem()
-        => _pluginManagerSelected >= 0 &&
-           _pluginManagerSelected < _pluginManagerItems.Count
+    private PluginInfo? SelectedPluginManagerItem() =>
+        _pluginManagerSelected >= 0 && _pluginManagerSelected < _pluginManagerItems.Count
             ? _pluginManagerItems[_pluginManagerSelected]
             : null;
 
@@ -146,8 +151,11 @@ public sealed partial class Editor
             return;
         }
 
-        _pluginManagerSelected = Math.Clamp(_pluginManagerSelected + delta, 0,
-            _pluginManagerItems.Count - 1);
+        _pluginManagerSelected = Math.Clamp(
+            _pluginManagerSelected + delta,
+            0,
+            _pluginManagerItems.Count - 1
+        );
         EnsurePluginManagerSelectionVisible();
     }
 
@@ -163,15 +171,20 @@ public sealed partial class Editor
             _pluginManagerTop = _pluginManagerSelected - rows + 1;
         }
 
-        _pluginManagerTop = Math.Clamp(_pluginManagerTop, 0,
-            Math.Max(0, _pluginManagerItems.Count - rows));
+        _pluginManagerTop = Math.Clamp(
+            _pluginManagerTop,
+            0,
+            Math.Max(0, _pluginManagerItems.Count - rows)
+        );
     }
 
     private void ToggleSelectedPlugin()
     {
-        if (_plugins is null ||
-            _pluginManagerSelected < 0 ||
-            _pluginManagerSelected >= _pluginManagerItems.Count)
+        if (
+            _plugins is null
+            || _pluginManagerSelected < 0
+            || _pluginManagerSelected >= _pluginManagerItems.Count
+        )
         {
             return;
         }
@@ -188,10 +201,10 @@ public sealed partial class Editor
 
         if (enable)
         {
-            _plugins.FireEvent("editor_started", new Dictionary<string, object?>
-            {
-                ["api_version"] = 1
-            });
+            _plugins.FireEvent(
+                "editor_started",
+                new Dictionary<string, object?> { ["api_version"] = 1 }
+            );
             _plugins.FireEvent("buffer_opened", CurrentBufferData());
             _plugins.ActivateLuaLsp();
         }
@@ -226,8 +239,8 @@ public sealed partial class Editor
         {
             fullDirectory = Path.GetFullPath(directory);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             SetError($"invalid plugin directory: {ex.Message}");
             return;
@@ -239,9 +252,10 @@ public sealed partial class Editor
             return;
         }
 
-        string entryPath = plugin.EntryPath.Length > 0
-            ? plugin.EntryPath
-            : Path.Combine(fullDirectory, "init.lua");
+        string entryPath =
+            plugin.EntryPath.Length > 0
+                ? plugin.EntryPath
+                : Path.Combine(fullDirectory, "init.lua");
 
         if (!MakeDocumentPathsAbsolute())
         {
@@ -253,8 +267,13 @@ public sealed partial class Editor
         {
             Directory.SetCurrentDirectory(fullDirectory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             SetError($"cannot change working directory: {ex.Message}");
         }
@@ -277,8 +296,7 @@ public sealed partial class Editor
     {
         try
         {
-            if (_diffBaselinePath.Length > 0 &&
-                !Path.IsPathRooted(_diffBaselinePath))
+            if (_diffBaselinePath.Length > 0 && !Path.IsPathRooted(_diffBaselinePath))
             {
                 _diffBaselinePath = Path.GetFullPath(_diffBaselinePath);
             }
@@ -290,18 +308,21 @@ public sealed partial class Editor
                     pane.Document.ChangePath(Path.GetFullPath(path));
                 }
 
-                if (pane.DiffBaselinePath.Length > 0 &&
-                    !Path.IsPathRooted(pane.DiffBaselinePath))
+                if (pane.DiffBaselinePath.Length > 0 && !Path.IsPathRooted(pane.DiffBaselinePath))
                 {
-                    pane.DiffBaselinePath =
-                        Path.GetFullPath(pane.DiffBaselinePath);
+                    pane.DiffBaselinePath = Path.GetFullPath(pane.DiffBaselinePath);
                 }
             }
             return true;
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException or IOException or
-                                   UnauthorizedAccessException)
+        catch (Exception ex)
+            when (ex
+                    is ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException
+                        or IOException
+                        or UnauthorizedAccessException
+            )
         {
             SetError($"cannot preserve document paths: {ex.Message}");
             return false;
@@ -357,10 +378,10 @@ public sealed partial class Editor
 
     private void FirePluginStartedAndOpened()
     {
-        _plugins?.FireEvent("editor_started", new Dictionary<string, object?>
-        {
-            ["api_version"] = 1
-        });
+        _plugins?.FireEvent(
+            "editor_started",
+            new Dictionary<string, object?> { ["api_version"] = 1 }
+        );
         _plugins?.FireEvent("buffer_opened", CurrentBufferData());
         _plugins?.ActivateLuaLsp();
     }
@@ -377,8 +398,7 @@ public sealed partial class Editor
         return Math.Min(100, maximum);
     }
 
-    private int PluginManagerListRows()
-        => Math.Max(1, PluginManagerHeight() - 3);
+    private int PluginManagerListRows() => Math.Max(1, PluginManagerHeight() - 3);
 
     private void RenderPluginManager()
     {
@@ -405,19 +425,26 @@ public sealed partial class Editor
 
         for (int row = 0; row < contentRows; ++row)
         {
-            _screen.Put(x + 1 + listWidth, y + 1 + row, (uint)'│',
-                _theme.BorderStyle);
+            _screen.Put(x + 1 + listWidth, y + 1 + row, (uint)'│', _theme.BorderStyle);
         }
 
         if (_pluginManagerItems.Count == 0)
         {
-            _screen.PutString(x + 2, y + 1, "No plugins discovered.",
-                _theme.MutedStyle, detailWidth);
+            _screen.PutString(
+                x + 2,
+                y + 1,
+                "No plugins discovered.",
+                _theme.MutedStyle,
+                detailWidth
+            );
         }
         else
         {
-            _pluginManagerSelected = Math.Clamp(_pluginManagerSelected, 0,
-                _pluginManagerItems.Count - 1);
+            _pluginManagerSelected = Math.Clamp(
+                _pluginManagerSelected,
+                0,
+                _pluginManagerItems.Count - 1
+            );
             int maxTop = Math.Max(0, _pluginManagerItems.Count - contentRows);
             _pluginManagerTop = Math.Clamp(_pluginManagerTop, 0, maxTop);
 
@@ -431,19 +458,18 @@ public sealed partial class Editor
 
                 PluginInfo plugin = _pluginManagerItems[index];
                 string label = $"{plugin.Name} [{(plugin.Enabled ? "on" : "off")}]";
-                Style style = index == _pluginManagerSelected
-                    ? _theme.SelectedItemStyle
-                    : plugin.Enabled ? _theme.TextStyle : _theme.MutedStyle;
-                _screen.PutString(x + 2, y + 1 + row, label, style,
-                    Math.Max(0, listWidth - 1));
+                Style style =
+                    index == _pluginManagerSelected ? _theme.SelectedItemStyle
+                    : plugin.Enabled ? _theme.TextStyle
+                    : _theme.MutedStyle;
+                _screen.PutString(x + 2, y + 1 + row, label, style, Math.Max(0, listWidth - 1));
             }
 
             PluginInfo selected = _pluginManagerItems[_pluginManagerSelected];
             int detailRow = y + 1;
             int bottom = y + height - 2;
 
-            foreach ((string text, Style style) in PluginDetailLines(selected,
-                         detailWidth))
+            foreach ((string text, Style style) in PluginDetailLines(selected, detailWidth))
             {
                 if (detailRow >= bottom)
                 {
@@ -455,13 +481,16 @@ public sealed partial class Editor
             }
         }
 
-        _screen.PutString(x + 2, y + height - 2,
+        _screen.PutString(
+            x + 2,
+            y + height - 2,
             "j/k move · Enter toggle · s source · r reload · R all · Esc close",
-            _theme.MutedStyle, width - 4);
+            _theme.MutedStyle,
+            width - 4
+        );
     }
 
-    private IEnumerable<(string Text, Style Style)> PluginDetailLines(
-        PluginInfo plugin, int width)
+    private IEnumerable<(string Text, Style Style)> PluginDetailLines(PluginInfo plugin, int width)
     {
         var style = _theme.TextStyle;
         yield return ($"Name: {plugin.Name}", _theme.AccentStyle);
@@ -471,11 +500,11 @@ public sealed partial class Editor
             yield return ($"Version: {plugin.Version}", style);
         }
 
-        string status = plugin.Deferred
-            ? "Status: enabled (loads when its language is opened)"
-            : plugin.Enabled ? "Status: enabled" : "Status: disabled";
-        yield return (status,
-            plugin.Enabled ? _theme.TextStyle : _theme.MutedStyle);
+        string status =
+            plugin.Deferred ? "Status: enabled (loads when its language is opened)"
+            : plugin.Enabled ? "Status: enabled"
+            : "Status: disabled";
+        yield return (status, plugin.Enabled ? _theme.TextStyle : _theme.MutedStyle);
         if (plugin.Author.Length > 0)
         {
             yield return ($"Author: {plugin.Author}", style);
@@ -487,26 +516,23 @@ public sealed partial class Editor
 
         if (plugin.Description.Length > 0)
         {
-            foreach (string line in WrapText($"Description: {plugin.Description}",
-                         Math.Max(1, width)))
+            foreach (
+                string line in WrapText($"Description: {plugin.Description}", Math.Max(1, width))
+            )
             {
                 yield return (line, style);
             }
         }
 
-        string commands = plugin.Commands.Count == 0
-            ? "none"
-            : string.Join(", ", plugin.Commands);
-        foreach (string line in WrapText($"Commands: {commands}",
-                     Math.Max(1, width)))
+        string commands = plugin.Commands.Count == 0 ? "none" : string.Join(", ", plugin.Commands);
+        foreach (string line in WrapText($"Commands: {commands}", Math.Max(1, width)))
         {
             yield return (line, style);
         }
 
         if (plugin.Error.Length > 0)
         {
-            foreach (string line in WrapText($"Error: {plugin.Error}",
-                         Math.Max(1, width)))
+            foreach (string line in WrapText($"Error: {plugin.Error}", Math.Max(1, width)))
             {
                 yield return (line, _theme.ErrorStyle);
             }
@@ -514,8 +540,7 @@ public sealed partial class Editor
 
         if (plugin.EntryPath.Length > 0)
         {
-            foreach (string line in WrapText($"Entry: {plugin.EntryPath}",
-                         Math.Max(1, width)))
+            foreach (string line in WrapText($"Entry: {plugin.EntryPath}", Math.Max(1, width)))
             {
                 yield return (line, _theme.MutedStyle);
             }
@@ -523,8 +548,9 @@ public sealed partial class Editor
 
         if (plugin.ManifestPath.Length > 0)
         {
-            foreach (string line in WrapText($"Manifest: {plugin.ManifestPath}",
-                         Math.Max(1, width)))
+            foreach (
+                string line in WrapText($"Manifest: {plugin.ManifestPath}", Math.Max(1, width))
+            )
             {
                 yield return (line, _theme.MutedStyle);
             }

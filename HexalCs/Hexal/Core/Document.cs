@@ -28,7 +28,7 @@ public sealed class Document
     {
         Insert,
         Erase,
-        Mixed
+        Mixed,
     }
 
     private sealed class Change
@@ -221,8 +221,13 @@ public sealed class Document
             error = $"parent directory does not exist: '{FileSystemUtil.ParentDirectory(path)}'";
             return null;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = $"cannot access '{path}': {ex.Message}";
             return null;
@@ -238,8 +243,14 @@ public sealed class Document
 
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                FileShare.Read, 1, FileOptions.SequentialScan);
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                1,
+                FileOptions.SequentialScan
+            );
 
             Span<byte> bom = stackalloc byte[3];
             int bomLength = 0;
@@ -266,8 +277,13 @@ public sealed class Document
             document._eol = document._table.DetectedEol;
             return document;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = $"cannot open '{path}' for reading: {ex.Message}";
             return null;
@@ -424,8 +440,7 @@ public sealed class Document
         ++_revision;
         RecordLastChange(offset, 0, text.Length);
 
-        if (_compositeDepth == 0 && _insertRunOpen && _undo.Count > 0 &&
-            !ContainsLineBreak(text))
+        if (_compositeDepth == 0 && _insertRunOpen && _undo.Count > 0 && !ContainsLineBreak(text))
         {
             Group group = _undo[^1];
             if (group.Kind == GroupKind.Insert && group.Changes.Count == 1)
@@ -474,8 +489,7 @@ public sealed class Document
 
         PrepareForEdit();
 
-        if (_compositeDepth == 0 && _eraseRunOpen && _undo.Count > 0 &&
-            !ContainsLineBreak(removed))
+        if (_compositeDepth == 0 && _eraseRunOpen && _undo.Count > 0 && !ContainsLineBreak(removed))
         {
             Group group = _undo[^1];
             if (group.Kind == GroupKind.Erase && group.Changes.Count == 1)
@@ -642,9 +656,7 @@ public sealed class Document
         ++_revision;
 
         Change last = group.Changes[^1];
-        long hint = last.Inserted.Length == 0
-            ? last.Offset
-            : last.Offset + last.Inserted.Length;
+        long hint = last.Inserted.Length == 0 ? last.Offset : last.Offset + last.Inserted.Length;
 
         _undo.Add(group);
         TrimHistory();
@@ -669,8 +681,13 @@ public sealed class Document
 
         private readonly PieceTable.Snapshot _table;
 
-        internal SaveSnapshot(string path, bool bom, long pose, long revision,
-            PieceTable.Snapshot table)
+        internal SaveSnapshot(
+            string path,
+            bool bom,
+            long pose,
+            long revision,
+            PieceTable.Snapshot table
+        )
         {
             Path = path;
             Bom = bom;
@@ -681,14 +698,18 @@ public sealed class Document
 
         public bool WriteTo(out string error)
         {
-            return FileSystemUtil.AtomicWrite(Path, stream =>
-            {
-                if (Bom)
+            return FileSystemUtil.AtomicWrite(
+                Path,
+                stream =>
                 {
-                    stream.Write(BomBytes);
-                }
-                _table.WriteTo(stream);
-            }, out error);
+                    if (Bom)
+                    {
+                        stream.Write(BomBytes);
+                    }
+                    _table.WriteTo(stream);
+                },
+                out error
+            );
         }
     }
 
@@ -703,14 +724,11 @@ public sealed class Document
         string target = path ?? _path ?? string.Empty;
         if (target.Length == 0)
         {
-            error = path is null
-                ? "no file name assigned (use :w <file>)"
-                : "empty file name";
+            error = path is null ? "no file name assigned (use :w <file>)" : "empty file name";
             return null;
         }
 
-        return new SaveSnapshot(target, _bom, _undo.Count, _revision,
-            _table.CreateSnapshot());
+        return new SaveSnapshot(target, _bom, _undo.Count, _revision, _table.CreateSnapshot());
     }
 
     /// <summary>
@@ -807,8 +825,7 @@ public sealed class Document
     private void TrimHistory()
     {
         long dropped = 0;
-        while (_undo.Count > 1 &&
-               (_undo.Count > MaxUndoGroups || _historyBytes > MaxUndoBytes))
+        while (_undo.Count > 1 && (_undo.Count > MaxUndoGroups || _historyBytes > MaxUndoBytes))
         {
             _historyBytes -= GroupBytes(_undo[0]);
             _undo.RemoveAt(0);
@@ -827,8 +844,7 @@ public sealed class Document
             }
         }
 
-        while (_redo.Count > 0 &&
-               (_redo.Count > MaxUndoGroups || _historyBytes > MaxUndoBytes))
+        while (_redo.Count > 0 && (_redo.Count > MaxUndoGroups || _historyBytes > MaxUndoBytes))
         {
             if (_savedPose > _undo.Count)
             {
@@ -873,6 +889,6 @@ public sealed class Document
         }
     }
 
-    private static bool ContainsLineBreak(ReadOnlySpan<byte> text)
-        => text.IndexOf((byte)'\n') >= 0 || text.IndexOf((byte)'\r') >= 0;
+    private static bool ContainsLineBreak(ReadOnlySpan<byte> text) =>
+        text.IndexOf((byte)'\n') >= 0 || text.IndexOf((byte)'\r') >= 0;
 }

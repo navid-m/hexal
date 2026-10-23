@@ -41,10 +41,13 @@ public sealed class LuaLspCoordinator : IDisposable
         Documents = new LspDocumentStore();
         Diagnostics = new LspDiagnosticsRegistry();
         Permissions = new LspPermissionPolicy();
-        Workspace = new LspWorkspace(Documents, Permissions,
+        Workspace = new LspWorkspace(
+            Documents,
+            Permissions,
             Path.GetDirectoryName(pluginDirectory) is { Length: > 0 } parent
                 ? parent
-                : pluginDirectory);
+                : pluginDirectory
+        );
         Diagnostics.Changed += OnDiagnosticsChanged;
     }
 
@@ -68,11 +71,9 @@ public sealed class LuaLspCoordinator : IDisposable
 
     public List<LuaLspServer> Servers { get; } = new();
 
-    public Dictionary<string, LuaTable> Modules { get; } =
-        new(StringComparer.Ordinal);
+    public Dictionary<string, LuaTable> Modules { get; } = new(StringComparer.Ordinal);
 
-    public Dictionary<string, LuaTable> ModuleAliases { get; } =
-        new(StringComparer.Ordinal);
+    public Dictionary<string, LuaTable> ModuleAliases { get; } = new(StringComparer.Ordinal);
 
     public Action<string>? ReportError { get; set; }
 
@@ -208,12 +209,14 @@ public sealed class LuaLspCoordinator : IDisposable
         }
 
         long id = _nextTimerId++;
-        _timers.Add(new TimerRegistration
-        {
-            Id = id,
-            DueMs = Environment.TickCount64 + Math.Max(0, delayMs),
-            Callback = callback
-        });
+        _timers.Add(
+            new TimerRegistration
+            {
+                Id = id,
+                DueMs = Environment.TickCount64 + Math.Max(0, delayMs),
+                Callback = callback,
+            }
+        );
         return id;
     }
 
@@ -225,12 +228,14 @@ public sealed class LuaLspCoordinator : IDisposable
         }
 
         long id = _nextTimerId++;
-        _timers.Add(new TimerRegistration
-        {
-            Id = id,
-            DueMs = Environment.TickCount64 + Math.Max(0, delayMs),
-            Action = action
-        });
+        _timers.Add(
+            new TimerRegistration
+            {
+                Id = id,
+                DueMs = Environment.TickCount64 + Math.Max(0, delayMs),
+                Action = action,
+            }
+        );
         return id;
     }
 
@@ -284,8 +289,8 @@ public sealed class LuaLspCoordinator : IDisposable
                     timer.Callback?.Call();
                 }
             }
-            catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex is LuaScriptException or InvalidOperationException or ArgumentException)
             {
                 Report($"async callback failed: {ex.Message}");
             }
@@ -360,7 +365,7 @@ public sealed class LuaLspCoordinator : IDisposable
         {
             JsonNode node => ToLua(node),
             null => null,
-            _ => task.Result
+            _ => task.Result,
         };
     }
 
@@ -384,14 +389,16 @@ public sealed class LuaLspCoordinator : IDisposable
     {
         LuaTable table = NewTable();
         table["token"] = token;
-        table["begin"] = new Func<string, object?, bool>((nextTitle, options) =>
-        {
-            if (server is not null)
+        table["begin"] = new Func<string, object?, bool>(
+            (nextTitle, options) =>
             {
-                server.BeginProgress(token, nextTitle ?? string.Empty, options as LuaTable);
+                if (server is not null)
+                {
+                    server.BeginProgress(token, nextTitle ?? string.Empty, options as LuaTable);
+                }
+                return true;
             }
-            return true;
-        });
+        );
         table["report"] = new Func<object?, bool>(value =>
         {
             if (server is not null)
@@ -433,24 +440,29 @@ public sealed class LuaLspCoordinator : IDisposable
             return NewArray(values);
         });
         table["configuration"] = new Func<string?, object?>(section =>
-            ToLua(workspace.ConfigurationValue(section)));
-        table["find_files"] = new Func<string, object?, LuaTable>((glob, options) =>
-        {
-            var task = new LspTaskResult();
-            try
+            ToLua(workspace.ConfigurationValue(section))
+        );
+        table["find_files"] = new Func<string, object?, LuaTable>(
+            (glob, options) =>
             {
-                IReadOnlyList<string> files = workspace.FindFiles(glob,
-                    options as LuaTable is null
-                        ? null
-                        : LspJson.FromLua(NullSentinel, options) as JsonObject);
-                task.Complete(NewArray(files.Cast<object?>()));
+                var task = new LspTaskResult();
+                try
+                {
+                    IReadOnlyList<string> files = workspace.FindFiles(
+                        glob,
+                        options as LuaTable is null
+                            ? null
+                            : LspJson.FromLua(NullSentinel, options) as JsonObject
+                    );
+                    task.Complete(NewArray(files.Cast<object?>()));
+                }
+                catch (Exception ex)
+                {
+                    task.Fail(ex.Message);
+                }
+                return CreateTask(task);
             }
-            catch (Exception ex)
-            {
-                task.Fail(ex.Message);
-            }
-            return CreateTask(task);
-        });
+        );
         table["read_file"] = new Func<string, LuaTable>(uri =>
         {
             var task = new LspTaskResult();
@@ -484,49 +496,56 @@ public sealed class LuaLspCoordinator : IDisposable
             }
             return CreateTask(task);
         });
-        table["watch"] = new Func<string, LuaFunction, object?>((glob, callback) =>
-        {
-            if (callback is null)
+        table["watch"] = new Func<string, LuaFunction, object?>(
+            (glob, callback) =>
             {
-                return null;
+                if (callback is null)
+                {
+                    return null;
+                }
+                LspWatchRegistration watch = workspace.Watch(glob);
+                return CreateWatch(watch, callback);
             }
-            LspWatchRegistration watch = workspace.Watch(glob);
-            return CreateWatch(watch, callback);
-        });
+        );
         table["index"] = new Func<object?, LuaTable>(options =>
         {
             var task = new LspTaskResult();
-            LspWorkspaceIndex index = LspWorkspace.CreateIndex(options is LuaTable table
-                ? LspJson.FromLua(NullSentinel, table) as JsonObject
-                : null);
+            LspWorkspaceIndex index = LspWorkspace.CreateIndex(
+                options is LuaTable table
+                    ? LspJson.FromLua(NullSentinel, table) as JsonObject
+                    : null
+            );
             task.Complete(CreateIndexTable(index));
             return CreateTask(task);
         });
-        table["progress"] = new Func<string, LuaFunction?, LuaTable>((title, callback) =>
-        {
-            var task = new LspTaskResult();
-            string token = server?.NextProgressToken() ??
-                $"hexal-progress-{PluginId}-{_nextProgressId++}";
-            LuaTable progress = CreateProgress(server, token);
-            if (server is not null)
+        table["progress"] = new Func<string, LuaFunction?, LuaTable>(
+            (title, callback) =>
             {
-                server.BeginProgress(token, title, null);
-            }
-            if (callback is not null)
-            {
-                try
+                var task = new LspTaskResult();
+                string token =
+                    server?.NextProgressToken() ?? $"hexal-progress-{PluginId}-{_nextProgressId++}";
+                LuaTable progress = CreateProgress(server, token);
+                if (server is not null)
                 {
-                    callback.Call(progress);
+                    server.BeginProgress(token, title, null);
                 }
-                catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException)
+                if (callback is not null)
                 {
-                    task.Fail(ex.Message);
-                    return CreateTask(task);
+                    try
+                    {
+                        callback.Call(progress);
+                    }
+                    catch (Exception ex)
+                        when (ex is LuaScriptException or InvalidOperationException)
+                    {
+                        task.Fail(ex.Message);
+                        return CreateTask(task);
+                    }
                 }
+                task.Complete(progress);
+                return CreateTask(task);
             }
-            task.Complete(progress);
-            return CreateTask(task);
-        });
+        );
         WrapTable(table);
         PadTable(table, "configuration", 1);
         PadTable(table, "find_files", 2);
@@ -541,16 +560,20 @@ public sealed class LuaLspCoordinator : IDisposable
     public LuaTable CreateIndexTable(LspWorkspaceIndex index)
     {
         LuaTable table = NewTable();
-        table["add_file"] = new Func<string, object?, bool>((uri, symbols) =>
-        {
-            index.AddFile(uri, AsArray(symbols));
-            return true;
-        });
-        table["update_file"] = new Func<string, object?, bool>((uri, symbols) =>
-        {
-            index.UpdateFile(uri, AsArray(symbols));
-            return true;
-        });
+        table["add_file"] = new Func<string, object?, bool>(
+            (uri, symbols) =>
+            {
+                index.AddFile(uri, AsArray(symbols));
+                return true;
+            }
+        );
+        table["update_file"] = new Func<string, object?, bool>(
+            (uri, symbols) =>
+            {
+                index.UpdateFile(uri, AsArray(symbols));
+                return true;
+            }
+        );
         table["remove_file"] = new Func<string, bool>(uri => index.RemoveFile(uri));
         table["invalidate"] = new Func<string, bool>(uri =>
         {
@@ -562,15 +585,26 @@ public sealed class LuaLspCoordinator : IDisposable
             index.Clear();
             return true;
         });
-        table["query_symbols"] = new Func<string, object?, LuaTable>((query, options) =>
-            NewArray((index.QuerySymbols(query, AsObject(options)) as JsonArray ??
-                      new JsonArray()).Select(item => (object?)ToLua(item))));
-        table["query_references"] = new Func<object?, object?, LuaTable>((symbol, options) =>
-        {
-            JsonObject value = AsObject(symbol) ?? new JsonObject();
-            return NewArray((index.QueryReferences(value, AsObject(options)) as JsonArray ??
-                             new JsonArray()).Select(item => (object?)ToLua(item)));
-        });
+        table["query_symbols"] = new Func<string, object?, LuaTable>(
+            (query, options) =>
+                NewArray(
+                    (
+                        index.QuerySymbols(query, AsObject(options)) as JsonArray ?? new JsonArray()
+                    ).Select(item => (object?)ToLua(item))
+                )
+        );
+        table["query_references"] = new Func<object?, object?, LuaTable>(
+            (symbol, options) =>
+            {
+                JsonObject value = AsObject(symbol) ?? new JsonObject();
+                return NewArray(
+                    (
+                        index.QueryReferences(value, AsObject(options)) as JsonArray
+                        ?? new JsonArray()
+                    ).Select(item => (object?)ToLua(item))
+                );
+            }
+        );
         table["statistics"] = new Func<LuaTable>(() =>
         {
             LuaTable stats = NewTable();
@@ -649,49 +683,66 @@ public sealed class LuaLspCoordinator : IDisposable
         table["encoding"] = LspEncodingUtil.ToProtocolName(document.Encoding);
 
         table["get_text"] = new Func<string>(() => document.Text);
-        table["get_line"] = new Func<object?, object?>((lineValue) =>
-        {
-            long? line = LspJson.ToInt64(lineValue);
-            if (line is null || line < 0 || line >= document.LineCount)
+        table["get_line"] = new Func<object?, object?>(
+            (lineValue) =>
             {
-                return null;
+                long? line = LspJson.ToInt64(lineValue);
+                if (line is null || line < 0 || line >= document.LineCount)
+                {
+                    return null;
+                }
+                return document.GetLine((int)line.Value);
             }
-            return document.GetLine((int)line.Value);
-        });
+        );
         table["get_range"] = new Func<object?, string>(range =>
-            document.GetRange(range is LuaTable table ? AsObject(table) : null));
-        table["word_at"] = new Func<object?, object?>((positionValue) =>
-        {
-            JsonObject? position = positionValue is LuaTable table ? AsObject(table) : null;
-            return WordAt(document, position);
-        });
-        table["word_range_at"] = new Func<object?, object?>((positionValue) =>
-        {
-            JsonObject? position = positionValue is LuaTable table ? AsObject(table) : null;
-            return WordRangeAt(document, position);
-        });
-        table["position_to_offset"] = new Func<object?, long>((positionValue) =>
-        {
-            JsonObject? position = positionValue is LuaTable table ? AsObject(table) : null;
-            int line = LspJson.GetInt32(position?["line"]) ?? 0;
-            int character = LspJson.GetInt32(position?["character"]) ?? 0;
-            return Encoding.UTF8.GetByteCount(
-                document.Text.AsSpan(0, document.CharOffset(line, character)));
-        });
-        table["offset_to_position"] = new Func<object?, LuaTable>((offsetValue) =>
-        {
-            long offset = LspJson.ToInt64(offsetValue) ?? 0;
-            (int line, int character) = ByteOffsetToPosition(document, offset);
-            LuaTable position = NewTable();
-            position["line"] = line;
-            position["character"] = character;
-            return position;
-        });
-        table["get_changes_since"] = new Func<object?, LuaTable>((versionValue) =>
-            NewArray((document.ChangesSince(LspJson.ToInt64(versionValue) ?? 0) as JsonArray ??
-                      new JsonArray()).Select(item => (object?)ToLua(item))));
-        table["snapshot"] = new Func<LuaTable>(() =>
-            CreateSnapshotTable(document.Snapshot()));
+            document.GetRange(range is LuaTable table ? AsObject(table) : null)
+        );
+        table["word_at"] = new Func<object?, object?>(
+            (positionValue) =>
+            {
+                JsonObject? position = positionValue is LuaTable table ? AsObject(table) : null;
+                return WordAt(document, position);
+            }
+        );
+        table["word_range_at"] = new Func<object?, object?>(
+            (positionValue) =>
+            {
+                JsonObject? position = positionValue is LuaTable table ? AsObject(table) : null;
+                return WordRangeAt(document, position);
+            }
+        );
+        table["position_to_offset"] = new Func<object?, long>(
+            (positionValue) =>
+            {
+                JsonObject? position = positionValue is LuaTable table ? AsObject(table) : null;
+                int line = LspJson.GetInt32(position?["line"]) ?? 0;
+                int character = LspJson.GetInt32(position?["character"]) ?? 0;
+                return Encoding.UTF8.GetByteCount(
+                    document.Text.AsSpan(0, document.CharOffset(line, character))
+                );
+            }
+        );
+        table["offset_to_position"] = new Func<object?, LuaTable>(
+            (offsetValue) =>
+            {
+                long offset = LspJson.ToInt64(offsetValue) ?? 0;
+                (int line, int character) = ByteOffsetToPosition(document, offset);
+                LuaTable position = NewTable();
+                position["line"] = line;
+                position["character"] = character;
+                return position;
+            }
+        );
+        table["get_changes_since"] = new Func<object?, LuaTable>(
+            (versionValue) =>
+                NewArray(
+                    (
+                        document.ChangesSince(LspJson.ToInt64(versionValue) ?? 0) as JsonArray
+                        ?? new JsonArray()
+                    ).Select(item => (object?)ToLua(item))
+                )
+        );
+        table["snapshot"] = new Func<LuaTable>(() => CreateSnapshotTable(document.Snapshot()));
         table["is_open"] = new Func<bool>(() => document.IsOpen);
         table["is_dirty"] = new Func<bool>(() => document.IsDirty);
         WrapTable(table);
@@ -715,18 +766,20 @@ public sealed class LuaLspCoordinator : IDisposable
         table["lineCount"] = snapshot.LineCount;
         table["encoding"] = LspEncodingUtil.ToProtocolName(snapshot.Encoding);
         table["get_text"] = new Func<string>(() => snapshot.Text);
-        table["get_line"] = new Func<object?, object?>((lineValue) =>
-        {
-            long? line = LspJson.ToInt64(lineValue);
-            if (line is null || line < 0 || line >= snapshot.LineCount)
+        table["get_line"] = new Func<object?, object?>(
+            (lineValue) =>
             {
-                return null;
+                long? line = LspJson.ToInt64(lineValue);
+                if (line is null || line < 0 || line >= snapshot.LineCount)
+                {
+                    return null;
+                }
+                return LspTextIndex.LineText(snapshot.Text, snapshot.LineStarts, (int)line.Value);
             }
-            return LspTextIndex.LineText(snapshot.Text, snapshot.LineStarts,
-                (int)line.Value);
-        });
+        );
         table["get_range"] = new Func<object?, string>(range =>
-            SnapshotRange(snapshot, range is LuaTable table ? AsObject(table) : null));
+            SnapshotRange(snapshot, range is LuaTable table ? AsObject(table) : null)
+        );
         WrapTable(table);
         PadTable(table, "get_line", 1);
         PadTable(table, "get_range", 1);
@@ -743,10 +796,20 @@ public sealed class LuaLspCoordinator : IDisposable
         int startCharacter = LspJson.GetInt32(range["start"]?["character"]) ?? 0;
         int endLine = LspJson.GetInt32(range["end"]?["line"]) ?? 0;
         int endCharacter = LspJson.GetInt32(range["end"]?["character"]) ?? 0;
-        int start = LspTextIndex.PositionToCharOffset(snapshot.Text, snapshot.LineStarts,
-            startLine, startCharacter, snapshot.Encoding);
-        int end = LspTextIndex.PositionToCharOffset(snapshot.Text, snapshot.LineStarts,
-            endLine, endCharacter, snapshot.Encoding);
+        int start = LspTextIndex.PositionToCharOffset(
+            snapshot.Text,
+            snapshot.LineStarts,
+            startLine,
+            startCharacter,
+            snapshot.Encoding
+        );
+        int end = LspTextIndex.PositionToCharOffset(
+            snapshot.Text,
+            snapshot.LineStarts,
+            endLine,
+            endCharacter,
+            snapshot.Encoding
+        );
         if (end < start)
         {
             (start, end) = (end, start);
@@ -754,13 +817,18 @@ public sealed class LuaLspCoordinator : IDisposable
         return snapshot.Text[start..end];
     }
 
-    private static (int Line, int Character) ByteOffsetToPosition(LspDocument document,
-        long byteOffset)
+    private static (int Line, int Character) ByteOffsetToPosition(
+        LspDocument document,
+        long byteOffset
+    )
     {
         byte[] bytes = Encoding.UTF8.GetBytes(document.Text);
         int offset = (int)Math.Clamp(byteOffset, 0, bytes.Length);
-        while (offset > 0 && (bytes[offset - 1] & 0xC0) == 0x80 &&
-               (offset >= bytes.Length || (bytes[offset] & 0xC0) != 0x80))
+        while (
+            offset > 0
+            && (bytes[offset - 1] & 0xC0) == 0x80
+            && (offset >= bytes.Length || (bytes[offset] & 0xC0) != 0x80)
+        )
         {
             --offset;
         }
@@ -777,8 +845,7 @@ public sealed class LuaLspCoordinator : IDisposable
         int line = LspJson.GetInt32(position["line"]) ?? 0;
         int character = LspJson.GetInt32(position["character"]) ?? 0;
         string text = document.GetLine(line);
-        int index = LspEncodingUtil.ColumnToCharIndex(text, character,
-            document.Encoding);
+        int index = LspEncodingUtil.ColumnToCharIndex(text, character, document.Encoding);
         (int start, int end) = WordBounds(text, index);
         return end > start ? text[start..end] : null;
     }
@@ -792,8 +859,7 @@ public sealed class LuaLspCoordinator : IDisposable
         int line = LspJson.GetInt32(position["line"]) ?? 0;
         int character = LspJson.GetInt32(position["character"]) ?? 0;
         string text = document.GetLine(line);
-        int index = LspEncodingUtil.ColumnToCharIndex(text, character,
-            document.Encoding);
+        int index = LspEncodingUtil.ColumnToCharIndex(text, character, document.Encoding);
         (int start, int end) = WordBounds(text, index);
         if (end <= start)
         {
@@ -803,12 +869,14 @@ public sealed class LuaLspCoordinator : IDisposable
         LuaTable range = NewTable();
         LuaTable startPosition = NewTable();
         startPosition["line"] = line;
-        startPosition["character"] = LspEncodingUtil.CharIndexToColumn(text, start,
-            document.Encoding);
+        startPosition["character"] = LspEncodingUtil.CharIndexToColumn(
+            text,
+            start,
+            document.Encoding
+        );
         LuaTable endPosition = NewTable();
         endPosition["line"] = line;
-        endPosition["character"] = LspEncodingUtil.CharIndexToColumn(text, end,
-            document.Encoding);
+        endPosition["character"] = LspEncodingUtil.CharIndexToColumn(text, end, document.Encoding);
         range["start"] = startPosition;
         range["end"] = endPosition;
         return range;
@@ -861,8 +929,12 @@ public sealed class LuaLspCoordinator : IDisposable
         return new LspProtocolError(code, message, data);
     }
 
-    public LuaTable CreateContext(LuaLspServer server, string method, JsonNode? requestId,
-        CancellationToken cancellationToken)
+    public LuaTable CreateContext(
+        LuaLspServer server,
+        string method,
+        JsonNode? requestId,
+        CancellationToken cancellationToken
+    )
     {
         LuaTable context = NewTable();
         context["server"] = server.ServerTable;
@@ -881,8 +953,12 @@ public sealed class LuaLspCoordinator : IDisposable
         context["progress"] = server.ProgressForRequest(requestId);
         context["reject"] = new Func<int, string, object?, LuaTable>(
             (code, message, data) =>
-                CreateErrorTable(code, message ?? string.Empty,
-                    data is LuaTable table ? FromLua(table) : FromLua(data)));
+                CreateErrorTable(
+                    code,
+                    message ?? string.Empty,
+                    data is LuaTable table ? FromLua(table) : FromLua(data)
+                )
+        );
         WrapTable(context);
         PadTable(context, "reject", 3);
         return context;
@@ -893,14 +969,42 @@ public sealed class LuaLspCoordinator : IDisposable
         return new JsonObject
         {
             ["tokenTypes"] = LspJson.StringArray(
-                "namespace", "type", "class", "enum", "interface", "struct",
-                "typeParameter", "parameter", "variable", "property", "enumMember",
-                "event", "function", "method", "macro", "keyword", "modifier",
-                "comment", "string", "number", "regexp", "operator", "decorator"),
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "interface",
+                "struct",
+                "typeParameter",
+                "parameter",
+                "variable",
+                "property",
+                "enumMember",
+                "event",
+                "function",
+                "method",
+                "macro",
+                "keyword",
+                "modifier",
+                "comment",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator"
+            ),
             ["tokenModifiers"] = LspJson.StringArray(
-                "declaration", "definition", "readonly", "static", "deprecated",
-                "abstract", "async", "modification", "documentation",
-                "defaultLibrary")
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultLibrary"
+            ),
         };
     }
 

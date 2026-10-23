@@ -25,7 +25,8 @@ public sealed class LspPermissionPolicy
         if (!ReadFiles)
         {
             throw new UnauthorizedAccessException(
-                $"filesystem read permission is required for '{path}'");
+                $"filesystem read permission is required for '{path}'"
+            );
         }
         AuthorizeRoot(path);
     }
@@ -35,7 +36,8 @@ public sealed class LspPermissionPolicy
         if (!WriteFiles)
         {
             throw new UnauthorizedAccessException(
-                $"filesystem write permission is required for '{path}'");
+                $"filesystem write permission is required for '{path}'"
+            );
         }
         AuthorizeRoot(path);
     }
@@ -56,7 +58,8 @@ public sealed class LspPermissionPolicy
         }
 
         throw new UnauthorizedAccessException(
-            $"'{path}' is outside the authorized workspace roots");
+            $"'{path}' is outside the authorized workspace roots"
+        );
     }
 }
 
@@ -144,8 +147,12 @@ public sealed class LspWorkspace
     private readonly List<LspWatchRegistration> _watches = new();
     private readonly Dictionary<string, string> _configuration = new(StringComparer.Ordinal);
 
-    public LspWorkspace(LspDocumentStore documents, LspPermissionPolicy permissions,
-        string? workspaceRoot, IEnumerable<(string Uri, string Name)>? folders = null)
+    public LspWorkspace(
+        LspDocumentStore documents,
+        LspPermissionPolicy permissions,
+        string? workspaceRoot,
+        IEnumerable<(string Uri, string Name)>? folders = null
+    )
     {
         _documents = documents;
         _permissions = permissions;
@@ -156,18 +163,21 @@ public sealed class LspWorkspace
         }
         else if (!string.IsNullOrEmpty(workspaceRoot))
         {
-            _folders.Add((LspUri.FromPath(workspaceRoot),
-                Path.GetFileName(workspaceRoot.TrimEnd(Path.DirectorySeparatorChar))));
+            _folders.Add(
+                (
+                    LspUri.FromPath(workspaceRoot),
+                    Path.GetFileName(workspaceRoot.TrimEnd(Path.DirectorySeparatorChar))
+                )
+            );
         }
     }
 
-    public string RootUri => _folders.Count > 0
-        ? _folders[0].Uri
-        : string.IsNullOrEmpty(_workspaceRoot) ? string.Empty : LspUri.FromPath(_workspaceRoot);
+    public string RootUri =>
+        _folders.Count > 0 ? _folders[0].Uri
+        : string.IsNullOrEmpty(_workspaceRoot) ? string.Empty
+        : LspUri.FromPath(_workspaceRoot);
 
-    public string? RootPath => _folders.Count > 0
-        ? LspUri.ToPath(_folders[0].Uri)
-        : _workspaceRoot;
+    public string? RootPath => _folders.Count > 0 ? LspUri.ToPath(_folders[0].Uri) : _workspaceRoot;
 
     public IReadOnlyList<(string Uri, string Name)> Folders => _folders;
 
@@ -184,15 +194,15 @@ public sealed class LspWorkspace
     {
         string full = Path.GetFullPath(path);
         _folders.Clear();
-        _folders.Add((LspUri.FromPath(full),
-            Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar))));
+        _folders.Add(
+            (LspUri.FromPath(full), Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar)))
+        );
         _permissions.AllowedRoots.Add(full);
     }
 
     public void AddFolder(string uri, string name)
     {
-        if (!_folders.Any(folder => string.Equals(folder.Uri, uri,
-                StringComparison.Ordinal)))
+        if (!_folders.Any(folder => string.Equals(folder.Uri, uri, StringComparison.Ordinal)))
         {
             _folders.Add((uri, name));
             _permissions.AllowedRoots.Add(LspUri.ToPath(uri));
@@ -271,7 +281,9 @@ public sealed class LspWorkspace
         if (!Path.IsPathRooted(value))
         {
             string? root = RootPath;
-            value = string.IsNullOrEmpty(root) ? Path.GetFullPath(value) : Path.Combine(root, value);
+            value = string.IsNullOrEmpty(root)
+                ? Path.GetFullPath(value)
+                : Path.Combine(root, value);
         }
 
         return Path.GetFullPath(value);
@@ -314,7 +326,7 @@ public sealed class LspWorkspace
             ["directory"] = false,
             ["file"] = false,
             ["size"] = 0L,
-            ["mtime"] = 0L
+            ["mtime"] = 0L,
         };
 
         try
@@ -325,7 +337,9 @@ public sealed class LspWorkspace
                 result["exists"] = true;
                 result["file"] = true;
                 result["size"] = info.Length;
-                result["mtime"] = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds();
+                result["mtime"] = new DateTimeOffset(
+                    info.LastWriteTimeUtc
+                ).ToUnixTimeMilliseconds();
                 return result;
             }
 
@@ -334,12 +348,18 @@ public sealed class LspWorkspace
             {
                 result["exists"] = true;
                 result["directory"] = true;
-                result["mtime"] = new DateTimeOffset(directory.LastWriteTimeUtc)
-                    .ToUnixTimeMilliseconds();
+                result["mtime"] = new DateTimeOffset(
+                    directory.LastWriteTimeUtc
+                ).ToUnixTimeMilliseconds();
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             result["error"] = ex.Message;
         }
@@ -350,10 +370,14 @@ public sealed class LspWorkspace
     public IReadOnlyList<string> FindFiles(string glob, JsonObject? options = null)
     {
         string root = RootPath ?? Directory.GetCurrentDirectory();
-        int maxResults = LspJson.GetInt32(options?["max_results"]) ??
-                         LspJson.GetInt32(options?["maxResults"]) ?? 10_000;
-        bool includeDirectories = LspJson.GetBool(options?["include_directories"]) ??
-                                  LspJson.GetBool(options?["includeDirectories"]) ?? false;
+        int maxResults =
+            LspJson.GetInt32(options?["max_results"])
+            ?? LspJson.GetInt32(options?["maxResults"])
+            ?? 10_000;
+        bool includeDirectories =
+            LspJson.GetBool(options?["include_directories"])
+            ?? LspJson.GetBool(options?["includeDirectories"])
+            ?? false;
         var results = new List<string>();
         if (!Directory.Exists(root) || maxResults <= 0)
         {
@@ -364,11 +388,13 @@ public sealed class LspWorkspace
         Regex regex;
         try
         {
-            regex = new Regex(LspUri.GlobToRegex(pattern),
+            regex = new Regex(
+                LspUri.GlobToRegex(pattern),
                 OperatingSystem.IsWindows()
                     ? RegexOptions.IgnoreCase | RegexOptions.CultureInvariant
                     : RegexOptions.CultureInvariant,
-                TimeSpan.FromSeconds(1));
+                TimeSpan.FromSeconds(1)
+            );
         }
         catch (ArgumentException)
         {
@@ -377,8 +403,13 @@ public sealed class LspWorkspace
 
         try
         {
-            foreach (string path in Directory.EnumerateFileSystemEntries(root, "*",
-                         SearchOption.AllDirectories))
+            foreach (
+                string path in Directory.EnumerateFileSystemEntries(
+                    root,
+                    "*",
+                    SearchOption.AllDirectories
+                )
+            )
             {
                 string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
                 if (!includeDirectories && Directory.Exists(path))
@@ -398,8 +429,13 @@ public sealed class LspWorkspace
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _ = ex;
         }
@@ -410,8 +446,10 @@ public sealed class LspWorkspace
 
     public LspWatchRegistration Watch(string glob, string? root = null)
     {
-        var watch = new LspWatchRegistration(glob, root ?? RootPath ??
-            Directory.GetCurrentDirectory());
+        var watch = new LspWatchRegistration(
+            glob,
+            root ?? RootPath ?? Directory.GetCurrentDirectory()
+        );
         watch.Reset();
         _watches.Add(watch);
         return watch;
@@ -461,8 +499,9 @@ public sealed class LspWatchRegistration
     private readonly string _glob;
     private readonly string _root;
     private readonly Regex? _regex;
-    private readonly Dictionary<string, (long Length, long Mtime)> _known =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (long Length, long Mtime)> _known = new(
+        StringComparer.Ordinal
+    );
 
     public LspWatchRegistration(string glob, string root)
     {
@@ -472,11 +511,13 @@ public sealed class LspWatchRegistration
         string pattern = string.IsNullOrEmpty(glob) ? "**/*" : glob.Replace('\\', '/');
         try
         {
-            _regex = new Regex(LspUri.GlobToRegex(pattern),
+            _regex = new Regex(
+                LspUri.GlobToRegex(pattern),
                 OperatingSystem.IsWindows()
                     ? RegexOptions.IgnoreCase | RegexOptions.CultureInvariant
                     : RegexOptions.CultureInvariant,
-                TimeSpan.FromSeconds(1));
+                TimeSpan.FromSeconds(1)
+            );
         }
         catch (ArgumentException)
         {
@@ -543,12 +584,16 @@ public sealed class LspWatchRegistration
         var result = new Dictionary<string, (long Length, long Mtime)>(StringComparer.Ordinal);
         try
         {
-            foreach (string path in Directory.EnumerateFiles(_root, "*",
-                         SearchOption.AllDirectories))
+            foreach (
+                string path in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories)
+            )
             {
                 string relative = Path.GetRelativePath(_root, path).Replace('\\', '/');
-                if (_regex is not null && !_regex.IsMatch(relative) &&
-                    !_regex.IsMatch("/" + relative))
+                if (
+                    _regex is not null
+                    && !_regex.IsMatch(relative)
+                    && !_regex.IsMatch("/" + relative)
+                )
                 {
                     continue;
                 }
@@ -558,15 +603,20 @@ public sealed class LspWatchRegistration
                     var info = new FileInfo(path);
                     result[path] = (info.Length, info.LastWriteTimeUtc.Ticks);
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                           NotSupportedException)
+                catch (Exception ex)
+                    when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
                     // File disappeared during enumeration.
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _ = ex;
         }
@@ -579,15 +629,14 @@ public sealed class LspWatchRegistration
         {
             ["type"] = type,
             ["path"] = path,
-            ["uri"] = LspUri.FromPath(path)
+            ["uri"] = LspUri.FromPath(path),
         };
     }
 }
 
 public sealed class LspWorkspaceIndex
 {
-    private readonly Dictionary<string, List<JsonObject>> _symbols =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<JsonObject>> _symbols = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _versions = new(StringComparer.Ordinal);
 
     public LspWorkspaceIndex(JsonObject? options)
@@ -603,7 +652,8 @@ public sealed class LspWorkspaceIndex
 
     public void AddFile(string uri, JsonArray symbols)
     {
-        _symbols[uri] = symbols.OfType<JsonObject>()
+        _symbols[uri] = symbols
+            .OfType<JsonObject>()
             .Select(symbol => symbol.DeepClone().AsObject())
             .ToList();
         _versions[uri] = 0;
@@ -634,8 +684,10 @@ public sealed class LspWorkspaceIndex
 
     public JsonArray QuerySymbols(string query, JsonObject? options)
     {
-        int limit = LspJson.GetInt32(options?["max_results"]) ??
-                    LspJson.GetInt32(options?["maxResults"]) ?? 256;
+        int limit =
+            LspJson.GetInt32(options?["max_results"])
+            ?? LspJson.GetInt32(options?["maxResults"])
+            ?? 256;
         bool exact = LspJson.GetBool(options?["exact"]) ?? false;
         var result = new JsonArray();
 
@@ -657,7 +709,7 @@ public sealed class LspWorkspaceIndex
                 item["location"] = new JsonObject
                 {
                     ["uri"] = uri,
-                    ["range"] = symbol["range"]?.DeepClone()
+                    ["range"] = symbol["range"]?.DeepClone(),
                 };
                 LspJson.AddNode(result, item);
                 if (result.Count >= limit)
@@ -673,24 +725,24 @@ public sealed class LspWorkspaceIndex
     public JsonArray QueryReferences(JsonObject symbol, JsonObject? options)
     {
         string name = LspJson.GetString(symbol["name"]) ?? string.Empty;
-        int limit = LspJson.GetInt32(options?["max_results"]) ??
-                    LspJson.GetInt32(options?["maxResults"]) ?? 1024;
+        int limit =
+            LspJson.GetInt32(options?["max_results"])
+            ?? LspJson.GetInt32(options?["maxResults"])
+            ?? 1024;
         var result = new JsonArray();
         foreach ((string uri, List<JsonObject> symbols) in _symbols)
         {
             foreach (JsonObject item in symbols)
             {
-                if (!string.Equals(LspJson.GetString(item["name"]), name,
-                        StringComparison.Ordinal))
+                if (!string.Equals(LspJson.GetString(item["name"]), name, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                LspJson.AddNode(result, new JsonObject
-                {
-                    ["uri"] = uri,
-                    ["range"] = item["range"]?.DeepClone()
-                });
+                LspJson.AddNode(
+                    result,
+                    new JsonObject { ["uri"] = uri, ["range"] = item["range"]?.DeepClone() }
+                );
                 if (result.Count >= limit)
                 {
                     return result;

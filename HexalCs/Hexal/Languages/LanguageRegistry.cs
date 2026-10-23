@@ -9,12 +9,15 @@ namespace Hexal.Languages;
 /// </summary>
 public sealed class LanguageRegistry
 {
-    private readonly Dictionary<string, LanguageDefinition> _byId =
-        new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, LanguageDefinition> _byExtension =
-        new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, LanguageDefinition> _byFileName =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LanguageDefinition> _byId = new(
+        StringComparer.OrdinalIgnoreCase
+    );
+    private readonly Dictionary<string, LanguageDefinition> _byExtension = new(
+        StringComparer.OrdinalIgnoreCase
+    );
+    private readonly Dictionary<string, LanguageDefinition> _byFileName = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly List<string> _orderedExtensions = new();
     private readonly List<string> _errors = new();
 
@@ -33,8 +36,13 @@ public sealed class LanguageRegistry
         {
             Directory.CreateDirectory(directory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             registry._errors.Add($"cannot create grammar directory '{directory}': {ex.Message}");
             return registry;
@@ -42,7 +50,8 @@ public sealed class LanguageRegistry
 
         registry.LoadDirectory(directory);
         HexalPaths.Log(
-            $"Grammars: {directory} ({registry._byId.Count} loaded, {registry._errors.Count} error(s))");
+            $"Grammars: {directory} ({registry._byId.Count} loaded, {registry._errors.Count} error(s))"
+        );
         return registry;
     }
 
@@ -53,8 +62,13 @@ public sealed class LanguageRegistry
         {
             files = Directory.GetFiles(directory, "*.hexdef");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _errors.Add($"cannot read grammar directory '{directory}': {ex.Message}");
             return;
@@ -72,8 +86,14 @@ public sealed class LanguageRegistry
             try
             {
                 string text = File.ReadAllText(file);
-                if (LanguageDefinition.TryParse(text, file,
-                        out LanguageDefinition? definition, out string error))
+                if (
+                    LanguageDefinition.TryParse(
+                        text,
+                        file,
+                        out LanguageDefinition? definition,
+                        out string error
+                    )
+                )
                 {
                     parsed[index] = (definition, null);
                 }
@@ -82,8 +102,13 @@ public sealed class LanguageRegistry
                     parsed[index] = (null, error);
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
             {
                 parsed[index] = (null, ex.Message);
             }
@@ -110,12 +135,12 @@ public sealed class LanguageRegistry
 
             foreach (string fileName in language.FileNames)
             {
-                if (_byFileName.TryGetValue(fileName,
-                        out LanguageDefinition? existing))
+                if (_byFileName.TryGetValue(fileName, out LanguageDefinition? existing))
                 {
                     HexalPaths.Log(
-                        $"Grammar warning: file name '{fileName}' belongs to " +
-                        $"'{existing.Id}'; ignoring duplicate from '{language.Id}'");
+                        $"Grammar warning: file name '{fileName}' belongs to "
+                            + $"'{existing.Id}'; ignoring duplicate from '{language.Id}'"
+                    );
                     continue;
                 }
 
@@ -130,8 +155,9 @@ public sealed class LanguageRegistry
                     // (.h is both C and C++). Keep the deterministic first
                     // match; users can still select the other with :lang.
                     HexalPaths.Log(
-                        $"Grammar warning: extension '{extension}' belongs to " +
-                        $"'{existing.Id}'; ignoring duplicate from '{language.Id}'");
+                        $"Grammar warning: extension '{extension}' belongs to "
+                            + $"'{existing.Id}'; ignoring duplicate from '{language.Id}'"
+                    );
                     continue;
                 }
                 _byExtension.Add(extension, language);
@@ -141,8 +167,7 @@ public sealed class LanguageRegistry
 
         // Prefer the most specific suffix so compound extensions such as
         // .blade.php win over .php.
-        _orderedExtensions.Sort((left, right) =>
-            right.Length.CompareTo(left.Length));
+        _orderedExtensions.Sort((left, right) => right.Length.CompareTo(left.Length));
     }
 
     public LanguageDefinition? Find(string id)

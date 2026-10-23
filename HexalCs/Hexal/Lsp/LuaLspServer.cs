@@ -50,18 +50,20 @@ public sealed class LuaLspServer : IDisposable
 
     private readonly LuaLspCoordinator _coordinator;
     private readonly Lua _lua;
-    private readonly Dictionary<string, LuaFunction> _requestHandlers =
-        new(StringComparer.Ordinal);
-    private readonly Dictionary<string, LuaFunction> _notificationHandlers =
-        new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<LuaFunction>> _eventHandlers =
-        new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CancellationTokenSource> _requestCancellations =
-        new(StringComparer.Ordinal);
-    private readonly Dictionary<long, PendingClientRequest> _pendingClientRequests =
-        new();
-    private readonly Dictionary<string, (string ResultId, JsonArray Data)> _tokenCache =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LuaFunction> _requestHandlers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LuaFunction> _notificationHandlers = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<string, List<LuaFunction>> _eventHandlers = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<string, CancellationTokenSource> _requestCancellations = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<long, PendingClientRequest> _pendingClientRequests = new();
+    private readonly Dictionary<string, (string ResultId, JsonArray Data)> _tokenCache = new(
+        StringComparer.Ordinal
+    );
 
     private LuaLspTransport? _transport;
     private Action<string>? _outgoing;
@@ -75,8 +77,7 @@ public sealed class LuaLspServer : IDisposable
     private bool _disposed;
     private string _trace = "off";
 
-    private LuaLspServer(LuaLspCoordinator coordinator, Lua lua, string name,
-        string version)
+    private LuaLspServer(LuaLspCoordinator coordinator, Lua lua, string name, string version)
     {
         _coordinator = coordinator;
         _lua = lua;
@@ -164,13 +165,13 @@ public sealed class LuaLspServer : IDisposable
 
         if (options["initialization_options"] is LuaTable initializationOptions)
         {
-            InitializationOptions = _coordinator.AsObject(initializationOptions) ??
-                                    new JsonObject();
+            InitializationOptions =
+                _coordinator.AsObject(initializationOptions) ?? new JsonObject();
         }
         else if (options["initializationOptions"] is LuaTable initializationOptionsCamel)
         {
-            InitializationOptions = _coordinator.AsObject(initializationOptionsCamel) ??
-                                    new JsonObject();
+            InitializationOptions =
+                _coordinator.AsObject(initializationOptionsCamel) ?? new JsonObject();
         }
 
         if (options["settings"] is LuaTable settings)
@@ -178,8 +179,8 @@ public sealed class LuaLspServer : IDisposable
             Settings = _coordinator.AsObject(settings) ?? new JsonObject();
         }
 
-        InitializationOptionsTable = _coordinator.ToLua(InitializationOptions) as LuaTable ??
-                                     _coordinator.NewTable();
+        InitializationOptionsTable =
+            _coordinator.ToLua(InitializationOptions) as LuaTable ?? _coordinator.NewTable();
         SettingsTable = _coordinator.ToLua(Settings) as LuaTable ?? _coordinator.NewTable();
         if (!ReferenceEquals(InitializationOptionsTable, _coordinator.NullSentinel))
         {
@@ -204,8 +205,11 @@ public sealed class LuaLspServer : IDisposable
 
         if (options["capabilities"] is LuaTable capabilities)
         {
-            ServerCapabilities = LspCapabilities.Translate(_coordinator.NullSentinel,
-                capabilities, _coordinator.SemanticLegend);
+            ServerCapabilities = LspCapabilities.Translate(
+                _coordinator.NullSentinel,
+                capabilities,
+                _coordinator.SemanticLegend
+            );
         }
 
         if (options["semantic_tokens"] is LuaTable tokens)
@@ -239,8 +243,7 @@ public sealed class LuaLspServer : IDisposable
         }
         if (permissions["process"] is not null)
         {
-            _coordinator.Permissions.CreateProcesses =
-                LspJson.ToBool(permissions["process"]);
+            _coordinator.Permissions.CreateProcesses = LspJson.ToBool(permissions["process"]);
         }
         if (permissions["network"] is not null)
         {
@@ -248,13 +251,11 @@ public sealed class LuaLspServer : IDisposable
         }
         if (permissions["workspace_only"] is not null)
         {
-            _coordinator.Permissions.WorkspaceOnly =
-                LspJson.ToBool(permissions["workspace_only"]);
+            _coordinator.Permissions.WorkspaceOnly = LspJson.ToBool(permissions["workspace_only"]);
         }
         if (permissions["workspaceOnly"] is not null)
         {
-            _coordinator.Permissions.WorkspaceOnly =
-                LspJson.ToBool(permissions["workspaceOnly"]);
+            _coordinator.Permissions.WorkspaceOnly = LspJson.ToBool(permissions["workspaceOnly"]);
         }
         foreach (string root in ReadStringArray(permissions["roots"]))
         {
@@ -281,13 +282,10 @@ public sealed class LuaLspServer : IDisposable
         }
         if (string.IsNullOrEmpty(root))
         {
-            root = start is not null && File.Exists(start)
-                ? Path.GetDirectoryName(start)
-                : start;
+            root = start is not null && File.Exists(start) ? Path.GetDirectoryName(start) : start;
         }
 
-        Workspace = new LspWorkspace(_coordinator.Documents, _coordinator.Permissions,
-            root);
+        Workspace = new LspWorkspace(_coordinator.Documents, _coordinator.Permissions, root);
         if (!string.IsNullOrEmpty(root))
         {
             _coordinator.Permissions.AllowedRoots.Add(root);
@@ -363,9 +361,11 @@ public sealed class LuaLspServer : IDisposable
             var legend = new JsonObject
             {
                 ["tokenTypes"] = _coordinator.AsArray(
-                    options["token_types"] ?? options["tokenTypes"]),
+                    options["token_types"] ?? options["tokenTypes"]
+                ),
                 ["tokenModifiers"] = _coordinator.AsArray(
-                    options["token_modifiers"] ?? options["tokenModifiers"])
+                    options["token_modifiers"] ?? options["tokenModifiers"]
+                ),
             };
             ReplaceLegend(legend);
         }
@@ -408,27 +408,33 @@ public sealed class LuaLspServer : IDisposable
             {
                 return false;
             }
-            JsonObject translated = LspCapabilities.Translate(_coordinator.NullSentinel,
-                capabilities, _coordinator.SemanticLegend);
+            JsonObject translated = LspCapabilities.Translate(
+                _coordinator.NullSentinel,
+                capabilities,
+                _coordinator.SemanticLegend
+            );
             MergeCapabilities(translated);
             return true;
         });
         table["advertised_capabilities"] = new Func<LuaTable>(() =>
-            _coordinator.ToLua(ServerCapabilities) as LuaTable ?? _coordinator.NewTable());
+            _coordinator.ToLua(ServerCapabilities) as LuaTable ?? _coordinator.NewTable()
+        );
         table["register"] = new Func<string, LuaFunction, object?, bool>(
-            (method, handler, options) => RegisterRequest(method, handler, options));
+            (method, handler, options) => RegisterRequest(method, handler, options)
+        );
         table["notify"] = new Func<string, LuaFunction, object?, bool>(
-            (method, handler, options) => RegisterNotification(method, handler, options));
+            (method, handler, options) => RegisterNotification(method, handler, options)
+        );
         table["on"] = new Func<string, LuaFunction, bool>(On);
         table["off"] = new Func<string, LuaFunction, bool>(Off);
         table["send_request"] = new Func<string, object?, object?, object?, LuaTable>(
             (method, parameters, callback, options) =>
-                SendRequest(method, parameters, callback as LuaFunction,
-                    options as LuaTable));
-        table["send_notification"] = new Func<string, object?, bool>(
-            SendNotification);
+                SendRequest(method, parameters, callback as LuaFunction, options as LuaTable)
+        );
+        table["send_notification"] = new Func<string, object?, bool>(SendNotification);
         table["documents"] = new Func<LuaTable>(() =>
-            _coordinator.DocumentsModule ?? _coordinator.NewTable());
+            _coordinator.DocumentsModule ?? _coordinator.NewTable()
+        );
         table["workspace"] = new Func<LuaTable>(() => WorkspaceTable);
         _coordinator.WrapTable(table);
         _coordinator.PadTable(table, "exit", 1);
@@ -461,28 +467,24 @@ public sealed class LuaLspServer : IDisposable
         LuaTable table = _coordinator.NewTable();
         table["name"] = "Hexal";
         table["capabilities"] = new Func<LuaTable>(() =>
-            _coordinator.ToLua(ClientCapabilities) as LuaTable ?? _coordinator.NewTable());
-        table["supports"] = new Func<string, bool>(path =>
-            ClientSupports(path));
+            _coordinator.ToLua(ClientCapabilities) as LuaTable ?? _coordinator.NewTable()
+        );
+        table["supports"] = new Func<string, bool>(path => ClientSupports(path));
         table["send_request"] = new Func<string, object?, object?, object?, LuaTable>(
             (method, parameters, callback, options) =>
-                SendRequest(method, parameters, callback as LuaFunction,
-                    options as LuaTable));
-        table["send_notification"] = new Func<string, object?, bool>(
-            SendNotification);
+                SendRequest(method, parameters, callback as LuaFunction, options as LuaTable)
+        );
+        table["send_notification"] = new Func<string, object?, bool>(SendNotification);
         table["register_capability"] = new Func<object?, LuaTable>(options =>
         {
-            var parameters = new JsonObject
-            {
-                ["registrations"] = _coordinator.AsArray(options)
-            };
+            var parameters = new JsonObject { ["registrations"] = _coordinator.AsArray(options) };
             return SendRequest("client/registerCapability", parameters, null, null);
         });
         table["unregister_capability"] = new Func<object?, LuaTable>(options =>
         {
             var parameters = new JsonObject
             {
-                ["unregisterations"] = _coordinator.AsArray(options)
+                ["unregisterations"] = _coordinator.AsArray(options),
             };
             return SendRequest("client/unregisterCapability", parameters, null, null);
         });
@@ -500,8 +502,7 @@ public sealed class LuaLspServer : IDisposable
         {
             foreach (string filetype in Filetypes)
             {
-                if (string.Equals(filetype, languageId,
-                        StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(filetype, languageId, StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
@@ -513,8 +514,7 @@ public sealed class LuaLspServer : IDisposable
             string extension = Path.GetExtension(documentPath);
             foreach (string candidate in Extensions)
             {
-                if (string.Equals(candidate, extension,
-                        StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(candidate, extension, StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
@@ -580,8 +580,11 @@ public sealed class LuaLspServer : IDisposable
 
     public void Exit(int code)
     {
-        FireEvent("exit", code,
-            _coordinator.CreateContext(this, "exit", null, CancellationToken.None));
+        FireEvent(
+            "exit",
+            code,
+            _coordinator.CreateContext(this, "exit", null, CancellationToken.None)
+        );
         State = "stopped";
         _initialized = false;
         _initializeReceived = false;
@@ -629,7 +632,7 @@ public sealed class LuaLspServer : IDisposable
         {
             bool flag => flag,
             LuaTable table => LspJson.ToBool(table["replace"]),
-            _ => false
+            _ => false,
         };
     }
 
@@ -678,8 +681,8 @@ public sealed class LuaLspServer : IDisposable
                     result = table;
                 }
             }
-            catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex is LuaScriptException or InvalidOperationException or ArgumentException)
             {
                 _coordinator.Report($"event '{eventName}' failed: {ex.Message}");
             }
@@ -689,8 +692,12 @@ public sealed class LuaLspServer : IDisposable
 
     public void FireWorkspaceChanged(JsonObject item)
     {
-        LuaTable context = _coordinator.CreateContext(this, "workspace_changed", null,
-            CancellationToken.None);
+        LuaTable context = _coordinator.CreateContext(
+            this,
+            "workspace_changed",
+            null,
+            CancellationToken.None
+        );
         FireEvent("workspace_changed", _coordinator.ToLua(item), context);
     }
 
@@ -724,8 +731,8 @@ public sealed class LuaLspServer : IDisposable
                 _transport?.Enqueue(text);
             }
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or
-                                   JsonException)
+        catch (Exception ex)
+            when (ex is InvalidOperationException or ObjectDisposedException or JsonException)
         {
             _coordinator.Report($"cannot send LSP message: {ex.Message}");
         }
@@ -753,8 +760,13 @@ public sealed class LuaLspServer : IDisposable
 
         if (parsed is not JsonObject root)
         {
-            SendError(null, new LspProtocolError(LspErrorCodes.InvalidRequest,
-                "JSON-RPC message must be an object"));
+            SendError(
+                null,
+                new LspProtocolError(
+                    LspErrorCodes.InvalidRequest,
+                    "JSON-RPC message must be an object"
+                )
+            );
             return;
         }
 
@@ -797,22 +809,31 @@ public sealed class LuaLspServer : IDisposable
 
         if (!_initializeReceived)
         {
-            SendError(id, new LspProtocolError(LspErrorCodes.ServerNotInitialized,
-                "server has not been initialized"));
+            SendError(
+                id,
+                new LspProtocolError(
+                    LspErrorCodes.ServerNotInitialized,
+                    "server has not been initialized"
+                )
+            );
             return;
         }
 
         if (_shuttingDown)
         {
-            SendError(id, new LspProtocolError(LspErrorCodes.InvalidRequest,
-                "server is shutting down"));
+            SendError(
+                id,
+                new LspProtocolError(LspErrorCodes.InvalidRequest, "server is shutting down")
+            );
             return;
         }
 
         if (!_requestHandlers.TryGetValue(method, out LuaFunction? handler))
         {
-            SendError(id, new LspProtocolError(LspErrorCodes.MethodNotFound,
-                $"method not found: {method}"));
+            SendError(
+                id,
+                new LspProtocolError(LspErrorCodes.MethodNotFound, $"method not found: {method}")
+            );
             return;
         }
 
@@ -827,34 +848,36 @@ public sealed class LuaLspServer : IDisposable
             object? parametersValue = parameters is null
                 ? _coordinator.NullSentinel
                 : _coordinator.ToLua(parameters);
-            LuaTable context = _coordinator.CreateContext(this, method, id,
-                cancellation.Token);
+            LuaTable context = _coordinator.CreateContext(this, method, id, cancellation.Token);
             object[] result;
             try
             {
                 result = handler.Call(parametersValue, context);
             }
-            catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex is LuaScriptException or InvalidOperationException or ArgumentException)
             {
                 if (cancellation.IsCancellationRequested)
                 {
-                    SendError(id, new LspProtocolError(LspErrorCodes.RequestCancelled,
-                        "request cancelled"));
+                    SendError(
+                        id,
+                        new LspProtocolError(LspErrorCodes.RequestCancelled, "request cancelled")
+                    );
                 }
                 else
                 {
                     _coordinator.Report($"handler '{method}' failed: {ex}");
-                    SendError(id, new LspProtocolError(LspErrorCodes.InternalError,
-                        ex.Message));
+                    SendError(id, new LspProtocolError(LspErrorCodes.InternalError, ex.Message));
                 }
                 return;
             }
 
             if (cancellation.IsCancellationRequested)
             {
-                SendError(id, new LspProtocolError(LspErrorCodes.RequestCancelled,
-                    "request cancelled"));
+                SendError(
+                    id,
+                    new LspProtocolError(LspErrorCodes.RequestCancelled, "request cancelled")
+                );
                 return;
             }
 
@@ -864,8 +887,7 @@ public sealed class LuaLspServer : IDisposable
                 SendError(id, _coordinator.ToProtocolError((LuaTable)value!));
                 return;
             }
-            if (value is null && result.Length > 1 &&
-                LuaLspCoordinator.IsErrorTable(result[1]))
+            if (value is null && result.Length > 1 && LuaLspCoordinator.IsErrorTable(result[1]))
             {
                 SendError(id, _coordinator.ToProtocolError((LuaTable)result[1]!));
                 return;
@@ -878,8 +900,7 @@ public sealed class LuaLspServer : IDisposable
             }
             catch (LspProtocolException ex)
             {
-                SendError(id, new LspProtocolError(LspErrorCodes.InvalidParams,
-                    ex.Message));
+                SendError(id, new LspProtocolError(LspErrorCodes.InvalidParams, ex.Message));
                 return;
             }
             SendResult(id, resultNode);
@@ -897,9 +918,13 @@ public sealed class LuaLspServer : IDisposable
         if (method == "$/cancelRequest")
         {
             JsonNode? id = parameters?["id"];
-            if (id is not null &&
-                _requestCancellations.TryGetValue(id.ToJsonString(),
-                    out CancellationTokenSource? cancellation))
+            if (
+                id is not null
+                && _requestCancellations.TryGetValue(
+                    id.ToJsonString(),
+                    out CancellationTokenSource? cancellation
+                )
+            )
             {
                 cancellation.Cancel();
             }
@@ -911,11 +936,17 @@ public sealed class LuaLspServer : IDisposable
             _initialized = true;
             _initializeReceived = true;
             State = "running";
-            LuaTable context = _coordinator.CreateContext(this, method, null,
-                CancellationToken.None);
-            FireEvent("initialized", parameters is null
-                ? _coordinator.NullSentinel
-                : _coordinator.ToLua(parameters), context);
+            LuaTable context = _coordinator.CreateContext(
+                this,
+                method,
+                null,
+                CancellationToken.None
+            );
+            FireEvent(
+                "initialized",
+                parameters is null ? _coordinator.NullSentinel : _coordinator.ToLua(parameters),
+                context
+            );
             return;
         }
 
@@ -955,12 +986,17 @@ public sealed class LuaLspServer : IDisposable
 
         if (method == "workspace/didChangeConfiguration")
         {
-            Settings = parameters?["settings"] as JsonObject ??
-                       parameters?.DeepClone() as JsonObject ?? new JsonObject();
-            SettingsTable = _coordinator.ToLua(Settings) as LuaTable ??
-                            _coordinator.NewTable();
-            LuaTable context = _coordinator.CreateContext(this,
-                "configuration_changed", null, CancellationToken.None);
+            Settings =
+                parameters?["settings"] as JsonObject
+                ?? parameters?.DeepClone() as JsonObject
+                ?? new JsonObject();
+            SettingsTable = _coordinator.ToLua(Settings) as LuaTable ?? _coordinator.NewTable();
+            LuaTable context = _coordinator.CreateContext(
+                this,
+                "configuration_changed",
+                null,
+                CancellationToken.None
+            );
             FireEvent("configuration_changed", SettingsTable, context);
             return;
         }
@@ -975,8 +1011,10 @@ public sealed class LuaLspServer : IDisposable
                 {
                     if (item is JsonObject folder)
                     {
-                        Workspace.AddFolder(LspJson.GetString(folder["uri"]) ?? string.Empty,
-                            LspJson.GetString(folder["name"]) ?? string.Empty);
+                        Workspace.AddFolder(
+                            LspJson.GetString(folder["uri"]) ?? string.Empty,
+                            LspJson.GetString(folder["name"]) ?? string.Empty
+                        );
                     }
                 }
             }
@@ -986,37 +1024,45 @@ public sealed class LuaLspServer : IDisposable
                 {
                     if (item is JsonObject folder)
                     {
-                        Workspace.RemoveFolder(LspJson.GetString(folder["uri"]) ??
-                                               string.Empty);
+                        Workspace.RemoveFolder(LspJson.GetString(folder["uri"]) ?? string.Empty);
                     }
                 }
             }
-            FireEvent("workspace_changed", _coordinator.ToLua(parameters),
-                _coordinator.CreateContext(this, "workspace_changed", null,
-                    CancellationToken.None));
+            FireEvent(
+                "workspace_changed",
+                _coordinator.ToLua(parameters),
+                _coordinator.CreateContext(this, "workspace_changed", null, CancellationToken.None)
+            );
             return;
         }
 
         if (method == "workspace/didChangeWatchedFiles")
         {
-            FireEvent("workspace_changed", _coordinator.ToLua(parameters),
-                _coordinator.CreateContext(this, "workspace_changed", null,
-                    CancellationToken.None));
+            FireEvent(
+                "workspace_changed",
+                _coordinator.ToLua(parameters),
+                _coordinator.CreateContext(this, "workspace_changed", null, CancellationToken.None)
+            );
             return;
         }
 
         if (_notificationHandlers.TryGetValue(method, out LuaFunction? handler))
         {
-            LuaTable context = _coordinator.CreateContext(this, method, null,
-                CancellationToken.None);
+            LuaTable context = _coordinator.CreateContext(
+                this,
+                method,
+                null,
+                CancellationToken.None
+            );
             try
             {
-                handler.Call(parameters is null
-                    ? _coordinator.NullSentinel
-                    : _coordinator.ToLua(parameters), context);
+                handler.Call(
+                    parameters is null ? _coordinator.NullSentinel : _coordinator.ToLua(parameters),
+                    context
+                );
             }
-            catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex is LuaScriptException or InvalidOperationException or ArgumentException)
             {
                 _coordinator.Report($"notification '{method}' failed: {ex.Message}");
             }
@@ -1028,8 +1074,7 @@ public sealed class LuaLspServer : IDisposable
         try
         {
             JsonObject paramsObject = parameters as JsonObject ?? new JsonObject();
-            ClientCapabilities = paramsObject["capabilities"] as JsonObject ??
-                                 new JsonObject();
+            ClientCapabilities = paramsObject["capabilities"] as JsonObject ?? new JsonObject();
             if (paramsObject["initializationOptions"] is JsonObject initOptions)
             {
                 InitializationOptions = initOptions.DeepClone().AsObject();
@@ -1039,10 +1084,9 @@ public sealed class LuaLspServer : IDisposable
                 Settings = settings.DeepClone().AsObject();
             }
 
-            InitializationOptionsTable = _coordinator.ToLua(InitializationOptions)
-                as LuaTable ?? _coordinator.NewTable();
-            SettingsTable = _coordinator.ToLua(Settings) as LuaTable ??
-                            _coordinator.NewTable();
+            InitializationOptionsTable =
+                _coordinator.ToLua(InitializationOptions) as LuaTable ?? _coordinator.NewTable();
+            SettingsTable = _coordinator.ToLua(Settings) as LuaTable ?? _coordinator.NewTable();
 
             JsonNode? folders = paramsObject["workspaceFolders"];
             if (folders is JsonArray folderArray)
@@ -1052,13 +1096,17 @@ public sealed class LuaLspServer : IDisposable
                 {
                     if (item is JsonObject folder)
                     {
-                        Workspace.AddFolder(LspJson.GetString(folder["uri"]) ?? string.Empty,
-                            LspJson.GetString(folder["name"]) ?? string.Empty);
+                        Workspace.AddFolder(
+                            LspJson.GetString(folder["uri"]) ?? string.Empty,
+                            LspJson.GetString(folder["name"]) ?? string.Empty
+                        );
                     }
                 }
             }
-            else if (paramsObject["rootUri"] is JsonValue rootUri &&
-                     rootUri.TryGetValue(out string? root))
+            else if (
+                paramsObject["rootUri"] is JsonValue rootUri
+                && rootUri.TryGetValue(out string? root)
+            )
             {
                 string? path = LspUri.ToPath(root);
                 if (!string.IsNullOrEmpty(path))
@@ -1067,8 +1115,10 @@ public sealed class LuaLspServer : IDisposable
                 }
             }
 
-            if (paramsObject["trace"] is JsonValue traceValue &&
-                traceValue.TryGetValue(out string? trace))
+            if (
+                paramsObject["trace"] is JsonValue traceValue
+                && traceValue.TryGetValue(out string? trace)
+            )
             {
                 _trace = trace;
             }
@@ -1090,10 +1140,17 @@ public sealed class LuaLspServer : IDisposable
             _initializeReceived = true;
             State = "initializing";
 
-            LuaTable context = _coordinator.CreateContext(this, "initialize", id,
-                CancellationToken.None);
-            LuaTable? handlerResult = FireEvent("initialize",
-                _coordinator.ToLua(paramsObject), context);
+            LuaTable context = _coordinator.CreateContext(
+                this,
+                "initialize",
+                id,
+                CancellationToken.None
+            );
+            LuaTable? handlerResult = FireEvent(
+                "initialize",
+                _coordinator.ToLua(paramsObject),
+                context
+            );
 
             JsonObject result;
             if (handlerResult is not null)
@@ -1108,7 +1165,7 @@ public sealed class LuaLspServer : IDisposable
                     result["serverInfo"] = new JsonObject
                     {
                         ["name"] = Name,
-                        ["version"] = Version
+                        ["version"] = Version,
                     };
                 }
             }
@@ -1117,11 +1174,7 @@ public sealed class LuaLspServer : IDisposable
                 result = new JsonObject
                 {
                     ["capabilities"] = ServerCapabilities.DeepClone(),
-                    ["serverInfo"] = new JsonObject
-                    {
-                        ["name"] = Name,
-                        ["version"] = Version
-                    }
+                    ["serverInfo"] = new JsonObject { ["name"] = Name, ["version"] = Version },
                 };
             }
 
@@ -1132,8 +1185,13 @@ public sealed class LuaLspServer : IDisposable
             }
             SendResult(id, result);
         }
-        catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                   ArgumentException or JsonException)
+        catch (Exception ex)
+            when (ex
+                    is LuaScriptException
+                        or InvalidOperationException
+                        or ArgumentException
+                        or JsonException
+            )
         {
             SendError(id, new LspProtocolError(LspErrorCodes.InternalError, ex.Message));
         }
@@ -1141,8 +1199,7 @@ public sealed class LuaLspServer : IDisposable
 
     private void HandleShutdown(JsonNode id)
     {
-        LuaTable context = _coordinator.CreateContext(this, "shutdown", id,
-            CancellationToken.None);
+        LuaTable context = _coordinator.CreateContext(this, "shutdown", id, CancellationToken.None);
         FireEvent("shutdown", _coordinator.NullSentinel, context);
         _shuttingDown = true;
         State = "shutting_down";
@@ -1163,10 +1220,12 @@ public sealed class LuaLspServer : IDisposable
             return;
         }
 
-        LspDocument document = _coordinator.Documents.Open(uri,
+        LspDocument document = _coordinator.Documents.Open(
+            uri,
             LspJson.GetString(textDocument?["languageId"]) ?? string.Empty,
             LspJson.GetInt64(textDocument?["version"]) ?? 0,
-            LspJson.GetString(textDocument?["text"]) ?? string.Empty);
+            LspJson.GetString(textDocument?["text"]) ?? string.Empty
+        );
         FireDocumentEvent("document_opened", document, parameters);
     }
 
@@ -1179,8 +1238,9 @@ public sealed class LuaLspServer : IDisposable
             return;
         }
 
-        long version = LspJson.GetInt64(textDocument?["version"]) ??
-                       (_coordinator.Documents.Get(uri)?.Version ?? 0) + 1;
+        long version =
+            LspJson.GetInt64(textDocument?["version"])
+            ?? (_coordinator.Documents.Get(uri)?.Version ?? 0) + 1;
         JsonArray? changes = parameters?["contentChanges"] as JsonArray;
         if (!_coordinator.Documents.Change(uri, changes, version, out string error))
         {
@@ -1232,23 +1292,25 @@ public sealed class LuaLspServer : IDisposable
         }
     }
 
-    private void FireDocumentEvent(string eventName, LspDocument document,
-        JsonNode? parameters)
+    private void FireDocumentEvent(string eventName, LspDocument document, JsonNode? parameters)
     {
-        LuaTable context = _coordinator.CreateContext(this, eventName, null,
-            CancellationToken.None);
+        LuaTable context = _coordinator.CreateContext(
+            this,
+            eventName,
+            null,
+            CancellationToken.None
+        );
         FireEvent(eventName, _coordinator.CreateDocumentTable(document), context);
     }
 
     private void HandleResponse(JsonNode id, JsonObject root)
     {
-        long? numeric = id is JsonValue value &&
-                        value.TryGetValue(out long parsedId)
-            ? parsedId
-            : (long?)null;
-        if (numeric is null ||
-            !_pendingClientRequests.TryGetValue(numeric.Value,
-                out PendingClientRequest? pending))
+        long? numeric =
+            id is JsonValue value && value.TryGetValue(out long parsedId) ? parsedId : (long?)null;
+        if (
+            numeric is null
+            || !_pendingClientRequests.TryGetValue(numeric.Value, out PendingClientRequest? pending)
+        )
         {
             return;
         }
@@ -1257,8 +1319,11 @@ public sealed class LuaLspServer : IDisposable
         {
             int code = LspJson.GetInt32(error["code"]) ?? LspErrorCodes.RequestFailed;
             string message = LspJson.GetString(error["message"]) ?? "request failed";
-            CompleteClientRequest(pending, null, new LspProtocolError(code, message,
-                error["data"]?.DeepClone()));
+            CompleteClientRequest(
+                pending,
+                null,
+                new LspProtocolError(code, message, error["data"]?.DeepClone())
+            );
         }
         else
         {
@@ -1266,20 +1331,25 @@ public sealed class LuaLspServer : IDisposable
         }
     }
 
-    private JsonNode? NormalizeResult(string method, JsonNode? result,
-        JsonObject? parameters)
+    private JsonNode? NormalizeResult(string method, JsonNode? result, JsonObject? parameters)
     {
-        if (method is "textDocument/semanticTokens/full" or
-            "textDocument/semanticTokens/full/delta" or
-            "textDocument/semanticTokens/range")
+        if (
+            method
+            is "textDocument/semanticTokens/full"
+                or "textDocument/semanticTokens/full/delta"
+                or "textDocument/semanticTokens/range"
+        )
         {
             return NormalizeSemanticTokens(method, result, parameters);
         }
         return result;
     }
 
-    private JsonNode? NormalizeSemanticTokens(string method, JsonNode? result,
-        JsonObject? parameters)
+    private JsonNode? NormalizeSemanticTokens(
+        string method,
+        JsonNode? result,
+        JsonObject? parameters
+    )
     {
         string uri = LspJson.GetString(parameters?["textDocument"]?["uri"]) ?? string.Empty;
         JsonArray? structured = result as JsonArray;
@@ -1288,8 +1358,7 @@ public sealed class LuaLspServer : IDisposable
             structured = data;
         }
 
-        bool looksStructured = structured is { Count: > 0 } &&
-                               structured[0] is JsonObject;
+        bool looksStructured = structured is { Count: > 0 } && structured[0] is JsonObject;
         JsonArray encoded;
         string resultId = string.Empty;
         if (looksStructured && structured is not null)
@@ -1318,11 +1387,7 @@ public sealed class LuaLspServer : IDisposable
         if (method == "textDocument/semanticTokens/full")
         {
             _tokenCache[uri] = (resultId, encoded.DeepClone().AsArray());
-            return new JsonObject
-            {
-                ["resultId"] = resultId,
-                ["data"] = encoded
-            };
+            return new JsonObject { ["resultId"] = resultId, ["data"] = encoded };
         }
 
         if (method == "textDocument/semanticTokens/full/delta")
@@ -1331,39 +1396,25 @@ public sealed class LuaLspServer : IDisposable
             {
                 JsonArray edits = BuildTokenDelta(cache.Data, encoded);
                 _tokenCache[uri] = (resultId, encoded.DeepClone().AsArray());
-                return new JsonObject
-                {
-                    ["resultId"] = resultId,
-                    ["edits"] = edits
-                };
+                return new JsonObject { ["resultId"] = resultId, ["edits"] = edits };
             }
 
             _tokenCache[uri] = (resultId, encoded.DeepClone().AsArray());
-            return new JsonObject
-            {
-                ["resultId"] = resultId,
-                ["data"] = encoded
-            };
+            return new JsonObject { ["resultId"] = resultId, ["data"] = encoded };
         }
 
-        return new JsonObject
-        {
-            ["data"] = encoded
-        };
+        return new JsonObject { ["data"] = encoded };
     }
 
-    public bool TryEncodeSemanticTokens(JsonArray items, out JsonArray data,
-        out string error)
+    public bool TryEncodeSemanticTokens(JsonArray items, out JsonArray data, out string error)
     {
         error = string.Empty;
         data = new JsonArray();
-        var tokenTypes = _coordinator.SemanticLegend["tokenTypes"] as JsonArray ??
-                         new JsonArray();
-        var tokenModifiers = _coordinator.SemanticLegend["tokenModifiers"] as JsonArray ??
-                             new JsonArray();
+        var tokenTypes = _coordinator.SemanticLegend["tokenTypes"] as JsonArray ?? new JsonArray();
+        var tokenModifiers =
+            _coordinator.SemanticLegend["tokenModifiers"] as JsonArray ?? new JsonArray();
 
-        var parsed = new List<(int Line, int Character, int Length, int Type,
-            int Modifiers)>();
+        var parsed = new List<(int Line, int Character, int Length, int Type, int Modifiers)>();
         foreach (JsonNode? node in items)
         {
             if (node is not JsonObject item)
@@ -1372,20 +1423,23 @@ public sealed class LuaLspServer : IDisposable
                 return false;
             }
 
-            int line = LspJson.GetInt32(item["line"]) ??
-                       LspJson.GetInt32(item["startLine"]) ?? 0;
-            int character = LspJson.GetInt32(item["character"]) ??
-                            LspJson.GetInt32(item["startCharacter"]) ??
-                            LspJson.GetInt32(item["start"]?["character"]) ?? 0;
+            int line = LspJson.GetInt32(item["line"]) ?? LspJson.GetInt32(item["startLine"]) ?? 0;
+            int character =
+                LspJson.GetInt32(item["character"])
+                ?? LspJson.GetInt32(item["startCharacter"])
+                ?? LspJson.GetInt32(item["start"]?["character"])
+                ?? 0;
             int length = LspJson.GetInt32(item["length"]) ?? 0;
             if (length <= 0)
             {
                 continue;
             }
 
-            string type = LspJson.GetString(item["type"]) ??
-                          LspJson.GetString(item["tokenType"]) ??
-                          LspJson.GetString(item["token_type"]) ?? "variable";
+            string type =
+                LspJson.GetString(item["type"])
+                ?? LspJson.GetString(item["tokenType"])
+                ?? LspJson.GetString(item["token_type"])
+                ?? "variable";
             int typeIndex = IndexOf(tokenTypes, type, StringComparison.Ordinal);
             if (typeIndex < 0)
             {
@@ -1400,8 +1454,7 @@ public sealed class LuaLspServer : IDisposable
                 foreach (JsonNode? modifierNode in modifierArray)
                 {
                     string modifier = LspJson.GetString(modifierNode) ?? string.Empty;
-                    int modifierIndex = IndexOf(tokenModifiers, modifier,
-                        StringComparison.Ordinal);
+                    int modifierIndex = IndexOf(tokenModifiers, modifier, StringComparison.Ordinal);
                     if (modifierIndex < 0)
                     {
                         error = $"unknown semantic token modifier '{modifier}'";
@@ -1411,13 +1464,15 @@ public sealed class LuaLspServer : IDisposable
                 }
             }
 
-            parsed.Add((Math.Max(0, line), Math.Max(0, character), length, typeIndex,
-                modifiers));
+            parsed.Add((Math.Max(0, line), Math.Max(0, character), length, typeIndex, modifiers));
         }
 
-        parsed.Sort((left, right) => left.Line == right.Line
-            ? left.Character.CompareTo(right.Character)
-            : left.Line.CompareTo(right.Line));
+        parsed.Sort(
+            (left, right) =>
+                left.Line == right.Line
+                    ? left.Character.CompareTo(right.Character)
+                    : left.Line.CompareTo(right.Line)
+        );
 
         int previousLine = 0;
         int previousCharacter = 0;
@@ -1436,8 +1491,7 @@ public sealed class LuaLspServer : IDisposable
         return true;
     }
 
-    private static int IndexOf(JsonArray array, string value,
-        StringComparison comparison)
+    private static int IndexOf(JsonArray array, string value, StringComparison comparison)
     {
         for (int index = 0; index < array.Count; ++index)
         {
@@ -1460,9 +1514,13 @@ public sealed class LuaLspServer : IDisposable
         }
 
         int suffix = 0;
-        while (suffix < limit - prefix &&
-               JsonNode.DeepEquals(previous[previous.Count - 1 - suffix],
-                   current[current.Count - 1 - suffix]))
+        while (
+            suffix < limit - prefix
+            && JsonNode.DeepEquals(
+                previous[previous.Count - 1 - suffix],
+                current[current.Count - 1 - suffix]
+            )
+        )
         {
             ++suffix;
         }
@@ -1474,12 +1532,15 @@ public sealed class LuaLspServer : IDisposable
         }
 
         var edits = new JsonArray();
-        LspJson.AddNode(edits, new JsonObject
-        {
-            ["start"] = prefix,
-            ["deleteCount"] = previous.Count - prefix - suffix,
-            ["data"] = replacement
-        });
+        LspJson.AddNode(
+            edits,
+            new JsonObject
+            {
+                ["start"] = prefix,
+                ["deleteCount"] = previous.Count - prefix - suffix,
+                ["data"] = replacement,
+            }
+        );
         return edits;
     }
 
@@ -1506,17 +1567,12 @@ public sealed class LuaLspServer : IDisposable
             return false;
         }
 
-        JsonNode? paramsNode = parameters is null
-            ? null
-            : ReferenceEquals(parameters, _coordinator.NullSentinel)
-                ? null
-                : _coordinator.FromLua(parameters);
+        JsonNode? paramsNode =
+            parameters is null ? null
+            : ReferenceEquals(parameters, _coordinator.NullSentinel) ? null
+            : _coordinator.FromLua(parameters);
 
-        var message = new JsonObject
-        {
-            ["jsonrpc"] = "2.0",
-            ["method"] = method
-        };
+        var message = new JsonObject { ["jsonrpc"] = "2.0", ["method"] = method };
         if (paramsNode is not null)
         {
             message["params"] = paramsNode;
@@ -1531,7 +1587,7 @@ public sealed class LuaLspServer : IDisposable
         var parameters = new JsonObject
         {
             ["uri"] = uri,
-            ["diagnostics"] = diagnostics.DeepClone()
+            ["diagnostics"] = diagnostics.DeepClone(),
         };
         if (document is not null)
         {
@@ -1545,23 +1601,30 @@ public sealed class LuaLspServer : IDisposable
         SendDiagnosticsNotification(uri, diagnostics);
     }
 
-    public LuaTable SendRequest(string method, object? parameters,
-        LuaFunction? callback, LuaTable? options)
+    public LuaTable SendRequest(
+        string method,
+        object? parameters,
+        LuaFunction? callback,
+        LuaTable? options
+    )
     {
         long id = _nextClientRequestId++;
         var pending = new PendingClientRequest
         {
             Id = id,
             Method = method,
-            Callback = callback
+            Callback = callback,
         };
         _pendingClientRequests[id] = pending;
 
         if (!HasClientConnection)
         {
             LuaTable disconnectedHandle = CreateRequestHandle(pending);
-            CompleteClientRequest(pending, null, new LspProtocolError(
-                LspErrorCodes.RequestFailed, "no LSP client is connected"));
+            CompleteClientRequest(
+                pending,
+                null,
+                new LspProtocolError(LspErrorCodes.RequestFailed, "no LSP client is connected")
+            );
             return disconnectedHandle;
         }
 
@@ -1569,11 +1632,9 @@ public sealed class LuaLspServer : IDisposable
         {
             ["jsonrpc"] = "2.0",
             ["id"] = id,
-            ["method"] = method
+            ["method"] = method,
         };
-        JsonNode? paramsNode = parameters is null
-            ? null
-            : _coordinator.FromLua(parameters);
+        JsonNode? paramsNode = parameters is null ? null : _coordinator.FromLua(parameters);
         if (paramsNode is not null)
         {
             message["params"] = paramsNode;
@@ -1583,8 +1644,7 @@ public sealed class LuaLspServer : IDisposable
         long timeout = ReadTimeout(options);
         if (timeout > 0)
         {
-            pending.TimerId = _coordinator.ScheduleAction(timeout,
-                () => HandleRequestTimeout(id));
+            pending.TimerId = _coordinator.ScheduleAction(timeout, () => HandleRequestTimeout(id));
         }
 
         return CreateRequestHandle(pending);
@@ -1596,8 +1656,8 @@ public sealed class LuaLspServer : IDisposable
         {
             return 0;
         }
-        return LspJson.ToInt64(options["timeout"] ?? options["timeout_ms"] ??
-                               options["timeoutMs"]) ?? 0;
+        return LspJson.ToInt64(options["timeout"] ?? options["timeout_ms"] ?? options["timeoutMs"])
+            ?? 0;
     }
 
     private LuaTable CreateRequestHandle(PendingClientRequest pending)
@@ -1612,23 +1672,31 @@ public sealed class LuaLspServer : IDisposable
             }
             pending.Cancelled = true;
             SendNotification("$/cancelRequest", new JsonObject { ["id"] = pending.Id });
-            CompleteClientRequest(pending, null, new LspProtocolError(
-                LspErrorCodes.RequestCancelled, "request cancelled"));
+            CompleteClientRequest(
+                pending,
+                null,
+                new LspProtocolError(LspErrorCodes.RequestCancelled, "request cancelled")
+            );
             return true;
         });
         table["is_pending"] = new Func<bool>(() => !pending.Completed);
-        table["result"] = new Func<object?>(() => pending.Result is null
-            ? null
-            : _coordinator.ToLua(pending.Result));
+        table["result"] = new Func<object?>(() =>
+            pending.Result is null ? null : _coordinator.ToLua(pending.Result)
+        );
         table["on_complete"] = new Func<LuaFunction, bool>(callback =>
         {
             if (pending.Completed)
             {
-                callback.Call(_coordinator.ToLua(pending.Result),
+                callback.Call(
+                    _coordinator.ToLua(pending.Result),
                     pending.Error is null
                         ? null
-                        : _coordinator.CreateErrorTable(pending.Error.Code,
-                            pending.Error.Message, pending.Error.Data));
+                        : _coordinator.CreateErrorTable(
+                            pending.Error.Code,
+                            pending.Error.Message,
+                            pending.Error.Data
+                        )
+                );
             }
             else
             {
@@ -1641,8 +1709,11 @@ public sealed class LuaLspServer : IDisposable
         return table;
     }
 
-    private void CompleteClientRequest(PendingClientRequest pending, JsonNode? result,
-        LspProtocolError? error)
+    private void CompleteClientRequest(
+        PendingClientRequest pending,
+        JsonNode? result,
+        LspProtocolError? error
+    )
     {
         if (pending.Completed)
         {
@@ -1667,8 +1738,8 @@ public sealed class LuaLspServer : IDisposable
             {
                 pending.Callback.Call(_coordinator.ToLua(result), errorTable);
             }
-            catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex is LuaScriptException or InvalidOperationException or ArgumentException)
             {
                 _coordinator.Report($"request callback failed: {ex.Message}");
             }
@@ -1680,8 +1751,8 @@ public sealed class LuaLspServer : IDisposable
             {
                 callback.Call(_coordinator.ToLua(result), errorTable);
             }
-            catch (Exception ex) when (ex is LuaScriptException or InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex is LuaScriptException or InvalidOperationException or ArgumentException)
             {
                 _coordinator.Report($"request completion callback failed: {ex.Message}");
             }
@@ -1693,8 +1764,11 @@ public sealed class LuaLspServer : IDisposable
     {
         foreach (PendingClientRequest pending in _pendingClientRequests.Values.ToArray())
         {
-            CompleteClientRequest(pending, null,
-                new LspProtocolError(LspErrorCodes.RequestCancelled, reason));
+            CompleteClientRequest(
+                pending,
+                null,
+                new LspProtocolError(LspErrorCodes.RequestCancelled, reason)
+            );
         }
     }
 
@@ -1702,9 +1776,14 @@ public sealed class LuaLspServer : IDisposable
     {
         if (_pendingClientRequests.TryGetValue(id, out PendingClientRequest? pending))
         {
-            CompleteClientRequest(pending, null,
-                new LspProtocolError(LspErrorCodes.RequestFailed,
-                    $"request '{pending.Method}' timed out"));
+            CompleteClientRequest(
+                pending,
+                null,
+                new LspProtocolError(
+                    LspErrorCodes.RequestFailed,
+                    $"request '{pending.Method}' timed out"
+                )
+            );
         }
     }
 
@@ -1714,18 +1793,14 @@ public sealed class LuaLspServer : IDisposable
         {
             ["jsonrpc"] = "2.0",
             ["id"] = id.DeepClone(),
-            ["result"] = result
+            ["result"] = result,
         };
         SendRaw(message);
     }
 
     private void SendError(JsonNode? id, LspProtocolError error)
     {
-        var errorObject = new JsonObject
-        {
-            ["code"] = error.Code,
-            ["message"] = error.Message
-        };
+        var errorObject = new JsonObject { ["code"] = error.Code, ["message"] = error.Message };
         if (error.Data is not null)
         {
             errorObject["data"] = error.Data.DeepClone();
@@ -1735,7 +1810,7 @@ public sealed class LuaLspServer : IDisposable
         {
             ["jsonrpc"] = "2.0",
             ["id"] = id?.DeepClone(),
-            ["error"] = errorObject
+            ["error"] = errorObject,
         };
         SendRaw(message);
     }
@@ -1756,55 +1831,36 @@ public sealed class LuaLspServer : IDisposable
 
     public void BeginProgress(string token, string title, LuaTable? options)
     {
-        if (HasClientConnection && _initialized &&
-            ClientSupports("window.workDoneProgress"))
+        if (HasClientConnection && _initialized && ClientSupports("window.workDoneProgress"))
         {
-            SendRequest("window/workDoneProgress/create",
-                new JsonObject { ["token"] = token }, null, null);
+            SendRequest(
+                "window/workDoneProgress/create",
+                new JsonObject { ["token"] = token },
+                null,
+                null
+            );
         }
 
-        var value = new JsonObject
-        {
-            ["kind"] = "begin",
-            ["title"] = title ?? string.Empty
-        };
+        var value = new JsonObject { ["kind"] = "begin", ["title"] = title ?? string.Empty };
         ApplyProgressOptions(value, options);
-        SendNotification("$/progress", new JsonObject
-        {
-            ["token"] = token,
-            ["value"] = value
-        });
+        SendNotification("$/progress", new JsonObject { ["token"] = token, ["value"] = value });
     }
 
     public void ReportProgress(string token, LuaTable? value)
     {
-        var report = new JsonObject
-        {
-            ["kind"] = "report"
-        };
+        var report = new JsonObject { ["kind"] = "report" };
         ApplyProgressOptions(report, value);
-        SendNotification("$/progress", new JsonObject
-        {
-            ["token"] = token,
-            ["value"] = report
-        });
+        SendNotification("$/progress", new JsonObject { ["token"] = token, ["value"] = report });
     }
 
     public void FinishProgress(string token, string? message)
     {
-        var value = new JsonObject
-        {
-            ["kind"] = "end"
-        };
+        var value = new JsonObject { ["kind"] = "end" };
         if (!string.IsNullOrEmpty(message))
         {
             value["message"] = message;
         }
-        SendNotification("$/progress", new JsonObject
-        {
-            ["token"] = token,
-            ["value"] = value
-        });
+        SendNotification("$/progress", new JsonObject { ["token"] = token, ["value"] = value });
     }
 
     private void ApplyProgressOptions(JsonObject target, LuaTable? options)
@@ -1863,7 +1919,6 @@ public sealed class LuaLspServer : IDisposable
 
 public sealed class LspProtocolException : Exception
 {
-    public LspProtocolException(string message) : base(message)
-    {
-    }
+    public LspProtocolException(string message)
+        : base(message) { }
 }

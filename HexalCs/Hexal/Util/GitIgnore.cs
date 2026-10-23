@@ -14,36 +14,38 @@ public sealed class GitIgnore
 {
     private const long MaxGitIgnoreBytes = 1L * 1024 * 1024;
 
-    private static readonly bool CaseInsensitivePaths =
-        OperatingSystem.IsWindows();
+    private static readonly bool CaseInsensitivePaths = OperatingSystem.IsWindows();
 
     private static readonly StringComparer PathComparison = CaseInsensitivePaths
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
 
     private static readonly RegexOptions PatternOptions =
-        RegexOptions.CultureInvariant |
-        (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? RegexOptions.IgnoreCase
-            : RegexOptions.None);
+        RegexOptions.CultureInvariant
+        | (
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? RegexOptions.IgnoreCase
+                : RegexOptions.None
+        );
 
-    private static readonly HashSet<string> BuiltInIgnoredDirectories =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".git",
-            ".hg",
-            ".svn",
-            ".idea",
-            ".vs",
-            ".vscode",
-            "bin",
-            "obj",
-            "build",
-            "dist",
-            "target",
-            "node_modules",
-            "vendor"
-        };
+    private static readonly HashSet<string> BuiltInIgnoredDirectories = new(
+        StringComparer.OrdinalIgnoreCase
+    )
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        ".idea",
+        ".vs",
+        ".vscode",
+        "bin",
+        "obj",
+        "build",
+        "dist",
+        "target",
+        "node_modules",
+        "vendor",
+    };
 
     private sealed class Rule
     {
@@ -55,16 +57,15 @@ public sealed class GitIgnore
     }
 
     private readonly string _root;
-    private readonly Dictionary<string, Rule[]> _rulesByDirectory =
-        new(PathComparison);
+    private readonly Dictionary<string, Rule[]> _rulesByDirectory = new(PathComparison);
 
     public GitIgnore(string root)
     {
         _root = Normalize(root);
     }
 
-    public static bool IsBuiltInIgnoredDirectory(string name)
-        => BuiltInIgnoredDirectories.Contains(name);
+    public static bool IsBuiltInIgnoredDirectory(string name) =>
+        BuiltInIgnoredDirectories.Contains(name);
 
     /// <summary>
     /// Returns true when <paramref name="fullPath"/> is excluded by a
@@ -77,8 +78,8 @@ public sealed class GitIgnore
         {
             full = Path.GetFullPath(fullPath);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
         }
@@ -103,10 +104,12 @@ public sealed class GitIgnore
         bool ignored = false;
         foreach (Rule rule in rules)
         {
-            string baseRelative = ToGitPath(
-                Path.GetRelativePath(rule.BaseDirectory, full));
-            if (baseRelative.Length == 0 || baseRelative == "." ||
-                baseRelative.StartsWith("../", StringComparison.Ordinal))
+            string baseRelative = ToGitPath(Path.GetRelativePath(rule.BaseDirectory, full));
+            if (
+                baseRelative.Length == 0
+                || baseRelative == "."
+                || baseRelative.StartsWith("../", StringComparison.Ordinal)
+            )
             {
                 continue;
             }
@@ -130,8 +133,7 @@ public sealed class GitIgnore
         return ignored;
     }
 
-    private static bool MatchesAnchored(Rule rule, string relative,
-        bool isDirectory)
+    private static bool MatchesAnchored(Rule rule, string relative, bool isDirectory)
     {
         string[] components = Split(relative);
         for (int index = 1; index < components.Length; ++index)
@@ -151,8 +153,7 @@ public sealed class GitIgnore
         return rule.Pattern.IsMatch(string.Join('/', components));
     }
 
-    private static bool MatchesComponent(Rule rule, string[] components,
-        bool isDirectory)
+    private static bool MatchesComponent(Rule rule, string[] components, bool isDirectory)
     {
         for (int index = 0; index < components.Length; ++index)
         {
@@ -206,8 +207,7 @@ public sealed class GitIgnore
         var rules = new List<Rule>();
         if (SamePath(directory, _root))
         {
-            LoadRules(Path.Combine(directory, ".git", "info", "exclude"),
-                directory, rules);
+            LoadRules(Path.Combine(directory, ".git", "info", "exclude"), directory, rules);
         }
 
         LoadRules(Path.Combine(directory, ".gitignore"), directory, rules);
@@ -217,8 +217,7 @@ public sealed class GitIgnore
         return result;
     }
 
-    private static void LoadRules(string path, string baseDirectory,
-        List<Rule> rules)
+    private static void LoadRules(string path, string baseDirectory, List<Rule> rules)
     {
         string[] lines;
         try
@@ -231,9 +230,14 @@ public sealed class GitIgnore
 
             lines = File.ReadAllLines(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             return;
         }
@@ -289,8 +293,7 @@ public sealed class GitIgnore
             negated = true;
             line = line[1..];
         }
-        else if (line.Length > 1 && line[0] == '\\' &&
-                 line[1] is '#' or '!')
+        else if (line.Length > 1 && line[0] == '\\' && line[1] is '#' or '!')
         {
             line = line[1..];
         }
@@ -334,7 +337,7 @@ public sealed class GitIgnore
                 Pattern = new Regex(BuildPattern(line), PatternOptions),
                 Anchored = anchored,
                 DirectoryOnly = directoryOnly,
-                Negated = negated
+                Negated = negated,
             };
         }
         catch (ArgumentException)
@@ -466,11 +469,10 @@ public sealed class GitIgnore
         return -1;
     }
 
-    private static string[] Split(string path)
-        => path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    private static string[] Split(string path) =>
+        path.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
-    private static string ToGitPath(string path)
-        => path.Replace('\\', '/');
+    private static string ToGitPath(string path) => path.Replace('\\', '/');
 
     private static string Normalize(string path)
     {
@@ -478,15 +480,14 @@ public sealed class GitIgnore
         {
             return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return Path.TrimEndingDirectorySeparator(path);
         }
     }
 
-    private bool IsInsideRoot(string path) => IsInsideOrRoot(path) &&
-        !SamePath(path, _root);
+    private bool IsInsideRoot(string path) => IsInsideOrRoot(path) && !SamePath(path, _root);
 
     private bool IsInsideOrRoot(string path)
     {
@@ -498,13 +499,16 @@ public sealed class GitIgnore
         string prefix = _root.EndsWith(Path.DirectorySeparatorChar)
             ? _root
             : _root + Path.DirectorySeparatorChar;
-        return path.StartsWith(prefix, CaseInsensitivePaths
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal);
+        return path.StartsWith(
+            prefix,
+            CaseInsensitivePaths ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal
+        );
     }
 
-    private static bool SamePath(string left, string right)
-        => string.Equals(left, right, CaseInsensitivePaths
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal);
+    private static bool SamePath(string left, string right) =>
+        string.Equals(
+            left,
+            right,
+            CaseInsensitivePaths ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal
+        );
 }

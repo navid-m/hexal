@@ -23,8 +23,13 @@ public static class LspUri
             string full = Path.GetFullPath(path);
             return new Uri(full).AbsoluteUri;
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException or UriFormatException)
+        catch (Exception ex)
+            when (ex
+                    is ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException
+                        or UriFormatException
+            )
         {
             return path.Replace('\\', '/');
         }
@@ -42,8 +47,8 @@ public static class LspUri
             var parsed = new Uri(uri, UriKind.Absolute);
             return parsed.IsFile ? parsed.LocalPath : parsed.AbsoluteUri;
         }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException or
-                                   NotSupportedException)
+        catch (Exception ex)
+            when (ex is UriFormatException or ArgumentException or NotSupportedException)
         {
             return uri;
         }
@@ -65,8 +70,13 @@ public static class LspUri
             }
             return parsed.AbsoluteUri;
         }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException or
-                                   NotSupportedException or PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is UriFormatException
+                        or ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException
+            )
         {
             return uri.Replace('\\', '/');
         }
@@ -86,10 +96,7 @@ public static class LspUri
 
     public static JsonObject Parse(string uri)
     {
-        var result = new JsonObject
-        {
-            ["uri"] = uri
-        };
+        var result = new JsonObject { ["uri"] = uri };
 
         try
         {
@@ -101,8 +108,8 @@ public static class LspUri
             result["fragment"] = parsed.Fragment.TrimStart('#');
             result["file"] = parsed.IsFile;
         }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException or
-                                   NotSupportedException)
+        catch (Exception ex)
+            when (ex is UriFormatException or ArgumentException or NotSupportedException)
         {
             result["scheme"] = string.Empty;
             result["path"] = uri;
@@ -118,13 +125,16 @@ public static class LspUri
     {
         try
         {
-            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right),
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
                 OperatingSystem.IsWindows()
                     ? StringComparison.OrdinalIgnoreCase
-                    : StringComparison.Ordinal);
+                    : StringComparison.Ordinal
+            );
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return string.Equals(left, right, StringComparison.Ordinal);
         }
@@ -141,17 +151,22 @@ public static class LspUri
                 fullDirectory += Path.DirectorySeparatorChar;
             }
 
-            return fullPath.StartsWith(fullDirectory,
-                OperatingSystem.IsWindows()
-                    ? StringComparison.OrdinalIgnoreCase
-                    : StringComparison.Ordinal) ||
-                   string.Equals(fullPath, fullDirectory.TrimEnd(Path.DirectorySeparatorChar),
-                       OperatingSystem.IsWindows()
-                           ? StringComparison.OrdinalIgnoreCase
-                           : StringComparison.Ordinal);
+            return fullPath.StartsWith(
+                    fullDirectory,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal
+                )
+                || string.Equals(
+                    fullPath,
+                    fullDirectory.TrimEnd(Path.DirectorySeparatorChar),
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal
+                );
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
         }
@@ -234,6 +249,6 @@ public static class LspUri
         return builder.ToString();
     }
 
-    public static string FormatInvariant(long value)
-        => value.ToString(CultureInfo.InvariantCulture);
+    public static string FormatInvariant(long value) =>
+        value.ToString(CultureInfo.InvariantCulture);
 }

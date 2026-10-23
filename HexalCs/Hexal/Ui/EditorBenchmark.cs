@@ -38,21 +38,23 @@ public sealed partial class Editor
                 return;
             case Key.Up:
             case Key.ScrollUp:
-                _benchmarkTop = Math.Max(0, _benchmarkTop -
-                    (inputEvent.Key == Key.ScrollUp ? MouseScrollLines : 1));
+                _benchmarkTop = Math.Max(
+                    0,
+                    _benchmarkTop - (inputEvent.Key == Key.ScrollUp ? MouseScrollLines : 1)
+                );
                 return;
             case Key.Down:
             case Key.ScrollDown:
-                _benchmarkTop = Math.Min(BenchmarkMaxTop(), _benchmarkTop +
-                    (inputEvent.Key == Key.ScrollDown ? MouseScrollLines : 1));
+                _benchmarkTop = Math.Min(
+                    BenchmarkMaxTop(),
+                    _benchmarkTop + (inputEvent.Key == Key.ScrollDown ? MouseScrollLines : 1)
+                );
                 return;
             case Key.PageUp:
-                _benchmarkTop = Math.Max(0,
-                    _benchmarkTop - BenchmarkContentRows());
+                _benchmarkTop = Math.Max(0, _benchmarkTop - BenchmarkContentRows());
                 return;
             case Key.PageDown:
-                _benchmarkTop = Math.Min(BenchmarkMaxTop(),
-                    _benchmarkTop + BenchmarkContentRows());
+                _benchmarkTop = Math.Min(BenchmarkMaxTop(), _benchmarkTop + BenchmarkContentRows());
                 return;
             case Key.Home:
                 _benchmarkTop = 0;
@@ -62,8 +64,7 @@ public sealed partial class Editor
                 return;
         }
 
-        if (inputEvent.Key == Key.Character &&
-            inputEvent.Character.Value is 'q' or 'Q')
+        if (inputEvent.Key == Key.Character && inputEvent.Character.Value is 'q' or 'Q')
         {
             CloseStartupBenchmark();
         }
@@ -113,17 +114,19 @@ public sealed partial class Editor
         int y = Math.Max(0, (available - height) / 2);
         DrawBox(x, y, width, height, " Startup benchmark ");
 
-        IReadOnlyList<StartupBenchmarkEntry> entries =
-            _benchmark.SortedByDuration();
+        IReadOnlyList<StartupBenchmarkEntry> entries = _benchmark.SortedByDuration();
         int contentRows = Math.Max(1, height - 4);
         int contentWidth = Math.Max(0, width - 4);
-        _benchmarkTop = Math.Clamp(_benchmarkTop, 0,
-            Math.Max(0, entries.Count - contentRows));
+        _benchmarkTop = Math.Clamp(_benchmarkTop, 0, Math.Max(0, entries.Count - contentRows));
 
-        _screen.PutString(x + 2, y + 1, "Duration", _theme.AccentStyle,
-            contentWidth);
-        _screen.PutString(x + 13, y + 1, "Component", _theme.AccentStyle,
-            Math.Max(0, contentWidth - 11));
+        _screen.PutString(x + 2, y + 1, "Duration", _theme.AccentStyle, contentWidth);
+        _screen.PutString(
+            x + 13,
+            y + 1,
+            "Component",
+            _theme.AccentStyle,
+            Math.Max(0, contentWidth - 11)
+        );
 
         int durationWidth = 10;
         for (int row = 0; row < contentRows; ++row)
@@ -136,36 +139,47 @@ public sealed partial class Editor
 
             StartupBenchmarkEntry entry = entries[index];
             int screenRow = y + 2 + row;
-            string duration = entry.Milliseconds.ToString("0.00",
-                CultureInfo.InvariantCulture) + " ms";
-            Style durationStyle = entry.Milliseconds >= 100
-                ? _theme.WarningStyle
-                : entry.Milliseconds >= 25
-                    ? _theme.AccentStyle
-                    : _theme.TextStyle;
-            _screen.PutString(x + 2, screenRow,
+            string duration =
+                entry.Milliseconds.ToString("0.00", CultureInfo.InvariantCulture) + " ms";
+            Style durationStyle =
+                entry.Milliseconds >= 100 ? _theme.WarningStyle
+                : entry.Milliseconds >= 25 ? _theme.AccentStyle
+                : _theme.TextStyle;
+            _screen.PutString(
+                x + 2,
+                screenRow,
                 duration.PadLeft(durationWidth),
-                durationStyle, contentWidth);
+                durationStyle,
+                contentWidth
+            );
 
             int column = durationWidth + 1;
             string label = $"{entry.Category}: {entry.Name}";
-            _screen.PutString(x + 2 + column, screenRow, label,
+            _screen.PutString(
+                x + 2 + column,
+                screenRow,
+                label,
                 _theme.TextStyle,
-                Math.Max(0, contentWidth - column));
+                Math.Max(0, contentWidth - column)
+            );
             column += (int)UnicodeUtil.ColumnWidth(label);
 
             if (entry.Detail.Length > 0 && column + 2 < contentWidth)
             {
-                _screen.PutString(x + 2 + column, screenRow,
-                    "  " + entry.Detail, _theme.MutedStyle,
-                    Math.Max(0, contentWidth - column - 2));
+                _screen.PutString(
+                    x + 2 + column,
+                    screenRow,
+                    "  " + entry.Detail,
+                    _theme.MutedStyle,
+                    Math.Max(0, contentWidth - column - 2)
+                );
             }
         }
 
-        string footer = $"{entries.Count} measurement" +
-                        $"{(entries.Count == 1 ? string.Empty : "s")} · " +
-                        "slowest first · Esc/q close";
-        _screen.PutString(x + 2, y + height - 2, footer,
-            _theme.MutedStyle, width - 4);
+        string footer =
+            $"{entries.Count} measurement"
+            + $"{(entries.Count == 1 ? string.Empty : "s")} · "
+            + "slowest first · Esc/q close";
+        _screen.PutString(x + 2, y + height - 2, footer, _theme.MutedStyle, width - 4);
     }
 }

@@ -42,8 +42,7 @@ public sealed class SyntaxHighlighter
         _cache.Clear();
     }
 
-    public void GetLineTokens(long line, ReadOnlySpan<byte> text,
-        List<SyntaxToken> tokens)
+    public void GetLineTokens(long line, ReadOnlySpan<byte> text, List<SyntaxToken> tokens)
     {
         tokens.Clear();
         if (_language is null || _document is null)
@@ -63,7 +62,7 @@ public sealed class SyntaxHighlighter
         {
             Signature = Signature(text),
             StartInBlockComment = startInBlock,
-            EndInBlockComment = endInBlock
+            EndInBlockComment = endInBlock,
         };
     }
 
@@ -130,7 +129,7 @@ public sealed class SyntaxHighlighter
             {
                 Signature = Signature(currentText),
                 StartInBlockComment = state,
-                EndInBlockComment = endInBlock
+                EndInBlockComment = endInBlock,
             };
             state = endInBlock;
         }
@@ -144,22 +143,33 @@ public sealed class SyntaxHighlighter
     /// blocks in hover popups. Callers must pass the previous line's end state
     /// so multi-line constructs remain correct.
     /// </summary>
-    public static void GetLineTokens(LanguageDefinition language,
-        ReadOnlySpan<byte> text, bool startInBlock, List<SyntaxToken> tokens,
-        out bool endInBlock)
+    public static void GetLineTokens(
+        LanguageDefinition language,
+        ReadOnlySpan<byte> text,
+        bool startInBlock,
+        List<SyntaxToken> tokens,
+        out bool endInBlock
+    )
     {
         TokenizeLine(language, text, startInBlock, tokens, out endInBlock);
     }
 
-    private static void TokenizeLine(LanguageDefinition language,
-        ReadOnlySpan<byte> text, bool startInBlock,
-        List<SyntaxToken>? tokens, out bool endInBlock)
+    private static void TokenizeLine(
+        LanguageDefinition language,
+        ReadOnlySpan<byte> text,
+        bool startInBlock,
+        List<SyntaxToken>? tokens,
+        out bool endInBlock
+    )
     {
         bool inBlock = startInBlock;
         int offset = 0;
 
-        if (!inBlock && language.LineHighlights.Count > 0 &&
-            TryTokenizeLineHighlights(language, text, tokens))
+        if (
+            !inBlock
+            && language.LineHighlights.Count > 0
+            && TryTokenizeLineHighlights(language, text, tokens)
+        )
         {
             endInBlock = false;
             return;
@@ -172,8 +182,7 @@ public sealed class SyntaxHighlighter
                 int end = IndexOf(text, offset, language.BlockCommentEndBytes!);
                 if (end < 0)
                 {
-                    AddToken(tokens, offset, text.Length - offset,
-                        SyntaxTokenKind.Comment);
+                    AddToken(tokens, offset, text.Length - offset, SyntaxTokenKind.Comment);
                     offset = text.Length;
                     break;
                 }
@@ -187,15 +196,16 @@ public sealed class SyntaxHighlighter
 
             // Check block comments first: Lua's --[[ ... ]] starts with its
             // line-comment marker, and must still carry state across lines.
-            if (language.HasBlockComments &&
-                StartsWith(text, offset, language.BlockCommentStartBytes!))
+            if (
+                language.HasBlockComments
+                && StartsWith(text, offset, language.BlockCommentStartBytes!)
+            )
             {
                 int contentStart = offset + language.BlockCommentStartBytes!.Length;
                 int end = IndexOf(text, contentStart, language.BlockCommentEndBytes!);
                 if (end < 0)
                 {
-                    AddToken(tokens, offset, text.Length - offset,
-                        SyntaxTokenKind.Comment);
+                    AddToken(tokens, offset, text.Length - offset, SyntaxTokenKind.Comment);
                     offset = text.Length;
                     inBlock = true;
                     break;
@@ -207,11 +217,12 @@ public sealed class SyntaxHighlighter
                 continue;
             }
 
-            if (language.LineCommentBytes is { Length: > 0 } lineComment &&
-                StartsWith(text, offset, lineComment))
+            if (
+                language.LineCommentBytes is { Length: > 0 } lineComment
+                && StartsWith(text, offset, lineComment)
+            )
             {
-                AddToken(tokens, offset, text.Length - offset,
-                    SyntaxTokenKind.Comment);
+                AddToken(tokens, offset, text.Length - offset, SyntaxTokenKind.Comment);
                 offset = text.Length;
                 break;
             }
@@ -224,16 +235,17 @@ public sealed class SyntaxHighlighter
 
                 while (offset < text.Length)
                 {
-                    if (language.EscapeCharacterBytes is { Length: > 0 } escape &&
-                        StartsWith(text, offset, escape))
+                    if (
+                        language.EscapeCharacterBytes is { Length: > 0 } escape
+                        && StartsWith(text, offset, escape)
+                    )
                     {
                         offset += escape.Length;
                         SkipRune(text, ref offset);
                         continue;
                     }
 
-                    int closingLength = MatchQuote(text, offset,
-                        language.QuoteCharacterBytes);
+                    int closingLength = MatchQuote(text, offset, language.QuoteCharacterBytes);
                     if (closingLength > 0)
                     {
                         offset += closingLength;
@@ -264,8 +276,12 @@ public sealed class SyntaxHighlighter
                     ++offset;
                 }
 
-                AddToken(tokens, start, offset - start,
-                    language.ClassifyIdentifier(text[start..offset]));
+                AddToken(
+                    tokens,
+                    start,
+                    offset - start,
+                    language.ClassifyIdentifier(text[start..offset])
+                );
                 continue;
             }
 
@@ -276,8 +292,10 @@ public sealed class SyntaxHighlighter
     }
 
     private static bool TryTokenizeLineHighlights(
-        LanguageDefinition language, ReadOnlySpan<byte> text,
-        List<SyntaxToken>? tokens)
+        LanguageDefinition language,
+        ReadOnlySpan<byte> text,
+        List<SyntaxToken>? tokens
+    )
     {
         if (text.IsEmpty)
         {
@@ -293,10 +311,8 @@ public sealed class SyntaxHighlighter
                 continue;
             }
 
-            int start = Encoding.UTF8.GetByteCount(
-                line.AsSpan(0, match.Index));
-            int length = Encoding.UTF8.GetByteCount(
-                line.AsSpan(match.Index, match.Length));
+            int start = Encoding.UTF8.GetByteCount(line.AsSpan(0, match.Index));
+            int length = Encoding.UTF8.GetByteCount(line.AsSpan(match.Index, match.Length));
             AddToken(tokens, start, length, rule.Kind);
             return true;
         }
@@ -304,8 +320,12 @@ public sealed class SyntaxHighlighter
         return false;
     }
 
-    private static void AddToken(List<SyntaxToken>? tokens, int start, int length,
-        SyntaxTokenKind kind)
+    private static void AddToken(
+        List<SyntaxToken>? tokens,
+        int start,
+        int length,
+        SyntaxTokenKind kind
+    )
     {
         if (tokens is null || length <= 0 || kind == SyntaxTokenKind.Default)
         {
@@ -314,8 +334,7 @@ public sealed class SyntaxHighlighter
         tokens.Add(new SyntaxToken(start, length, kind));
     }
 
-    private static int MatchQuote(ReadOnlySpan<byte> text, int offset,
-        IReadOnlyList<byte[]> quotes)
+    private static int MatchQuote(ReadOnlySpan<byte> text, int offset, IReadOnlyList<byte[]> quotes)
     {
         foreach (byte[] quote in quotes)
         {
@@ -327,16 +346,14 @@ public sealed class SyntaxHighlighter
         return 0;
     }
 
-    private static bool StartsWith(ReadOnlySpan<byte> text, int offset,
-        ReadOnlySpan<byte> marker)
+    private static bool StartsWith(ReadOnlySpan<byte> text, int offset, ReadOnlySpan<byte> marker)
     {
-        return marker.Length > 0 &&
-               offset <= text.Length - marker.Length &&
-               text.Slice(offset, marker.Length).SequenceEqual(marker);
+        return marker.Length > 0
+            && offset <= text.Length - marker.Length
+            && text.Slice(offset, marker.Length).SequenceEqual(marker);
     }
 
-    private static int IndexOf(ReadOnlySpan<byte> text, int offset,
-        ReadOnlySpan<byte> marker)
+    private static int IndexOf(ReadOnlySpan<byte> text, int offset, ReadOnlySpan<byte> marker)
     {
         if (marker.IsEmpty || offset >= text.Length)
         {
@@ -350,9 +367,13 @@ public sealed class SyntaxHighlighter
 
     private static bool IsIdentifierStart(byte value)
     {
-        return value is >= (byte)'a' and <= (byte)'z' or
-               >= (byte)'A' and <= (byte)'Z' or
-               (byte)'_' or >= 0x80;
+        return value
+            is >= (byte)'a'
+                and <= (byte)'z'
+                or >= (byte)'A'
+                and <= (byte)'Z'
+                or (byte)'_'
+                or >= 0x80;
     }
 
     private static bool IsIdentifierPart(byte value)
@@ -378,10 +399,14 @@ public sealed class SyntaxHighlighter
             while (offset < text.Length)
             {
                 byte value = text[offset];
-                if (IsAsciiDigit(value) ||
-                    (hexadecimal && value is >= (byte)'a' and <= (byte)'f' or
-                                      >= (byte)'A' and <= (byte)'F') ||
-                    value == (byte)'_')
+                if (
+                    IsAsciiDigit(value)
+                    || (
+                        hexadecimal
+                        && value is >= (byte)'a' and <= (byte)'f' or >= (byte)'A' and <= (byte)'F'
+                    )
+                    || value == (byte)'_'
+                )
                 {
                     ++offset;
                     continue;

@@ -18,7 +18,8 @@ public sealed record LspDiagnostic(
     string Message,
     string Source,
     int EndLine = -1,
-    int EndColumn = -1);
+    int EndColumn = -1
+);
 
 /// <summary>
 /// A single textual edit from an LSP <c>WorkspaceEdit</c>. Positions use the
@@ -30,7 +31,8 @@ public sealed record LspTextEdit(
     int StartCharacter,
     int EndLine,
     int EndCharacter,
-    string NewText);
+    string NewText
+);
 
 /// <summary>
 /// A code action offered by a language server. <see cref="Raw"/> keeps the
@@ -47,9 +49,7 @@ public sealed class LspCodeAction
     public JsonObject? Raw { get; init; }
 }
 
-public sealed record LspDocumentDiagnostics(
-    string Uri,
-    IReadOnlyList<LspDiagnostic> Diagnostics);
+public sealed record LspDocumentDiagnostics(string Uri, IReadOnlyList<LspDiagnostic> Diagnostics);
 
 /// <summary>
 /// A completion returned by <c>textDocument/completion</c>. Text edit
@@ -76,10 +76,7 @@ public sealed class LspCompletionItem
 /// A target returned by a definition-like request. Positions use the LSP
 /// coordinate system: zero-based lines and UTF-16 code units.
 /// </summary>
-public sealed record LspLocation(
-    string Uri,
-    int Line,
-    int Character);
+public sealed record LspLocation(string Uri, int Line, int Character);
 
 /// <summary>
 /// A symbol returned by <c>textDocument/documentSymbol</c>. Positions use the
@@ -92,7 +89,8 @@ public sealed record LspDocumentSymbol(
     string Uri,
     int Line,
     int Character,
-    int Depth);
+    int Depth
+);
 
 public enum LspEventKind
 {
@@ -107,7 +105,7 @@ public enum LspEventKind
     CodeActionResolved,
     WorkspaceDiagnostics,
     DocumentSymbols,
-    Completions
+    Completions,
 }
 
 public sealed class LspEvent
@@ -118,12 +116,9 @@ public sealed class LspEvent
     public string Uri { get; init; } = string.Empty;
     public string Method { get; init; } = string.Empty;
     public string Text { get; init; } = string.Empty;
-    public IReadOnlyList<LspDiagnostic> Diagnostics { get; init; } =
-        Array.Empty<LspDiagnostic>();
-    public IReadOnlyList<LspLocation> Locations { get; init; } =
-        Array.Empty<LspLocation>();
-    public IReadOnlyList<LspCodeAction> CodeActions { get; init; } =
-        Array.Empty<LspCodeAction>();
+    public IReadOnlyList<LspDiagnostic> Diagnostics { get; init; } = Array.Empty<LspDiagnostic>();
+    public IReadOnlyList<LspLocation> Locations { get; init; } = Array.Empty<LspLocation>();
+    public IReadOnlyList<LspCodeAction> CodeActions { get; init; } = Array.Empty<LspCodeAction>();
     public IReadOnlyList<LspDocumentDiagnostics> DocumentDiagnostics { get; init; } =
         Array.Empty<LspDocumentDiagnostics>();
     public IReadOnlyList<LspDocumentSymbol> DocumentSymbols { get; init; } =
@@ -148,12 +143,18 @@ public static class ExecutableFinder
 
         string path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
         string[] extensions = OperatingSystem.IsWindows()
-            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
-                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT").Split(
+                ';',
+                StringSplitOptions.RemoveEmptyEntries
+            )
             : new[] { string.Empty };
 
-        foreach (string directory in path.Split(Path.PathSeparator,
-                     StringSplitOptions.RemoveEmptyEntries))
+        foreach (
+            string directory in path.Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries
+            )
+        )
         {
             foreach (string extension in extensions)
             {

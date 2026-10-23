@@ -15,8 +15,9 @@ public sealed class LspDiagnosticsRegistry
         public long? Version;
     }
 
-    private readonly Dictionary<string, Dictionary<string, Entry>> _documents =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, Entry>> _documents = new(
+        StringComparer.Ordinal
+    );
 
     public event Action<string, JsonArray>? Changed;
 
@@ -28,19 +29,18 @@ public sealed class LspDiagnosticsRegistry
             _documents[uri] = namespaces;
         }
 
-        if (namespaces.TryGetValue(@namespace, out Entry? existing) &&
-            existing.Version is long oldVersion &&
-            version is long newVersion && newVersion < oldVersion)
+        if (
+            namespaces.TryGetValue(@namespace, out Entry? existing)
+            && existing.Version is long oldVersion
+            && version is long newVersion
+            && newVersion < oldVersion
+        )
         {
             // Results computed from an obsolete snapshot are discarded.
             return false;
         }
 
-        var entry = new Entry
-        {
-            Items = CloneArray(items),
-            Version = version
-        };
+        var entry = new Entry { Items = CloneArray(items), Version = version };
         namespaces[@namespace] = entry;
         Notify(uri);
         return true;
@@ -63,8 +63,10 @@ public sealed class LspDiagnosticsRegistry
 
     public bool Clear(string uri, string @namespace)
     {
-        if (!_documents.TryGetValue(uri, out Dictionary<string, Entry>? namespaces) ||
-            !namespaces.Remove(@namespace))
+        if (
+            !_documents.TryGetValue(uri, out Dictionary<string, Entry>? namespaces)
+            || !namespaces.Remove(@namespace)
+        )
         {
             return false;
         }
@@ -122,8 +124,8 @@ public sealed class LspDiagnosticsRegistry
 
     public int Count(string uri) => Get(uri).Count;
 
-    public int CountAll() => _documents.Values.Sum(namespaces =>
-        namespaces.Values.Sum(entry => entry.Items.Count));
+    public int CountAll() =>
+        _documents.Values.Sum(namespaces => namespaces.Values.Sum(entry => entry.Items.Count));
 
     private void Notify(string uri)
     {

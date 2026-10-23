@@ -1,3 +1,5 @@
+using Hexal.Core;
+using Hexal.Languages;
 using Hexal.Platform;
 using Hexal.Util;
 
@@ -5,10 +7,9 @@ namespace Hexal.Ui;
 
 public sealed partial class Editor
 {
-    private static readonly StringComparer SidebarPathComparison =
-        OperatingSystem.IsWindows()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
+    private static readonly StringComparer SidebarPathComparison = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
 
     private enum SidebarMenuAction
     {
@@ -17,13 +18,17 @@ public sealed partial class Editor
         NewFile,
         Rename,
         Duplicate,
+        Format,
         Copy,
         Move,
-        Delete
+        Delete,
     }
 
     private readonly record struct SidebarMenuItem(
-        string Label, char Hotkey, SidebarMenuAction Action);
+        string Label,
+        char Hotkey,
+        SidebarMenuAction Action
+    );
 
     private static readonly SidebarMenuItem[] SidebarFileMenuItems =
     {
@@ -32,9 +37,10 @@ public sealed partial class Editor
         new("New File", 'E', SidebarMenuAction.NewFile),
         new("Rename", 'R', SidebarMenuAction.Rename),
         new("Duplicate", 'D', SidebarMenuAction.Duplicate),
+        new("Format", 'F', SidebarMenuAction.Format),
         new("Copy to...", 'T', SidebarMenuAction.Copy),
         new("Move to...", 'M', SidebarMenuAction.Move),
-        new("Delete", 'd', SidebarMenuAction.Delete)
+        new("Delete", 'd', SidebarMenuAction.Delete),
     };
 
     private static readonly SidebarMenuItem[] SidebarFolderMenuItems =
@@ -44,17 +50,19 @@ public sealed partial class Editor
         new("New File", 'E', SidebarMenuAction.NewFile),
         new("Rename", 'R', SidebarMenuAction.Rename),
         new("Duplicate", 'D', SidebarMenuAction.Duplicate),
+        new("Format", 'F', SidebarMenuAction.Format),
         new("Copy to...", 'T', SidebarMenuAction.Copy),
         new("Move to...", 'M', SidebarMenuAction.Move),
-        new("Delete", 'd', SidebarMenuAction.Delete)
+        new("Delete", 'd', SidebarMenuAction.Delete),
     };
 
     private static readonly SidebarMenuItem[] SidebarMultiMenuItems =
     {
         new("Duplicate", 'D', SidebarMenuAction.Duplicate),
+        new("Format", 'F', SidebarMenuAction.Format),
         new("Copy to...", 'T', SidebarMenuAction.Copy),
         new("Move to...", 'M', SidebarMenuAction.Move),
-        new("Delete", 'd', SidebarMenuAction.Delete)
+        new("Delete", 'd', SidebarMenuAction.Delete),
     };
 
     private sealed class SidebarNode
@@ -76,26 +84,43 @@ public sealed partial class Editor
     private int _sidebarMenuSelected;
     private int _editorLeft;
     private readonly List<SidebarNode> _sidebarNodes = new();
-    private readonly HashSet<string> _sidebarExpanded =
-        new(SidebarPathComparison);
-    private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes =
-        new();
+    private readonly HashSet<string> _sidebarExpanded = new(SidebarPathComparison);
+    private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes = new();
+    private SidebarFormatOperation? _sidebarFormatOperation;
+    private int _sidebarFormatLastTotal = -1;
+    private int _sidebarFormatLastCompleted = -1;
 
-    private SidebarNode? SelectedSidebarNode
-        => _sidebarSelected >= 0 && _sidebarSelected < _sidebarNodes.Count
+    private sealed class SidebarFormatOperation : IDisposable
+    {
+        public Task<SidebarFormatResult> Task = null!;
+        public CancellationTokenSource Cancellation = new();
+        public int Total;
+        public int Completed;
+
+        public void Dispose() => Cancellation.Dispose();
+    }
+
+    private sealed class SidebarFormatResult
+    {
+        public int Formatted;
+        public int Changed;
+        public int Failed;
+        public int Skipped;
+        public int SkippedOpen;
+        public string FirstError = string.Empty;
+    }
+
+    private SidebarNode? SelectedSidebarNode =>
+        _sidebarSelected >= 0 && _sidebarSelected < _sidebarNodes.Count
             ? _sidebarNodes[_sidebarSelected]
             : null;
 
-    private int SidebarSelectionStart
-        => Math.Min(_sidebarSelected, _sidebarSelectionAnchor);
+    private int SidebarSelectionStart => Math.Min(_sidebarSelected, _sidebarSelectionAnchor);
 
-    private int SidebarSelectionEnd
-        => Math.Max(_sidebarSelected, _sidebarSelectionAnchor);
+    private int SidebarSelectionEnd => Math.Max(_sidebarSelected, _sidebarSelectionAnchor);
 
-    private int SidebarSelectionCount
-        => _sidebarNodes.Count == 0
-            ? 0
-            : Math.Abs(_sidebarSelected - _sidebarSelectionAnchor) + 1;
+    private int SidebarSelectionCount =>
+        _sidebarNodes.Count == 0 ? 0 : Math.Abs(_sidebarSelected - _sidebarSelectionAnchor) + 1;
 
     private int SidebarWidth()
     {
@@ -119,8 +144,8 @@ public sealed partial class Editor
         {
             return Path.GetFullPath(path);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return path;
         }
@@ -222,19 +247,16 @@ public sealed partial class Editor
                 MoveSidebarSelection(1, wrap: false, extend: inputEvent.Shift);
                 return;
             case Key.PageUp:
-                MoveSidebarSelection(-SidebarListRows(), wrap: false,
-                    extend: inputEvent.Shift);
+                MoveSidebarSelection(-SidebarListRows(), wrap: false, extend: inputEvent.Shift);
                 return;
             case Key.PageDown:
-                MoveSidebarSelection(SidebarListRows(), wrap: false,
-                    extend: inputEvent.Shift);
+                MoveSidebarSelection(SidebarListRows(), wrap: false, extend: inputEvent.Shift);
                 return;
             case Key.Home:
                 SetSidebarSelection(0, extend: inputEvent.Shift);
                 return;
             case Key.End:
-                SetSidebarSelection(_sidebarNodes.Count - 1,
-                    extend: inputEvent.Shift);
+                SetSidebarSelection(_sidebarNodes.Count - 1, extend: inputEvent.Shift);
                 return;
             case Key.Left:
                 CollapseSidebarOrSelectParent();
@@ -247,8 +269,7 @@ public sealed partial class Editor
                 return;
         }
 
-        if (inputEvent.Key == Key.Character && !inputEvent.Ctrl &&
-            !inputEvent.Alt)
+        if (inputEvent.Key == Key.Character && !inputEvent.Ctrl && !inputEvent.Alt)
         {
             uint character = (uint)inputEvent.Character.Value;
             if (character is 'c' or 'C')
@@ -311,10 +332,8 @@ public sealed partial class Editor
             return;
         }
 
-        _sidebarSelected = Math.Clamp(_sidebarSelected, 0,
-            _sidebarNodes.Count - 1);
-        _sidebarSelectionAnchor = Math.Clamp(_sidebarSelectionAnchor, 0,
-            _sidebarNodes.Count - 1);
+        _sidebarSelected = Math.Clamp(_sidebarSelected, 0, _sidebarNodes.Count - 1);
+        _sidebarSelectionAnchor = Math.Clamp(_sidebarSelectionAnchor, 0, _sidebarNodes.Count - 1);
         int rows = SidebarListRows();
         if (_sidebarSelected < _sidebarTop)
         {
@@ -325,8 +344,7 @@ public sealed partial class Editor
             _sidebarTop = _sidebarSelected - rows + 1;
         }
 
-        _sidebarTop = Math.Clamp(_sidebarTop, 0,
-            Math.Max(0, _sidebarNodes.Count - rows));
+        _sidebarTop = Math.Clamp(_sidebarTop, 0, Math.Max(0, _sidebarNodes.Count - rows));
     }
 
     private void ActivateSelectedSidebarNode()
@@ -378,9 +396,11 @@ public sealed partial class Editor
         }
 
         string? parent = Path.GetDirectoryName(node.Path);
-        if (parent is not null &&
-            !SamePath(parent, ProjectRoot()) &&
-            IsPathInside(ProjectRoot(), parent))
+        if (
+            parent is not null
+            && !SamePath(parent, ProjectRoot())
+            && IsPathInside(ProjectRoot(), parent)
+        )
         {
             SelectSidebarPath(parent);
         }
@@ -401,8 +421,10 @@ public sealed partial class Editor
             return;
         }
 
-        if (_sidebarSelected + 1 < _sidebarNodes.Count &&
-            _sidebarNodes[_sidebarSelected + 1].Depth > node.Depth)
+        if (
+            _sidebarSelected + 1 < _sidebarNodes.Count
+            && _sidebarNodes[_sidebarSelected + 1].Depth > node.Depth
+        )
         {
             SetSidebarSelection(_sidebarSelected + 1);
         }
@@ -510,8 +532,7 @@ public sealed partial class Editor
             return true;
         }
 
-        return hotkey != 'd' &&
-               char.ToUpperInvariant(character) == hotkey;
+        return hotkey != 'd' && char.ToUpperInvariant(character) == hotkey;
     }
 
     private void HandleSidebarMenu(InputEvent inputEvent)
@@ -540,8 +561,7 @@ public sealed partial class Editor
                 return;
         }
 
-        if (inputEvent.Key != Key.Character || inputEvent.Ctrl ||
-            inputEvent.Alt)
+        if (inputEvent.Key != Key.Character || inputEvent.Ctrl || inputEvent.Alt)
         {
             return;
         }
@@ -553,8 +573,10 @@ public sealed partial class Editor
             return;
         }
 
-        int hotkeyIndex = Array.FindIndex(items,
-            item => SidebarHotkeyMatches(item.Hotkey, character));
+        int hotkeyIndex = Array.FindIndex(
+            items,
+            item => SidebarHotkeyMatches(item.Hotkey, character)
+        );
         if (hotkeyIndex >= 0)
         {
             _sidebarMenuSelected = hotkeyIndex;
@@ -587,8 +609,7 @@ public sealed partial class Editor
     {
         SidebarMenuItem[] items = SidebarMenuItemsForSelection();
         SidebarNode? node = SelectedSidebarNode;
-        if (node is null || _sidebarMenuSelected < 0 ||
-            _sidebarMenuSelected >= items.Length)
+        if (node is null || _sidebarMenuSelected < 0 || _sidebarMenuSelected >= items.Length)
         {
             _sidebarMenuVisible = false;
             return;
@@ -632,6 +653,9 @@ public sealed partial class Editor
             case SidebarMenuAction.Duplicate:
                 DuplicateSidebarNodes(nodes);
                 return;
+            case SidebarMenuAction.Format:
+                BeginSidebarFormat(nodes);
+                return;
             case SidebarMenuAction.Copy:
                 BeginSidebarCopy(nodes);
                 return;
@@ -644,17 +668,14 @@ public sealed partial class Editor
         }
     }
 
-    private string SidebarParentForNewEntry(SidebarNode node)
-        => node.IsDirectory
-            ? node.Path
-            : Path.GetDirectoryName(node.Path) ?? ProjectRoot();
+    private string SidebarParentForNewEntry(SidebarNode node) =>
+        node.IsDirectory ? node.Path : Path.GetDirectoryName(node.Path) ?? ProjectRoot();
 
     private void BeginSidebarNewFolder(SidebarNode node)
     {
         _sidebarFocused = _sidebarVisible;
         string parent = SidebarParentForNewEntry(node);
-        RequestPrompt("New folder name: ", value =>
-            CompleteSidebarNewFolder(parent, value));
+        RequestPrompt("New folder name: ", value => CompleteSidebarNewFolder(parent, value));
     }
 
     private void CompleteSidebarNewFolder(string parent, string? value)
@@ -687,9 +708,14 @@ public sealed partial class Editor
         {
             Directory.CreateDirectory(target);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             SetError($"Create folder failed: {ex.Message}");
             RefreshSidebar(null);
@@ -705,8 +731,7 @@ public sealed partial class Editor
     {
         _sidebarFocused = _sidebarVisible;
         string parent = SidebarParentForNewEntry(node);
-        RequestPrompt("New file name: ", value =>
-            CompleteSidebarNewFile(parent, value));
+        RequestPrompt("New file name: ", value => CompleteSidebarNewFile(parent, value));
     }
 
     private void CompleteSidebarNewFile(string parent, string? value)
@@ -737,12 +762,21 @@ public sealed partial class Editor
 
         try
         {
-            using var stream = new FileStream(target, FileMode.CreateNew,
-                FileAccess.Write, FileShare.None);
+            using var stream = new FileStream(
+                target,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None
+            );
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             SetError($"Create file failed: {ex.Message}");
             RefreshSidebar(null);
@@ -760,14 +794,15 @@ public sealed partial class Editor
         bool isDirectory = node.IsDirectory;
         string initial = node.Name;
 
-        RequestPrompt($"Rename {node.Name}: ", value =>
-            CompleteSidebarRename(oldPath, isDirectory, value));
+        RequestPrompt(
+            $"Rename {node.Name}: ",
+            value => CompleteSidebarRename(oldPath, isDirectory, value)
+        );
         _pluginPromptText.Append(initial);
         _pluginPromptCursor = _pluginPromptText.Length;
     }
 
-    private void CompleteSidebarRename(string oldPath, bool isDirectory,
-        string? value)
+    private void CompleteSidebarRename(string oldPath, bool isDirectory, string? value)
     {
         _sidebarFocused = _sidebarVisible;
         if (string.IsNullOrWhiteSpace(value))
@@ -813,9 +848,14 @@ public sealed partial class Editor
                 File.Move(oldPath, target);
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             SetError($"Rename failed: {ex.Message}");
             RefreshSidebar(oldPath);
@@ -835,8 +875,10 @@ public sealed partial class Editor
             return false;
         }
 
-        if (name.Contains(Path.DirectorySeparatorChar) ||
-            name.Contains(Path.AltDirectorySeparatorChar))
+        if (
+            name.Contains(Path.DirectorySeparatorChar)
+            || name.Contains(Path.AltDirectorySeparatorChar)
+        )
         {
             return false;
         }
@@ -860,22 +902,26 @@ public sealed partial class Editor
         _sidebarFocused = _sidebarVisible;
         List<string> folders = CollectSidebarMoveFolders(nodes);
         List<string> labels = SidebarFolderLabels(folders);
-        OpenPluginPicker("Copy to folder", labels, index =>
-        {
-            _sidebarFocused = _sidebarVisible;
-            if (index is null)
+        OpenPluginPicker(
+            "Copy to folder",
+            labels,
+            index =>
             {
-                SetMessage("Copy cancelled.");
-                return;
-            }
+                _sidebarFocused = _sidebarVisible;
+                if (index is null)
+                {
+                    SetMessage("Copy cancelled.");
+                    return;
+                }
 
-            if (index.Value < 0 || index.Value >= folders.Count)
-            {
-                return;
-            }
+                if (index.Value < 0 || index.Value >= folders.Count)
+                {
+                    return;
+                }
 
-            CompleteSidebarCopy(nodes, folders[index.Value]);
-        });
+                CompleteSidebarCopy(nodes, folders[index.Value]);
+            }
+        );
         SetMessage($"Copying {nodes.Count} items...");
     }
 
@@ -885,14 +931,12 @@ public sealed partial class Editor
         bool isDirectory = node.IsDirectory;
         string initial = UniqueSidebarCopyPath(source, isDirectory);
 
-        RequestPrompt("Copy to: ", value =>
-            CompleteSidebarCopy(source, isDirectory, value));
+        RequestPrompt("Copy to: ", value => CompleteSidebarCopy(source, isDirectory, value));
         _pluginPromptText.Append(initial);
         _pluginPromptCursor = _pluginPromptText.Length;
     }
 
-    private void CompleteSidebarCopy(string source, bool isDirectory,
-        string? value)
+    private void CompleteSidebarCopy(string source, bool isDirectory, string? value)
     {
         _sidebarFocused = _sidebarVisible;
         if (string.IsNullOrWhiteSpace(value))
@@ -911,8 +955,8 @@ public sealed partial class Editor
             }
             destination = Path.GetFullPath(destination);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             SetError($"Invalid destination: {ex.Message}");
             RefreshSidebar(source);
@@ -936,8 +980,7 @@ public sealed partial class Editor
         SetMessage($"Copied to {Path.GetFileName(destination)}");
     }
 
-    private void CompleteSidebarCopy(IReadOnlyList<SidebarNode> nodes,
-        string destinationFolder)
+    private void CompleteSidebarCopy(IReadOnlyList<SidebarNode> nodes, string destinationFolder)
     {
         _sidebarFocused = _sidebarVisible;
         string folderFull;
@@ -945,8 +988,8 @@ public sealed partial class Editor
         {
             folderFull = Path.GetFullPath(destinationFolder);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             SetError($"Invalid destination: {ex.Message}");
             RefreshSidebar(null);
@@ -978,8 +1021,7 @@ public sealed partial class Editor
         foreach (SidebarNode node in nodes)
         {
             string target = Path.Combine(folderFull, node.Name);
-            if (!CopySidebarPath(node.Path, target, node.IsDirectory,
-                    out string error))
+            if (!CopySidebarPath(node.Path, target, node.IsDirectory, out string error))
             {
                 firstError ??= error;
                 continue;
@@ -1001,9 +1043,9 @@ public sealed partial class Editor
 
         if (firstError is not null)
         {
-            SetError(copied == 0
-                ? firstError
-                : $"Copied {copied} of {nodes.Count} items; {firstError}");
+            SetError(
+                copied == 0 ? firstError : $"Copied {copied} of {nodes.Count} items; {firstError}"
+            );
             return;
         }
 
@@ -1020,25 +1062,31 @@ public sealed partial class Editor
         _sidebarFocused = _sidebarVisible;
         List<string> folders = CollectSidebarMoveFolders(nodes);
         List<string> labels = SidebarFolderLabels(folders);
-        OpenPluginPicker("Move to folder", labels, index =>
-        {
-            _sidebarFocused = _sidebarVisible;
-            if (index is null)
+        OpenPluginPicker(
+            "Move to folder",
+            labels,
+            index =>
             {
-                SetMessage("Move cancelled.");
-                return;
-            }
+                _sidebarFocused = _sidebarVisible;
+                if (index is null)
+                {
+                    SetMessage("Move cancelled.");
+                    return;
+                }
 
-            if (index.Value < 0 || index.Value >= folders.Count)
-            {
-                return;
-            }
+                if (index.Value < 0 || index.Value >= folders.Count)
+                {
+                    return;
+                }
 
-            CompleteSidebarMove(nodes, folders[index.Value]);
-        });
-        SetMessage(nodes.Count == 1
-            ? $"Moving {Path.GetFileName(nodes[0].Path)}..."
-            : $"Moving {nodes.Count} items...");
+                CompleteSidebarMove(nodes, folders[index.Value]);
+            }
+        );
+        SetMessage(
+            nodes.Count == 1
+                ? $"Moving {Path.GetFileName(nodes[0].Path)}..."
+                : $"Moving {nodes.Count} items..."
+        );
     }
 
     private List<string> SidebarFolderLabels(List<string> folders)
@@ -1048,15 +1096,15 @@ public sealed partial class Editor
         foreach (string folder in folders)
         {
             string relative = Path.GetRelativePath(root, folder);
-            labels.Add(relative == "." ? "./ (project root)" : relative +
-                Path.DirectorySeparatorChar);
+            labels.Add(
+                relative == "." ? "./ (project root)" : relative + Path.DirectorySeparatorChar
+            );
         }
 
         return labels;
     }
 
-    private List<string> CollectSidebarMoveFolders(
-        IReadOnlyList<SidebarNode> sources)
+    private List<string> CollectSidebarMoveFolders(IReadOnlyList<SidebarNode> sources)
     {
         string root = SidebarFullPath(ProjectRoot());
         var result = new List<string> { root };
@@ -1065,17 +1113,25 @@ public sealed partial class Editor
         return result;
     }
 
-    private static void AddSidebarMoveFolders(string directory,
-        IReadOnlyList<SidebarNode> sources, List<string> folders,
-        GitIgnore? gitIgnore)
+    private static void AddSidebarMoveFolders(
+        string directory,
+        IReadOnlyList<SidebarNode> sources,
+        List<string> folders,
+        GitIgnore? gitIgnore
+    )
     {
         string[] directories;
         try
         {
             directories = Directory.GetDirectories(directory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             return;
         }
@@ -1091,8 +1147,13 @@ public sealed partial class Editor
                     continue;
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
             {
                 continue;
             }
@@ -1103,9 +1164,13 @@ public sealed partial class Editor
                 continue;
             }
 
-            if (gitIgnore is not null &&
-                (GitIgnore.IsBuiltInIgnoredDirectory(name) ||
-                 gitIgnore.IsIgnored(child, isDirectory: true)))
+            if (
+                gitIgnore is not null
+                && (
+                    GitIgnore.IsBuiltInIgnoredDirectory(name)
+                    || gitIgnore.IsIgnored(child, isDirectory: true)
+                )
+            )
             {
                 continue;
             }
@@ -1120,13 +1185,17 @@ public sealed partial class Editor
         }
     }
 
-    private static bool IsSelectedSidebarDirectoryOrChild(string path,
-        IReadOnlyList<SidebarNode> sources)
+    private static bool IsSelectedSidebarDirectoryOrChild(
+        string path,
+        IReadOnlyList<SidebarNode> sources
+    )
     {
         foreach (SidebarNode source in sources)
         {
-            if (source.IsDirectory &&
-                (SamePath(path, source.Path) || IsPathInside(source.Path, path)))
+            if (
+                source.IsDirectory
+                && (SamePath(path, source.Path) || IsPathInside(source.Path, path))
+            )
             {
                 return true;
             }
@@ -1135,8 +1204,7 @@ public sealed partial class Editor
         return false;
     }
 
-    private void CompleteSidebarMove(IReadOnlyList<SidebarNode> nodes,
-        string destinationFolder)
+    private void CompleteSidebarMove(IReadOnlyList<SidebarNode> nodes, string destinationFolder)
     {
         _sidebarFocused = _sidebarVisible;
         string folderFull;
@@ -1144,8 +1212,8 @@ public sealed partial class Editor
         {
             folderFull = Path.GetFullPath(destinationFolder);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             SetError($"Invalid destination: {ex.Message}");
             RefreshSidebar(null);
@@ -1164,9 +1232,10 @@ public sealed partial class Editor
         foreach (SidebarNode node in nodes)
         {
             string sourceFull = SidebarFullPath(node.Path);
-            if (node.IsDirectory &&
-                (SamePath(folderFull, sourceFull) ||
-                 IsPathInside(sourceFull, folderFull)))
+            if (
+                node.IsDirectory
+                && (SamePath(folderFull, sourceFull) || IsPathInside(sourceFull, folderFull))
+            )
             {
                 SetError("Cannot move a folder inside itself.");
                 RefreshSidebar(null);
@@ -1219,16 +1288,20 @@ public sealed partial class Editor
                     File.Move(node.Path, target);
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                            or PathTooLongException
+                )
             {
                 firstError ??= $"Move failed: {ex.Message}";
                 continue;
             }
 
-            UpdateOpenDocumentPathAfterRename(node.Path, target,
-                node.IsDirectory);
+            UpdateOpenDocumentPathAfterRename(node.Path, target, node.IsDirectory);
             ++moved;
             lastTarget = target;
         }
@@ -1245,15 +1318,17 @@ public sealed partial class Editor
 
         if (firstError is not null)
         {
-            SetError(moved == 0
-                ? firstError
-                : $"Moved {moved} of {moves.Count} items; {firstError}");
+            SetError(
+                moved == 0 ? firstError : $"Moved {moved} of {moves.Count} items; {firstError}"
+            );
             return;
         }
 
-        SetMessage(moves.Count == 1
-            ? $"Moved {Path.GetFileName(moves[0].Node.Path)} to {folderFull}"
-            : $"Moved {moved} items to {folderFull}");
+        SetMessage(
+            moves.Count == 1
+                ? $"Moved {Path.GetFileName(moves[0].Node.Path)} to {folderFull}"
+                : $"Moved {moved} items to {folderFull}"
+        );
     }
 
     private void DuplicateSidebarNodes(IReadOnlyList<SidebarNode> nodes)
@@ -1270,8 +1345,7 @@ public sealed partial class Editor
         foreach (SidebarNode node in nodes)
         {
             string target = UniqueSidebarCopyPath(node.Path, node.IsDirectory);
-            if (!CopySidebarPath(node.Path, target, node.IsDirectory,
-                    out string error))
+            if (!CopySidebarPath(node.Path, target, node.IsDirectory, out string error))
             {
                 firstError ??= error;
                 continue;
@@ -1293,15 +1367,331 @@ public sealed partial class Editor
 
         if (firstError is not null)
         {
-            SetError(duplicated == 0
-                ? firstError
-                : $"Duplicated {duplicated} of {nodes.Count} items; {firstError}");
+            SetError(
+                duplicated == 0
+                    ? firstError
+                    : $"Duplicated {duplicated} of {nodes.Count} items; {firstError}"
+            );
             return;
         }
 
-        SetMessage(duplicated == 1
-            ? $"Duplicated as {Path.GetFileName(lastTarget)}"
-            : $"Duplicated {duplicated} items");
+        SetMessage(
+            duplicated == 1
+                ? $"Duplicated as {Path.GetFileName(lastTarget)}"
+                : $"Duplicated {duplicated} items"
+        );
+    }
+
+    private void BeginSidebarFormat(IReadOnlyList<SidebarNode> nodes)
+    {
+        if (nodes.Count == 0)
+        {
+            return;
+        }
+
+        if (_formatOperation is not null)
+        {
+            SetMessage("Formatting is already in progress.");
+            return;
+        }
+
+        if (_sidebarFormatOperation is not null)
+        {
+            SetMessage("Batch formatting is already in progress.");
+            return;
+        }
+
+        if (
+            nodes.Count == 1
+            && !nodes[0].IsDirectory
+            && _document.Path is not null
+            && SamePath(nodes[0].Path, _document.Path)
+        )
+        {
+            FormatCurrentDocument(saveAfter: true);
+            return;
+        }
+
+        var targets = new List<(string Path, bool IsDirectory)>(nodes.Count);
+        foreach (SidebarNode node in nodes)
+        {
+            targets.Add((node.Path, node.IsDirectory));
+        }
+
+        string openPath = _document.Path is null ? string.Empty : SidebarFullPath(_document.Path);
+        var operation = new SidebarFormatOperation();
+        operation.Task = Task.Factory.StartNew(
+            () => RunSidebarFormat(targets, _showGitIgnored, _languages, openPath, operation),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default
+        );
+        _sidebarFormatOperation = operation;
+        _sidebarFormatLastTotal = -1;
+        _sidebarFormatLastCompleted = -1;
+        SetMessage(
+            nodes.Count == 1
+                ? $"Formatting {nodes[0].Name}..."
+                : $"Formatting {nodes.Count} selected items..."
+        );
+    }
+
+    private static SidebarFormatResult RunSidebarFormat(
+        List<(string Path, bool IsDirectory)> targets,
+        bool showIgnored,
+        LanguageRegistry languages,
+        string openPath,
+        SidebarFormatOperation operation
+    )
+    {
+        var result = new SidebarFormatResult();
+        CancellationToken token = operation.Cancellation.Token;
+        var files = new List<string>();
+        var seen = new HashSet<string>(SidebarPathComparison);
+
+        foreach ((string path, bool isDirectory) in targets)
+        {
+            token.ThrowIfCancellationRequested();
+            if (!isDirectory)
+            {
+                if (File.Exists(path))
+                {
+                    string file = SidebarFullPath(path);
+                    if (seen.Add(file))
+                    {
+                        files.Add(file);
+                    }
+                }
+                else
+                {
+                    ++result.Skipped;
+                }
+                continue;
+            }
+
+            if (!Directory.Exists(path))
+            {
+                ++result.Skipped;
+                continue;
+            }
+
+            int remaining = FileSearch.DefaultMaxFiles - files.Count;
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            List<string> relative;
+            try
+            {
+                relative = FileSearch.EnumerateFiles(path, remaining, showIgnored, token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
+            {
+                ++result.Skipped;
+                result.FirstError = $"{Path.GetFileName(path)}: {ex.Message}";
+                continue;
+            }
+
+            foreach (string item in relative)
+            {
+                string file = SidebarFullPath(Path.Combine(path, item));
+                if (seen.Add(file))
+                {
+                    files.Add(file);
+                }
+            }
+        }
+
+        var jobs = new List<(string Path, FormatterConfig Formatter)>();
+        foreach (string file in files)
+        {
+            token.ThrowIfCancellationRequested();
+            LanguageDefinition? language = languages.Detect(file);
+            if (language?.Formatter is null)
+            {
+                ++result.Skipped;
+                continue;
+            }
+
+            jobs.Add((file, language.Formatter));
+        }
+
+        Volatile.Write(ref operation.Total, jobs.Count);
+        foreach ((string path, FormatterConfig formatter) in jobs)
+        {
+            if (token.IsCancellationRequested)
+            {
+                break;
+            }
+
+            if (openPath.Length > 0 && SamePath(path, openPath))
+            {
+                ++result.SkippedOpen;
+                Interlocked.Increment(ref operation.Completed);
+                continue;
+            }
+
+            try
+            {
+                byte[] input = File.ReadAllBytes(path);
+                FormatResult formatted = FormatterRunner.Run(formatter, input, path, token);
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                if (!formatted.Ok)
+                {
+                    ++result.Failed;
+                    result.FirstError ??= $"{Path.GetFileName(path)}: " + formatted.Error;
+                }
+                else
+                {
+                    byte[] output = formatted.Output;
+                    if (HasUtf8Bom(input) && !HasUtf8Bom(output))
+                    {
+                        output = PrependUtf8Bom(output);
+                    }
+
+                    ++result.Formatted;
+                    if (!input.AsSpan().SequenceEqual(output))
+                    {
+                        File.WriteAllBytes(path, output);
+                        ++result.Changed;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                            or PathTooLongException
+                )
+            {
+                ++result.Failed;
+                result.FirstError ??= $"{Path.GetFileName(path)}: {ex.Message}";
+            }
+            finally
+            {
+                Interlocked.Increment(ref operation.Completed);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool HasUtf8Bom(ReadOnlySpan<byte> data) =>
+        data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF;
+
+    private static byte[] PrependUtf8Bom(byte[] data)
+    {
+        var output = new byte[data.Length + 3];
+        output[0] = 0xEF;
+        output[1] = 0xBB;
+        output[2] = 0xBF;
+        data.CopyTo(output, 3);
+        return output;
+    }
+
+    private bool PollSidebarFormat()
+    {
+        SidebarFormatOperation? operation = _sidebarFormatOperation;
+        if (operation is null)
+        {
+            return false;
+        }
+
+        int total = Volatile.Read(ref operation.Total);
+        int completed = Volatile.Read(ref operation.Completed);
+        bool progressChanged =
+            total != _sidebarFormatLastTotal || completed != _sidebarFormatLastCompleted;
+        if (progressChanged)
+        {
+            _sidebarFormatLastTotal = total;
+            _sidebarFormatLastCompleted = completed;
+        }
+
+        if (!operation.Task.IsCompleted)
+        {
+            return progressChanged;
+        }
+
+        _sidebarFormatOperation = null;
+        operation.Dispose();
+        _sidebarFormatLastTotal = -1;
+        _sidebarFormatLastCompleted = -1;
+
+        SidebarFormatResult result;
+        try
+        {
+            result = operation.Task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            SetMessage("Formatting cancelled.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetError($"Format failed: {ex.Message}");
+            return true;
+        }
+
+        string fileWord = result.Formatted == 1 ? "file" : "files";
+        if (result.Failed > 0)
+        {
+            string detail = result.FirstError.Length > 0 ? $": {result.FirstError}" : string.Empty;
+            SetError(
+                $"Formatted {result.Formatted} {fileWord}, " + $"{result.Failed} failed{detail}"
+            );
+            return true;
+        }
+
+        if (result.Formatted == 0)
+        {
+            if (result.SkippedOpen > 0)
+            {
+                SetMessage("Skipped the open buffer.");
+            }
+            else
+            {
+                SetError("No formatter configured for the selected files.");
+            }
+            return true;
+        }
+
+        string summary = $"Formatted {result.Formatted} {fileWord}";
+        if (result.Changed > 0)
+        {
+            summary += $", {result.Changed} changed";
+        }
+        if (result.Skipped > 0)
+        {
+            summary += $", {result.Skipped} skipped";
+        }
+        if (result.SkippedOpen > 0)
+        {
+            summary += ", open buffer skipped";
+        }
+        SetMessage(summary);
+        return true;
     }
 
     private static string UniqueSidebarCopyPath(string source, bool isDirectory)
@@ -1313,9 +1703,8 @@ public sealed partial class Editor
 
         for (int copy = 1; copy < 10_000; ++copy)
         {
-            string candidateName = copy == 1
-                ? $"{stem} copy{extension}"
-                : $"{stem} copy {copy}{extension}";
+            string candidateName =
+                copy == 1 ? $"{stem} copy{extension}" : $"{stem} copy {copy}{extension}";
             string candidate = Path.Combine(parent, candidateName);
             if (!File.Exists(candidate) && !Directory.Exists(candidate))
             {
@@ -1326,8 +1715,12 @@ public sealed partial class Editor
         return Path.Combine(parent, $"{stem} copy{extension}");
     }
 
-    private static bool CopySidebarPath(string source, string target,
-        bool isDirectory, out string error)
+    private static bool CopySidebarPath(
+        string source,
+        string target,
+        bool isDirectory,
+        out string error
+    )
     {
         error = string.Empty;
 
@@ -1374,9 +1767,14 @@ public sealed partial class Editor
             File.Copy(source, target, overwrite: false);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             error = $"Copy failed: {ex.Message}";
             if (isDirectory && Directory.Exists(target))
@@ -1400,8 +1798,7 @@ public sealed partial class Editor
 
         foreach (string file in Directory.GetFiles(source))
         {
-            File.Copy(file, Path.Combine(target, Path.GetFileName(file)),
-                overwrite: false);
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: false);
         }
 
         foreach (string directory in Directory.GetDirectories(source))
@@ -1412,8 +1809,7 @@ public sealed partial class Editor
                 continue;
             }
 
-            CopySidebarDirectory(directory,
-                Path.Combine(target, Path.GetFileName(directory)));
+            CopySidebarDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
         }
     }
 
@@ -1464,8 +1860,7 @@ public sealed partial class Editor
     private void DeleteSidebarPaths()
     {
         _sidebarFocused = _sidebarVisible;
-        var items = new List<(string Path, bool IsDirectory)>(
-            _pendingSidebarDeletes);
+        var items = new List<(string Path, bool IsDirectory)>(_pendingSidebarDeletes);
         ClearPendingSidebarDelete();
 
         int deleted = 0;
@@ -1484,12 +1879,16 @@ public sealed partial class Editor
                     File.Delete(path);
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                            or PathTooLongException
+                )
             {
-                firstError ??=
-                    $"Delete failed for '{Path.GetFileName(path)}': {ex.Message}";
+                firstError ??= $"Delete failed for '{Path.GetFileName(path)}': {ex.Message}";
                 continue;
             }
 
@@ -1500,15 +1899,19 @@ public sealed partial class Editor
 
         if (firstError is not null)
         {
-            SetError(deleted == 0
-                ? firstError
-                : $"Deleted {deleted} of {items.Count} items; {firstError}");
+            SetError(
+                deleted == 0
+                    ? firstError
+                    : $"Deleted {deleted} of {items.Count} items; {firstError}"
+            );
             return;
         }
 
-        SetMessage(items.Count == 1
-            ? $"Deleted {Path.GetFileName(items[0].Path)}"
-            : $"Deleted {deleted} items");
+        SetMessage(
+            items.Count == 1
+                ? $"Deleted {Path.GetFileName(items[0].Path)}"
+                : $"Deleted {deleted} items"
+        );
     }
 
     private void ClearPendingSidebarDelete()
@@ -1540,8 +1943,7 @@ public sealed partial class Editor
         EnsureSidebarSelectionVisible();
     }
 
-    private void AddSidebarDirectory(string directory, int depth, bool root,
-        GitIgnore? gitIgnore)
+    private void AddSidebarDirectory(string directory, int depth, bool root, GitIgnore? gitIgnore)
     {
         string[] directories;
         string[] files;
@@ -1550,8 +1952,13 @@ public sealed partial class Editor
             directories = Directory.GetDirectories(directory);
             files = Directory.GetFiles(directory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             return;
         }
@@ -1569,8 +1976,13 @@ public sealed partial class Editor
                     continue;
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
             {
                 continue;
             }
@@ -1581,22 +1993,28 @@ public sealed partial class Editor
                 continue;
             }
 
-            if (gitIgnore is not null &&
-                (GitIgnore.IsBuiltInIgnoredDirectory(name) ||
-                 gitIgnore.IsIgnored(child, isDirectory: true)))
+            if (
+                gitIgnore is not null
+                && (
+                    GitIgnore.IsBuiltInIgnoredDirectory(name)
+                    || gitIgnore.IsIgnored(child, isDirectory: true)
+                )
+            )
             {
                 continue;
             }
 
             bool expanded = _sidebarExpanded.Contains(child);
-            _sidebarNodes.Add(new SidebarNode
-            {
-                Path = child,
-                Name = name,
-                Depth = depth,
-                IsDirectory = true,
-                Expanded = expanded
-            });
+            _sidebarNodes.Add(
+                new SidebarNode
+                {
+                    Path = child,
+                    Name = name,
+                    Depth = depth,
+                    IsDirectory = true,
+                    Expanded = expanded,
+                }
+            );
 
             if (expanded)
             {
@@ -1612,19 +2030,20 @@ public sealed partial class Editor
                 continue;
             }
 
-            if (gitIgnore is not null &&
-                gitIgnore.IsIgnored(child, isDirectory: false))
+            if (gitIgnore is not null && gitIgnore.IsIgnored(child, isDirectory: false))
             {
                 continue;
             }
 
-            _sidebarNodes.Add(new SidebarNode
-            {
-                Path = child,
-                Name = name,
-                Depth = depth,
-                IsDirectory = false
-            });
+            _sidebarNodes.Add(
+                new SidebarNode
+                {
+                    Path = child,
+                    Name = name,
+                    Depth = depth,
+                    IsDirectory = false,
+                }
+            );
         }
     }
 
@@ -1652,17 +2071,18 @@ public sealed partial class Editor
         path = SidebarFullPath(path);
         string root = SidebarFullPath(ProjectRoot());
         string? directory = Path.GetDirectoryName(path);
-        while (!string.IsNullOrEmpty(directory) &&
-               !SamePath(directory, root) &&
-               IsPathInside(root, directory))
+        while (
+            !string.IsNullOrEmpty(directory)
+            && !SamePath(directory, root)
+            && IsPathInside(root, directory)
+        )
         {
             _sidebarExpanded.Add(directory);
             directory = Path.GetDirectoryName(directory);
         }
     }
 
-    private void UpdateSidebarExpandedAfterRename(string oldPath,
-        string newPath)
+    private void UpdateSidebarExpandedAfterRename(string oldPath, string newPath)
     {
         var updated = new List<string>();
         foreach (string path in _sidebarExpanded)
@@ -1673,8 +2093,7 @@ public sealed partial class Editor
             }
             else if (IsPathInside(oldPath, path))
             {
-                updated.Add(Path.Combine(newPath,
-                    Path.GetRelativePath(oldPath, path)));
+                updated.Add(Path.Combine(newPath, Path.GetRelativePath(oldPath, path)));
             }
             else
             {
@@ -1706,8 +2125,7 @@ public sealed partial class Editor
         }
     }
 
-    private void UpdateOpenDocumentPathAfterRename(string oldPath,
-        string newPath, bool isDirectory)
+    private void UpdateOpenDocumentPathAfterRename(string oldPath, string newPath, bool isDirectory)
     {
         if (_document.Path is null)
         {
@@ -1724,8 +2142,7 @@ public sealed partial class Editor
         }
         else if (isDirectory && IsPathInside(oldPath, documentPath))
         {
-            updated = Path.Combine(newPath,
-                Path.GetRelativePath(oldPath, documentPath));
+            updated = Path.Combine(newPath, Path.GetRelativePath(oldPath, documentPath));
         }
 
         if (updated is null)
@@ -1762,8 +2179,7 @@ public sealed partial class Editor
             return;
         }
 
-        if (inputEvent.Key != Key.MouseDown ||
-            inputEvent.MouseButton != MouseButton.Left)
+        if (inputEvent.Key != Key.MouseDown || inputEvent.MouseButton != MouseButton.Left)
         {
             return;
         }
@@ -1801,9 +2217,7 @@ public sealed partial class Editor
         }
 
         var background = _theme.BaseStyle;
-        var headerStyle = _sidebarFocused
-            ? _theme.AccentStyle
-            : _theme.MutedStyle;
+        var headerStyle = _sidebarFocused ? _theme.AccentStyle : _theme.MutedStyle;
         var borderStyle = _theme.BorderStyle;
         _screen.Fill(0, 0, width, rows, ' ', background);
 
@@ -1814,6 +2228,11 @@ public sealed partial class Editor
             _screen.Put(width - 1, row, '\u2502', borderStyle);
         }
 
+        if (_sidebarFormatOperation is { } formatOperation)
+        {
+            RenderSidebarFormatProgress(width, formatOperation);
+        }
+
         if (_sidebarNodes.Count == 0)
         {
             var emptyStyle = _theme.MutedStyle;
@@ -1822,10 +2241,9 @@ public sealed partial class Editor
         }
 
         EnsureSidebarSelectionVisible();
-        if (SidebarSelectionCount > 1 && width > 2)
+        if (_sidebarFormatOperation is null && SidebarSelectionCount > 1 && width > 2)
         {
-            _screen.PutString(1, 0, $"{SidebarSelectionCount} selected",
-                headerStyle, width - 2);
+            _screen.PutString(1, 0, $"{SidebarSelectionCount} selected", headerStyle, width - 2);
         }
 
         int listRows = SidebarListRows();
@@ -1843,11 +2261,11 @@ public sealed partial class Editor
 
             SidebarNode node = _sidebarNodes[index];
             int screenRow = 1 + row;
-            bool selected = index >= SidebarSelectionStart &&
-                            index <= SidebarSelectionEnd;
-            Style style = selected
-                ? selectedStyle
-                : node.IsDirectory ? folderStyle : fileStyle;
+            bool selected = index >= SidebarSelectionStart && index <= SidebarSelectionEnd;
+            Style style =
+                selected ? selectedStyle
+                : node.IsDirectory ? folderStyle
+                : fileStyle;
 
             if (selected)
             {
@@ -1861,9 +2279,59 @@ public sealed partial class Editor
             int nameX = indent + 2;
             if (nameX < width - 1)
             {
-                _screen.PutString(nameX, screenRow, node.Name, style,
-                    width - nameX - 1);
+                _screen.PutString(nameX, screenRow, node.Name, style, width - nameX - 1);
             }
+        }
+    }
+
+    private void RenderSidebarFormatProgress(int width, SidebarFormatOperation operation)
+    {
+        if (width <= 2)
+        {
+            return;
+        }
+
+        int total = Volatile.Read(ref operation.Total);
+        int completed = Volatile.Read(ref operation.Completed);
+        if (total > 0)
+        {
+            completed = Math.Min(completed, total);
+        }
+        else
+        {
+            completed = 0;
+        }
+
+        var labelStyle = _theme.MutedStyle;
+        string label = "Formatting";
+        _screen.PutString(1, 0, label, labelStyle, width - 2);
+
+        string count = total > 0 ? $"{completed}/{total}" : "\u2026";
+        int countX = width - 1 - count.Length - 1;
+        if (countX > 1 + label.Length + 1)
+        {
+            _screen.PutString(countX, 0, count, labelStyle, count.Length);
+        }
+
+        int barX = 1 + label.Length + 1;
+        int barWidth = countX - barX - 1;
+        if (barWidth < 4)
+        {
+            return;
+        }
+
+        int filled = total > 0 ? (int)Math.Round(barWidth * (completed / (double)total)) : 0;
+        filled = Math.Clamp(filled, 0, barWidth);
+        var filledStyle = _theme.SyntaxStyle(_theme.Accent);
+        var emptyStyle = _theme.BorderStyle;
+        for (int index = 0; index < barWidth; ++index)
+        {
+            _screen.Put(
+                barX + index,
+                0,
+                index < filled ? '\u2501' : '\u2500',
+                index < filled ? filledStyle : emptyStyle
+            );
         }
     }
 
@@ -1893,9 +2361,10 @@ public sealed partial class Editor
         int y = Math.Clamp(anchorRow, 0, Math.Max(0, rows - height));
         int x = 1;
 
-        string title = SidebarSelectionCount > 1
-            ? $"{SidebarSelectionCount} selected"
-            : node.IsDirectory ? "Folder" : "File";
+        string title =
+            SidebarSelectionCount > 1 ? $"{SidebarSelectionCount} selected"
+            : node.IsDirectory ? "Folder"
+            : "File";
         DrawBox(x, y, width, height, title);
 
         var selectedStyle = _theme.SelectedItemStyle;
@@ -1904,14 +2373,10 @@ public sealed partial class Editor
         for (int index = 0; index < items.Length; ++index)
         {
             int screenRow = y + 1 + index;
-            Style style = index == _sidebarMenuSelected
-                ? selectedStyle
-                : itemStyle;
+            Style style = index == _sidebarMenuSelected ? selectedStyle : itemStyle;
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
-            _screen.PutString(x + 2, screenRow, items[index].Label, style,
-                width - 7);
-            _screen.PutString(x + width - 3, screenRow,
-                items[index].Hotkey.ToString(), style, 2);
+            _screen.PutString(x + 2, screenRow, items[index].Label, style, width - 7);
+            _screen.PutString(x + width - 3, screenRow, items[index].Hotkey.ToString(), style, 2);
         }
     }
 }

@@ -41,7 +41,7 @@ public enum Key
     FocusIn,
     FocusOut,
     Resize,
-    Unknown
+    Unknown,
 }
 
 public enum MouseButton
@@ -49,7 +49,7 @@ public enum MouseButton
     None,
     Left,
     Middle,
-    Right
+    Right,
 }
 
 public struct InputEvent

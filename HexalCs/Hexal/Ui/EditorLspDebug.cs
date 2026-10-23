@@ -31,8 +31,7 @@ public sealed partial class Editor
 
     private int LspDebugContentRows() => Math.Max(1, _rows - 3);
 
-    private int LspDebugMaxTop()
-        => Math.Max(0, _lspDebugLines.Count - LspDebugContentRows());
+    private int LspDebugMaxTop() => Math.Max(0, _lspDebugLines.Count - LspDebugContentRows());
 
     private void RefreshLspDebugLines()
     {
@@ -40,10 +39,7 @@ public sealed partial class Editor
         string report = _lsp.BuildDebugReport();
 
         _lspDebugLines.Clear();
-        foreach (string rawLine in report
-                     .Replace("\r\n", "\n")
-                     .Replace('\r', '\n')
-                     .Split('\n'))
+        foreach (string rawLine in report.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
         {
             if (rawLine.Length == 0)
             {
@@ -121,9 +117,7 @@ public sealed partial class Editor
             case 'g':
             case 'G':
                 RefreshLspDebugLines();
-                _lspDebugTop = inputEvent.Character.Value == 'g'
-                    ? 0
-                    : LspDebugMaxTop();
+                _lspDebugTop = inputEvent.Character.Value == 'g' ? 0 : LspDebugMaxTop();
                 return;
             case 'y':
             case 'Y':
@@ -150,8 +144,7 @@ public sealed partial class Editor
     private void CopyLspDebugReport()
     {
         string report = _lsp.BuildDebugReport();
-        if (!Clipboard.TryCopy(_terminal, Encoding.UTF8.GetBytes(report),
-                out string error))
+        if (!Clipboard.TryCopy(_terminal, Encoding.UTF8.GetBytes(report), out string error))
         {
             _lspDebugStatus = $"Copy failed: {error}";
             return;
@@ -191,16 +184,11 @@ public sealed partial class Editor
                 break;
             }
 
-            _screen.PutString(2, 1 + row, _lspDebugLines[index],
-                _theme.TextStyle, contentWidth);
+            _screen.PutString(2, 1 + row, _lspDebugLines[index], _theme.TextStyle, contentWidth);
         }
 
-        const string hint =
-            "Esc close  |  j/k/arrows scroll  |  Home/End  |  y copy  |  c clear";
-        string footer = _lspDebugStatus.Length > 0
-            ? $"{_lspDebugStatus}  |  {hint}"
-            : hint;
-        _screen.PutString(2, height - 2, footer, _theme.MutedStyle,
-            Math.Max(0, width - 4));
+        const string hint = "Esc close  |  j/k/arrows scroll  |  Home/End  |  y copy  |  c clear";
+        string footer = _lspDebugStatus.Length > 0 ? $"{_lspDebugStatus}  |  {hint}" : hint;
+        _screen.PutString(2, height - 2, footer, _theme.MutedStyle, Math.Max(0, width - 4));
     }
 }

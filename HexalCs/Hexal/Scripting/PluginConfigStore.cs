@@ -44,8 +44,14 @@ public sealed class PluginConfigStore
             }
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   JsonException or NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or JsonException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = ex.Message;
             return false;
@@ -65,8 +71,10 @@ public sealed class PluginConfigStore
         object? current = _values;
         foreach (string part in parts)
         {
-            if (current is not Dictionary<string, object?> table ||
-                !table.TryGetValue(part, out current))
+            if (
+                current is not Dictionary<string, object?> table
+                || !table.TryGetValue(part, out current)
+            )
             {
                 return defaultValue;
             }
@@ -91,8 +99,10 @@ public sealed class PluginConfigStore
         Dictionary<string, object?> table = _values;
         for (int i = 0; i < parts.Length - 1; ++i)
         {
-            if (!table.TryGetValue(parts[i], out object? child) ||
-                child is not Dictionary<string, object?> childTable)
+            if (
+                !table.TryGetValue(parts[i], out object? child)
+                || child is not Dictionary<string, object?> childTable
+            )
             {
                 childTable = new Dictionary<string, object?>(StringComparer.Ordinal);
                 table[parts[i]] = childTable;
@@ -116,12 +126,16 @@ public sealed class PluginConfigStore
                 Directory.CreateDirectory(directory);
             }
 
-            using var stream = new FileStream(_path, FileMode.Create, FileAccess.Write,
-                FileShare.None);
-            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
-            {
-                Indented = true
-            });
+            using var stream = new FileStream(
+                _path,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None
+            );
+            using var writer = new Utf8JsonWriter(
+                stream,
+                new JsonWriterOptions { Indented = true }
+            );
 
             writer.WriteStartObject();
             WriteObjectContents(writer, _values);
@@ -129,8 +143,13 @@ public sealed class PluginConfigStore
             writer.Flush();
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = ex.Message;
             return false;
@@ -172,8 +191,10 @@ public sealed class PluginConfigStore
         }
     }
 
-    private static void WriteObjectContents(Utf8JsonWriter writer,
-        Dictionary<string, object?> table)
+    private static void WriteObjectContents(
+        Utf8JsonWriter writer,
+        Dictionary<string, object?> table
+    )
     {
         foreach ((string key, object? value) in table)
         {
@@ -196,12 +217,14 @@ public sealed class PluginConfigStore
                 writer.WriteBooleanValue(flag);
                 break;
             case byte or sbyte or short or ushort or int or uint or long or ulong:
-                writer.WriteNumberValue(Convert.ToInt64(value,
-                    System.Globalization.CultureInfo.InvariantCulture));
+                writer.WriteNumberValue(
+                    Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture)
+                );
                 break;
             case float or double or decimal:
-                writer.WriteNumberValue(Convert.ToDouble(value,
-                    System.Globalization.CultureInfo.InvariantCulture));
+                writer.WriteNumberValue(
+                    Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture)
+                );
                 break;
             case Dictionary<string, object?> table:
                 writer.WriteStartObject();

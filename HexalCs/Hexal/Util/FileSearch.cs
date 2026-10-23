@@ -46,16 +46,22 @@ public static class FileSearch
     /// relative to the root. Ignored directories and directory symlinks are
     /// skipped, and the result is sorted for deterministic display.
     /// </summary>
-    public static List<string> EnumerateFiles(string root, int maxFiles,
-        CancellationToken cancellationToken)
-        => EnumerateFiles(root, maxFiles, showIgnored: false, cancellationToken);
+    public static List<string> EnumerateFiles(
+        string root,
+        int maxFiles,
+        CancellationToken cancellationToken
+    ) => EnumerateFiles(root, maxFiles, showIgnored: false, cancellationToken);
 
     /// <summary>
     /// Enumerates regular files, optionally including paths excluded by
     /// <c>.gitignore</c> and the built-in build/VCS directory list.
     /// </summary>
-    public static List<string> EnumerateFiles(string root, int maxFiles,
-        bool showIgnored, CancellationToken cancellationToken)
+    public static List<string> EnumerateFiles(
+        string root,
+        int maxFiles,
+        bool showIgnored,
+        CancellationToken cancellationToken
+    )
     {
         var result = new List<string>();
         if (maxFiles <= 0 || string.IsNullOrEmpty(root) || !Directory.Exists(root))
@@ -68,7 +74,8 @@ public static class FileSearch
         {
             fullRoot = Path.GetFullPath(root);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return result;
         }
@@ -89,8 +96,13 @@ public static class FileSearch
                 files = Directory.GetFiles(directory);
                 directories = Directory.GetDirectories(directory);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
             {
                 continue;
             }
@@ -114,9 +126,13 @@ public static class FileSearch
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string name = Path.GetFileName(child);
-                if (!showIgnored &&
-                    (GitIgnore.IsBuiltInIgnoredDirectory(name) ||
-                     gitIgnore.IsIgnored(child, isDirectory: true)))
+                if (
+                    !showIgnored
+                    && (
+                        GitIgnore.IsBuiltInIgnoredDirectory(name)
+                        || gitIgnore.IsIgnored(child, isDirectory: true)
+                    )
+                )
                 {
                     continue;
                 }
@@ -129,8 +145,13 @@ public static class FileSearch
                         continue;
                     }
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                           NotSupportedException or ArgumentException)
+                catch (Exception ex)
+                    when (ex
+                            is IOException
+                                or UnauthorizedAccessException
+                                or NotSupportedException
+                                or ArgumentException
+                    )
                 {
                     continue;
                 }
@@ -149,9 +170,14 @@ public static class FileSearch
     /// <paramref name="maxResults"/> so a common query cannot exhaust memory.
     /// Matching is case-insensitive unless <paramref name="matchCase"/> is set.
     /// </summary>
-    public static List<FileSearchMatch> Search(string root,
-        IReadOnlyList<string> relativePaths, string query, int maxResults,
-        CancellationToken cancellationToken, bool matchCase = false)
+    public static List<FileSearchMatch> Search(
+        string root,
+        IReadOnlyList<string> relativePaths,
+        string query,
+        int maxResults,
+        CancellationToken cancellationToken,
+        bool matchCase = false
+    )
     {
         var matches = new List<FileSearchMatch>();
         if (query.Length == 0 || maxResults <= 0)
@@ -177,9 +203,14 @@ public static class FileSearch
                     continue;
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                            or PathTooLongException
+                )
             {
                 continue;
             }
@@ -204,13 +235,15 @@ public static class FileSearch
                     int index = line.IndexOf(query, comparison);
                     if (index >= 0)
                     {
-                        matches.Add(new FileSearchMatch
-                        {
-                            Path = relativePath,
-                            Line = lineNumber,
-                            Column = Encoding.UTF8.GetByteCount(line.AsSpan(0, index)),
-                            Preview = MakePreview(line, index)
-                        });
+                        matches.Add(
+                            new FileSearchMatch
+                            {
+                                Path = relativePath,
+                                Line = lineNumber,
+                                Column = Encoding.UTF8.GetByteCount(line.AsSpan(0, index)),
+                                Preview = MakePreview(line, index),
+                            }
+                        );
 
                         if (matches.Count >= maxResults)
                         {
@@ -221,8 +254,13 @@ public static class FileSearch
                     ++lineNumber;
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
             {
                 // An unreadable file must not abort the whole search.
             }
@@ -235,8 +273,7 @@ public static class FileSearch
     /// Reads the leading lines of a file for the picker preview. Oversized
     /// lines are clipped so a single minified line cannot stall the editor.
     /// </summary>
-    public static FilePreview ReadPreview(string path,
-        int maxLines = DefaultPreviewLines)
+    public static FilePreview ReadPreview(string path, int maxLines = DefaultPreviewLines)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -253,21 +290,24 @@ public static class FileSearch
             var info = new FileInfo(path);
             if (info.Length > MaxSearchFileBytes)
             {
-                return new FilePreview
-                {
-                    Path = path,
-                    Error = "file is too large to preview"
-                };
+                return new FilePreview { Path = path, Error = "file is too large to preview" };
             }
 
             var lines = new List<string>(Math.Max(1, maxLines));
             bool binary = false;
             bool truncated = false;
 
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                FileShare.ReadWrite);
-            using var reader = new StreamReader(stream, Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: true);
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite
+            );
+            using var reader = new StreamReader(
+                stream,
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true
+            );
 
             while (lines.Count < maxLines)
             {
@@ -302,12 +342,17 @@ public static class FileSearch
                 Path = path,
                 Lines = lines,
                 Binary = binary,
-                Truncated = truncated
+                Truncated = truncated,
             };
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             return new FilePreview { Path = path, Error = ex.Message };
         }

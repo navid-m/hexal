@@ -26,7 +26,7 @@ public sealed partial class Editor
         Insert,
         Select,
         Command,
-        PluginPrompt
+        PluginPrompt,
     }
 
     private enum PromptKind
@@ -34,7 +34,7 @@ public sealed partial class Editor
         None,
         Quit,
         Open,
-        SidebarDelete
+        SidebarDelete,
     }
 
     private enum PickerKind
@@ -46,7 +46,7 @@ public sealed partial class Editor
         CodeActions,
         Problems,
         Palette,
-        Themes
+        Themes,
     }
 
     private enum CompletionKind
@@ -54,7 +54,7 @@ public sealed partial class Editor
         None,
         Commands,
         Arguments,
-        Files
+        Files,
     }
 
     private static readonly (char Key, string Label)[] SpaceMenuItems =
@@ -70,62 +70,96 @@ public sealed partial class Editor
         ('S', "Document symbols"),
         ('D', "Workspace diagnostics"),
         ('d', "Document diagnostics"),
-        ('b', "Toggle breakpoint")
+        ('b', "Toggle breakpoint"),
     };
 
     private static readonly string[] BuiltinCommands =
     {
-        "e", "w", "wq", "q", "fmt", "cw", "cfg", "rcfg", "lang", "help",
-        "about", "a", "debug-lsp", "dl", "debug", "dbg", "dbg-break",
-        "dbg-cont", "dbg-next", "dbg-step", "dbg-out", "dbg-pause",
-        "dbg-stop", "dbg-sv", "dbg-vars", "dbg-watch", "dbg-unwatch",
-        "dbg-clear-watches", "debug-dap", "dd", "s", "t", "gi", "gdl",
-        "smc", "vs", "hs", "cb", "adi"
+        "e",
+        "w",
+        "wq",
+        "q",
+        "fmt",
+        "cw",
+        "cfg",
+        "rcfg",
+        "lang",
+        "help",
+        "about",
+        "a",
+        "debug-lsp",
+        "dl",
+        "debug",
+        "dbg",
+        "dbg-break",
+        "dbg-cont",
+        "dbg-next",
+        "dbg-step",
+        "dbg-out",
+        "dbg-pause",
+        "dbg-stop",
+        "dbg-sv",
+        "dbg-vars",
+        "dbg-watch",
+        "dbg-unwatch",
+        "dbg-clear-watches",
+        "debug-dap",
+        "dd",
+        "s",
+        "t",
+        "gi",
+        "gdl",
+        "smc",
+        "vs",
+        "hs",
+        "cb",
+        "adi",
     };
 
-    private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["e"] = "Open a file in the current buffer.",
-            ["w"] = "Write the current buffer to disk, optionally to a new path.",
-            ["wq"] = "Write the current buffer, then quit when saving finishes.",
-            ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
-            ["fmt"] = "Format the current buffer with its language formatter.",
-            ["cw"] = "Remove trailing spaces and tabs from every line.",
-            ["cfg"] = "Open (or create) the Hexal configuration file.",
-            ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
-            ["lang"] = "Set the language grammar for the current buffer.",
-            ["help"] = "Show a short reminder of the available keys.",
-            ["about"] = "Show information about Hexal itself.",
-            ["a"] = "Alias for :about.",
-            ["debug-lsp"] = "Show live language-server traffic and diagnostics.",
-            ["dl"] = "Alias for :debug-lsp.",
-            ["debug"] = "Start a debug session, optionally with an executable.",
-            ["dbg"] = "Alias for :debug.",
-            ["dbg-break"] = "Toggle a breakpoint on the current line.",
-            ["dbg-cont"] = "Continue the stopped debuggee.",
-            ["dbg-next"] = "Step over the current source line.",
-            ["dbg-step"] = "Step into the current call.",
-            ["dbg-out"] = "Step out of the current function.",
-            ["dbg-pause"] = "Pause the running debuggee.",
-            ["dbg-stop"] = "Stop the debug session.",
-            ["dbg-sv"] = "Show or hide scopes, variables and watches.",
-            ["dbg-vars"] = "Alias for :dbg-sv.",
-            ["dbg-watch"] = "Watch a variable or expression while debugging.",
-            ["dbg-unwatch"] = "Remove a debug watch expression.",
-            ["dbg-clear-watches"] = "Remove all debug watch expressions.",
-            ["debug-dap"] = "Show live debug-adapter traffic and state.",
-            ["dd"] = "Alias for :debug-dap.",
-            ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
-            ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
-            ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
-            ["gdl"] = "Toggle git diff markers in the line-number gutter.",
-            ["smc"] = "Toggle case-sensitive matching for all searches.",
-            ["vs"] = "Split the current pane vertically (side by side).",
-            ["hs"] = "Split the current pane horizontally (stacked).",
-            ["cb"] = "Close the current buffer pane; use :q to quit the editor.",
-            ["adi"] = "Detect the document indentation and apply it to this buffer."
-        };
+    private static readonly Dictionary<string, string> BuiltinCommandDescriptions = new(
+        StringComparer.OrdinalIgnoreCase
+    )
+    {
+        ["e"] = "Open a file in the current buffer.",
+        ["w"] = "Write the current buffer to disk, optionally to a new path.",
+        ["wq"] = "Write the current buffer, then quit when saving finishes.",
+        ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
+        ["fmt"] = "Format the current buffer with its language formatter.",
+        ["cw"] = "Remove trailing spaces and tabs from every line.",
+        ["cfg"] = "Open (or create) the Hexal configuration file.",
+        ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
+        ["lang"] = "Set the language grammar for the current buffer.",
+        ["help"] = "Show a short reminder of the available keys.",
+        ["about"] = "Show information about Hexal itself.",
+        ["a"] = "Alias for :about.",
+        ["debug-lsp"] = "Show live language-server traffic and diagnostics.",
+        ["dl"] = "Alias for :debug-lsp.",
+        ["debug"] = "Start a debug session, optionally with an executable.",
+        ["dbg"] = "Alias for :debug.",
+        ["dbg-break"] = "Toggle a breakpoint on the current line.",
+        ["dbg-cont"] = "Continue the stopped debuggee.",
+        ["dbg-next"] = "Step over the current source line.",
+        ["dbg-step"] = "Step into the current call.",
+        ["dbg-out"] = "Step out of the current function.",
+        ["dbg-pause"] = "Pause the running debuggee.",
+        ["dbg-stop"] = "Stop the debug session.",
+        ["dbg-sv"] = "Show or hide scopes, variables and watches.",
+        ["dbg-vars"] = "Alias for :dbg-sv.",
+        ["dbg-watch"] = "Watch a variable or expression while debugging.",
+        ["dbg-unwatch"] = "Remove a debug watch expression.",
+        ["dbg-clear-watches"] = "Remove all debug watch expressions.",
+        ["debug-dap"] = "Show live debug-adapter traffic and state.",
+        ["dd"] = "Alias for :debug-dap.",
+        ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
+        ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
+        ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
+        ["gdl"] = "Toggle git diff markers in the line-number gutter.",
+        ["smc"] = "Toggle case-sensitive matching for all searches.",
+        ["vs"] = "Split the current pane vertically (side by side).",
+        ["hs"] = "Split the current pane horizontally (stacked).",
+        ["cb"] = "Close the current buffer pane; use :q to quit the editor.",
+        ["adi"] = "Detect the document indentation and apply it to this buffer.",
+    };
 
     private readonly ITerminal _terminal;
     private readonly Renderer _renderer = new();
@@ -178,8 +212,9 @@ public sealed partial class Editor
     private string _pickerPreviewPath = string.Empty;
     private string _pickerPreviewStatus = string.Empty;
     private bool _pickerPreviewBinary;
-    private readonly Dictionary<string, FilePreview> _pickerPreviewCache =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, FilePreview> _pickerPreviewCache = new(
+        StringComparer.Ordinal
+    );
     private readonly Queue<string> _pickerPreviewCacheOrder = new();
 
     private readonly List<LspCodeAction> _codeActions = new();
@@ -203,26 +238,25 @@ public sealed partial class Editor
         public long PreferredColumn;
         public bool PreferredColumnValid;
 
-        public Selection Clone() => new()
-        {
-            Cursor = Cursor,
-            Anchor = Anchor,
-            Linewise = Linewise,
-            PreferredColumn = PreferredColumn,
-            PreferredColumnValid = PreferredColumnValid
-        };
+        public Selection Clone() =>
+            new()
+            {
+                Cursor = Cursor,
+                Anchor = Anchor,
+                Linewise = Linewise,
+                PreferredColumn = PreferredColumn,
+                PreferredColumnValid = PreferredColumnValid,
+            };
     }
 
-    private readonly record struct JumpLocation(
-        string? Path,
-        long Line,
-        long Column);
+    private readonly record struct JumpLocation(string? Path, long Line, long Column);
 
     private readonly record struct FindMatch(
         long Start,
         long End,
         long Line,
-        string Replacement = "");
+        string Replacement = ""
+    );
 
     private readonly struct HoverSegment
     {
@@ -356,7 +390,8 @@ public sealed partial class Editor
         long CursorColumn,
         long AnchorLine,
         long AnchorColumn,
-        bool Linewise);
+        bool Linewise
+    );
 
     private sealed class FormatOperation
     {
@@ -377,8 +412,12 @@ public sealed partial class Editor
     private bool _waitThenQuit;
     private bool _waitThenQuitForce;
 
-    public Editor(ITerminal terminal, Document document,
-        string? workspaceRoot = null, bool openFilePicker = false)
+    public Editor(
+        ITerminal terminal,
+        Document document,
+        string? workspaceRoot = null,
+        bool openFilePicker = false
+    )
     {
         LuaPluginManager.BeginWarmup();
         _terminal = terminal;
@@ -404,8 +443,12 @@ public sealed partial class Editor
 
         long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         _themes = ThemeRegistry.LoadDefault(out string themeError);
-        _benchmark?.AddSince("Internal", "Theme registry", phaseStart,
-            $"{_themes.Themes.Count} themes");
+        _benchmark?.AddSince(
+            "Internal",
+            "Theme registry",
+            phaseStart,
+            $"{_themes.Themes.Count} themes"
+        );
         _theme = _themes.ActiveTheme;
 
         phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
@@ -436,9 +479,14 @@ public sealed partial class Editor
                     return Path.GetFullPath(workspaceRoot);
                 }
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                       PathTooLongException or UnauthorizedAccessException or
-                                       IOException)
+            catch (Exception ex)
+                when (ex
+                        is ArgumentException
+                            or NotSupportedException
+                            or PathTooLongException
+                            or UnauthorizedAccessException
+                            or IOException
+                )
             {
                 // Fall back to the current directory below.
             }
@@ -448,8 +496,13 @@ public sealed partial class Editor
         {
             return Directory.GetCurrentDirectory();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             return ".";
         }
@@ -468,8 +521,7 @@ public sealed partial class Editor
         // other startup work. This removes the blank-terminal flash on slow
         // filesystems and leaves the UI responsive during the remaining work.
         Render();
-        _benchmark?.AddSince("Startup", "UI first render",
-            _editorStartTimestamp);
+        _benchmark?.AddSince("Startup", "UI first render", _editorStartTimestamp);
 
         PollStartupWork();
         LoadPlugins();
@@ -489,11 +541,15 @@ public sealed partial class Editor
             // Pending background work needs a periodic wake-up so the UI can
             // report completion. Idle with no work uses a blocking read and
             // consumes no CPU.
-            bool busy = _saveOperation is not null ||
-                        _formatOperation is not null ||
-                        _pickerTask is not null ||
-                        _lsp.IsRunning || _lspDirty || _dap.IsRunning ||
-                        _startupGrammarTask is not null;
+            bool busy =
+                _saveOperation is not null
+                || _formatOperation is not null
+                || _sidebarFormatOperation is not null
+                || _pickerTask is not null
+                || _lsp.IsRunning
+                || _lspDirty
+                || _dap.IsRunning
+                || _startupGrammarTask is not null;
             int timeout = busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
@@ -616,13 +672,23 @@ public sealed partial class Editor
             _freeScroll = false;
         }
 
-        if (inputEvent.Key is Key.MouseDown or Key.MouseUp or Key.MouseMove or
-            Key.ScrollUp or Key.ScrollDown)
+        if (
+            inputEvent.Key
+            is Key.MouseDown
+                or Key.MouseUp
+                or Key.MouseMove
+                or Key.ScrollUp
+                or Key.ScrollDown
+        )
         {
-            if (!_hoverVisible && !_spaceMenuOpen && !_findActive &&
-                _prompt == PromptKind.None &&
-                _pickerKind == PickerKind.None &&
-                _mode is Mode.Normal or Mode.Insert or Mode.Select)
+            if (
+                !_hoverVisible
+                && !_spaceMenuOpen
+                && !_findActive
+                && _prompt == PromptKind.None
+                && _pickerKind == PickerKind.None
+                && _mode is Mode.Normal or Mode.Insert or Mode.Select
+            )
             {
                 if (_sidebarVisible && inputEvent.MouseX < SidebarWidth())
                 {
@@ -636,37 +702,46 @@ public sealed partial class Editor
             return _running;
         }
 
-        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
-            inputEvent.Character.Value is 'b' or 'B' &&
-            _pickerKind == PickerKind.None &&
-            _prompt == PromptKind.None &&
-            !_spaceMenuOpen &&
-            !_findActive &&
-            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        if (
+            inputEvent.Key == Key.Character
+            && inputEvent.Ctrl
+            && inputEvent.Character.Value is 'b' or 'B'
+            && _pickerKind == PickerKind.None
+            && _prompt == PromptKind.None
+            && !_spaceMenuOpen
+            && !_findActive
+            && _mode is Mode.Normal or Mode.Insert or Mode.Select
+        )
         {
             ToggleSidebar();
             return _running;
         }
 
-        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
-            inputEvent.Character.Value is 'e' or 'E' &&
-            _pickerKind == PickerKind.None &&
-            _prompt == PromptKind.None &&
-            !_spaceMenuOpen &&
-            !_findActive &&
-            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        if (
+            inputEvent.Key == Key.Character
+            && inputEvent.Ctrl
+            && inputEvent.Character.Value is 'e' or 'E'
+            && _pickerKind == PickerKind.None
+            && _prompt == PromptKind.None
+            && !_spaceMenuOpen
+            && !_findActive
+            && _mode is Mode.Normal or Mode.Insert or Mode.Select
+        )
         {
             ToggleBreakpoint();
             return _running;
         }
 
-        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
-            inputEvent.Character.Value is 'p' or 'P' &&
-            _pickerKind == PickerKind.None &&
-            _prompt == PromptKind.None &&
-            !_spaceMenuOpen &&
-            !_findActive &&
-            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        if (
+            inputEvent.Key == Key.Character
+            && inputEvent.Ctrl
+            && inputEvent.Character.Value is 'p' or 'P'
+            && _pickerKind == PickerKind.None
+            && _prompt == PromptKind.None
+            && !_spaceMenuOpen
+            && !_findActive
+            && _mode is Mode.Normal or Mode.Insert or Mode.Select
+        )
         {
             OpenCommandPalette();
             return _running;
@@ -679,13 +754,16 @@ public sealed partial class Editor
             return _running;
         }
 
-        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
-            inputEvent.Character.Value is 'w' or 'W' &&
-            _pickerKind == PickerKind.None &&
-            _prompt == PromptKind.None &&
-            !_spaceMenuOpen &&
-            !_findActive &&
-            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        if (
+            inputEvent.Key == Key.Character
+            && inputEvent.Ctrl
+            && inputEvent.Character.Value is 'w' or 'W'
+            && _pickerKind == PickerKind.None
+            && _prompt == PromptKind.None
+            && !_spaceMenuOpen
+            && !_findActive
+            && _mode is Mode.Normal or Mode.Insert or Mode.Select
+        )
         {
             _pendingWindow = true;
             SetMessage("Pane: arrows/hjkl focus, +/- resize, q close, Esc cancel");
@@ -698,18 +776,20 @@ public sealed partial class Editor
             return _running;
         }
 
-        if (_plugins is not null &&
-            _prompt == PromptKind.None &&
-            _pickerKind == PickerKind.None &&
-            !_spaceMenuOpen &&
-            !_findActive &&
-            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        if (
+            _plugins is not null
+            && _prompt == PromptKind.None
+            && _pickerKind == PickerKind.None
+            && !_spaceMenuOpen
+            && !_findActive
+            && _mode is Mode.Normal or Mode.Insert or Mode.Select
+        )
         {
             string keymapMode = _mode switch
             {
                 Mode.Insert => "insert",
                 Mode.Select => "select",
-                _ => "normal"
+                _ => "normal",
             };
 
             if (_plugins.TryHandleKey(inputEvent, keymapMode, out bool handled) && handled)
@@ -814,10 +894,12 @@ public sealed partial class Editor
             return false;
         }
 
-        if (current.Exists == _fileStamp.Exists &&
-            current.Length == _fileStamp.Length &&
-            current.LastWriteTicks == _fileStamp.LastWriteTicks &&
-            current.CreationTicks == _fileStamp.CreationTicks)
+        if (
+            current.Exists == _fileStamp.Exists
+            && current.Length == _fileStamp.Length
+            && current.LastWriteTicks == _fileStamp.LastWriteTicks
+            && current.CreationTicks == _fileStamp.CreationTicks
+        )
         {
             return false;
         }
@@ -858,7 +940,10 @@ public sealed partial class Editor
         long lineEnd = _document.LineEnd(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         long column = UnicodeUtil.ByteOffsetForVisualColumn(
-            _lineBuffer.AsSpan(0, length), oldColumn, TabWidth);
+            _lineBuffer.AsSpan(0, length),
+            oldColumn,
+            TabWidth
+        );
 
         _cursor = Math.Clamp(lineStart + column, lineStart, lineEnd);
         _selectionAnchor = _cursor;
@@ -875,7 +960,9 @@ public sealed partial class Editor
 
         if (wasDirty)
         {
-            SetMessage($"Reloaded {_document.DisplayName} (external change; unsaved edits replaced)");
+            SetMessage(
+                $"Reloaded {_document.DisplayName} (external change; unsaved edits replaced)"
+            );
         }
         else
         {
@@ -923,9 +1010,14 @@ public sealed partial class Editor
             stamp.CreationTicks = info.CreationTimeUtc.Ticks;
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
         {
             return false;
         }
@@ -1084,8 +1176,8 @@ public sealed partial class Editor
                         long begin = _document.LineStart(line);
                         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
                         int local = (int)(_cursor - begin);
-                        _cursor = begin +
-                                  UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
+                        _cursor =
+                            begin + UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
                     }
                     EnterInsert();
                 });
@@ -1501,8 +1593,7 @@ public sealed partial class Editor
             case Key.Down:
                 if (_completionVisible)
                 {
-                    MoveCompletionSelection(inputEvent.Key == Key.Up ? -1 : 1,
-                        wrap: false);
+                    MoveCompletionSelection(inputEvent.Key == Key.Up ? -1 : 1, wrap: false);
                     return;
                 }
 
@@ -1568,8 +1659,7 @@ public sealed partial class Editor
         _commandCursor = 0;
         _commandHistoryIndex = -1;
 
-        if (line.Length > 0 &&
-            (_commandHistory.Count == 0 || _commandHistory[^1] != line))
+        if (line.Length > 0 && (_commandHistory.Count == 0 || _commandHistory[^1] != line))
         {
             _commandHistory.Add(line);
             if (_commandHistory.Count > 100)
@@ -1612,24 +1702,27 @@ public sealed partial class Editor
         string command = line[firstStart..firstEnd];
         bool fileCommand = IsFileCompletionCommand(command);
         bool atOrInsideCommand = cursor <= firstEnd;
-        bool commandHasArguments = firstEnd < line.Length &&
-                                   line[firstEnd..].Trim().Length > 0;
+        bool commandHasArguments = firstEnd < line.Length && line[firstEnd..].Trim().Length > 0;
 
-        if (atOrInsideCommand &&
-            (!fileCommand || cursor < firstEnd || commandHasArguments))
+        if (atOrInsideCommand && (!fileCommand || cursor < firstEnd || commandHasArguments))
         {
             int filterEnd = Math.Clamp(cursor, firstStart, firstEnd);
             string filter = line[firstStart..filterEnd];
             List<string> items = FilterCommands(filter);
-            return OpenCompletion(CompletionKind.Commands, items,
-                line[..firstStart], line[firstEnd..], '\0', filter);
+            return OpenCompletion(
+                CompletionKind.Commands,
+                items,
+                line[..firstStart],
+                line[firstEnd..],
+                '\0',
+                filter
+            );
         }
 
         if (fileCommand)
         {
             int argumentStart = firstEnd;
-            while (argumentStart < line.Length &&
-                   char.IsWhiteSpace(line[argumentStart]))
+            while (argumentStart < line.Length && char.IsWhiteSpace(line[argumentStart]))
             {
                 ++argumentStart;
             }
@@ -1643,8 +1736,10 @@ public sealed partial class Editor
             int tokenStart = argumentStart;
             int tokenEnd = cursor;
 
-            if (argumentStart < line.Length &&
-                (line[argumentStart] == '"' || line[argumentStart] == '\''))
+            if (
+                argumentStart < line.Length
+                && (line[argumentStart] == '"' || line[argumentStart] == '\'')
+            )
             {
                 quote = line[argumentStart];
                 tokenStart = argumentStart + 1;
@@ -1666,15 +1761,20 @@ public sealed partial class Editor
                 prefix += ' ';
             }
 
-            return OpenCompletion(CompletionKind.Files, items,
-                prefix, line[tokenEnd..], quote, filter);
+            return OpenCompletion(
+                CompletionKind.Files,
+                items,
+                prefix,
+                line[tokenEnd..],
+                quote,
+                filter
+            );
         }
 
         if (command is "lang")
         {
             int argumentStart = firstEnd;
-            while (argumentStart < line.Length &&
-                   char.IsWhiteSpace(line[argumentStart]))
+            while (argumentStart < line.Length && char.IsWhiteSpace(line[argumentStart]))
             {
                 ++argumentStart;
             }
@@ -1688,22 +1788,33 @@ public sealed partial class Editor
             int tokenEnd = Math.Clamp(cursor, tokenStart, line.Length);
             string filter = line[tokenStart..tokenEnd];
 
-            List<string> languages = _languages.Languages
-                .Select(language => language.Id)
+            List<string> languages = _languages
+                .Languages.Select(language => language.Id)
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            return OpenCompletion(CompletionKind.Arguments,
-                FilterFiles(languages, filter), line[..tokenStart],
-                line[tokenEnd..], '\0', filter);
+            return OpenCompletion(
+                CompletionKind.Arguments,
+                FilterFiles(languages, filter),
+                line[..tokenStart],
+                line[tokenEnd..],
+                '\0',
+                filter
+            );
         }
 
         SetMessage("No completions available.");
         return true;
     }
 
-    private bool OpenCompletion(CompletionKind kind, List<string> items,
-        string prefix, string suffix, char quote, string filter)
+    private bool OpenCompletion(
+        CompletionKind kind,
+        List<string> items,
+        string prefix,
+        string suffix,
+        char quote,
+        string filter
+    )
     {
         _completionVisible = true;
         _completionKind = kind;
@@ -1714,11 +1825,10 @@ public sealed partial class Editor
         _completionPrefix = prefix;
         _completionSuffix = suffix;
         _completionQuote = quote;
-        _completionStatus = items.Count > 0
-            ? string.Empty
-            : filter.Length == 0
-                ? "No completions available"
-                : $"No matches for '{filter}'";
+        _completionStatus =
+            items.Count > 0 ? string.Empty
+            : filter.Length == 0 ? "No completions available"
+            : $"No matches for '{filter}'";
         ClearMessage();
         return true;
     }
@@ -1771,17 +1881,20 @@ public sealed partial class Editor
 
     private void AcceptCompletion()
     {
-        if (!_completionVisible || _completionItems.Count == 0 ||
-            _completionSelected < 0 || _completionSelected >= _completionItems.Count)
+        if (
+            !_completionVisible
+            || _completionItems.Count == 0
+            || _completionSelected < 0
+            || _completionSelected >= _completionItems.Count
+        )
         {
             return;
         }
 
         string selected = _completionItems[_completionSelected];
         CompletionKind kind = _completionKind;
-        string inserted = kind == CompletionKind.Files
-            ? CompletionPathForCommand(selected)
-            : selected;
+        string inserted =
+            kind == CompletionKind.Files ? CompletionPathForCommand(selected) : selected;
 
         if (kind == CompletionKind.Files)
         {
@@ -1799,8 +1912,7 @@ public sealed partial class Editor
                     inserted = inserted.Replace("\"", "\\\"");
                 }
 
-                if (_completionSuffix.Length == 0 ||
-                    _completionSuffix[0] != _completionQuote)
+                if (_completionSuffix.Length == 0 || _completionSuffix[0] != _completionQuote)
                 {
                     inserted += _completionQuote;
                 }
@@ -1823,20 +1935,24 @@ public sealed partial class Editor
         }
     }
 
-    private static bool IsFileCompletionCommand(string command)
-        => command is "e" or "w" or "debug" or "dbg";
+    private static bool IsFileCompletionCommand(string command) =>
+        command is "e" or "w" or "debug" or "dbg";
 
     private string CompletionPathForCommand(string relativePath)
     {
         try
         {
-            string fullPath = Path.GetFullPath(
-                Path.Combine(ProjectRoot(), relativePath));
+            string fullPath = Path.GetFullPath(Path.Combine(ProjectRoot(), relativePath));
             return Path.GetRelativePath(Directory.GetCurrentDirectory(), fullPath);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException or IOException or
-                                   UnauthorizedAccessException)
+        catch (Exception ex)
+            when (ex
+                    is ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException
+                        or IOException
+                        or UnauthorizedAccessException
+            )
         {
             return relativePath;
         }
@@ -1854,8 +1970,8 @@ public sealed partial class Editor
         return false;
     }
 
-    private static string QuoteCompletionPath(string path)
-        => "\"" + path.Replace("\"", "\\\"") + "\"";
+    private static string QuoteCompletionPath(string path) =>
+        "\"" + path.Replace("\"", "\\\"") + "\"";
 
     private string CommandDescription(string name)
     {
@@ -1864,8 +1980,7 @@ public sealed partial class Editor
             return description;
         }
 
-        if (_plugins is not null &&
-            _plugins.TryGetCommandDescription(name, out description))
+        if (_plugins is not null && _plugins.TryGetCommandDescription(name, out description))
         {
             return description.Length > 0 ? description : "Plugin command.";
         }
@@ -1950,14 +2065,15 @@ public sealed partial class Editor
             }
         }
 
-        matches.Sort((left, right) =>
-        {
-            int comparison = left.Score.CompareTo(right.Score);
-            return comparison != 0
-                ? comparison
-                : string.Compare(left.Name, right.Name,
-                    StringComparison.OrdinalIgnoreCase);
-        });
+        matches.Sort(
+            (left, right) =>
+            {
+                int comparison = left.Score.CompareTo(right.Score);
+                return comparison != 0
+                    ? comparison
+                    : string.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase);
+            }
+        );
 
         var result = new List<string>(matches.Count);
         foreach ((int _, string name) in matches)
@@ -1984,14 +2100,15 @@ public sealed partial class Editor
             }
         }
 
-        matches.Sort((left, right) =>
-        {
-            int comparison = left.Score.CompareTo(right.Score);
-            return comparison != 0
-                ? comparison
-                : string.Compare(left.Path, right.Path,
-                    StringComparison.OrdinalIgnoreCase);
-        });
+        matches.Sort(
+            (left, right) =>
+            {
+                int comparison = left.Score.CompareTo(right.Score);
+                return comparison != 0
+                    ? comparison
+                    : string.Compare(left.Path, right.Path, StringComparison.OrdinalIgnoreCase);
+            }
+        );
 
         var result = new List<string>(matches.Count);
         foreach ((int _, string path) in matches)
@@ -2004,20 +2121,26 @@ public sealed partial class Editor
     private List<string> CompletionFiles()
     {
         string root = ProjectRoot();
-        if (_pickerFilesLoaded && _pickerRoot.Length > 0 &&
-            SamePath(_pickerRoot, root))
+        if (_pickerFilesLoaded && _pickerRoot.Length > 0 && SamePath(_pickerRoot, root))
         {
             return _pickerFiles;
         }
 
-        if (_completionFiles is not null && _completionFilesRoot.Length > 0 &&
-            SamePath(_completionFilesRoot, root))
+        if (
+            _completionFiles is not null
+            && _completionFilesRoot.Length > 0
+            && SamePath(_completionFilesRoot, root)
+        )
         {
             return _completionFiles;
         }
 
-        _completionFiles = FileSearch.EnumerateFiles(root,
-            FileSearch.DefaultMaxFiles, _showGitIgnored, CancellationToken.None);
+        _completionFiles = FileSearch.EnumerateFiles(
+            root,
+            FileSearch.DefaultMaxFiles,
+            _showGitIgnored,
+            CancellationToken.None
+        );
         _completionFilesRoot = root;
         return _completionFiles;
     }
@@ -2030,11 +2153,12 @@ public sealed partial class Editor
 
     private void HandleEditorMouse(InputEvent inputEvent)
     {
-        if (inputEvent.Key == Key.MouseDown &&
-            inputEvent.MouseButton == MouseButton.Left &&
-            TryFindPaneAt(inputEvent.MouseX, inputEvent.MouseY,
-                out EditorPane clickedPane) &&
-            !ReferenceEquals(clickedPane, _activePane))
+        if (
+            inputEvent.Key == Key.MouseDown
+            && inputEvent.MouseButton == MouseButton.Left
+            && TryFindPaneAt(inputEvent.MouseX, inputEvent.MouseY, out EditorPane clickedPane)
+            && !ReferenceEquals(clickedPane, _activePane)
+        )
         {
             SwitchToPane(clickedPane);
             _forceFullRedraw = true;
@@ -2050,28 +2174,33 @@ public sealed partial class Editor
                 return;
             case Key.MouseDown:
                 _mouseDragging = false;
-                if (inputEvent.MouseButton == MouseButton.Left &&
-                    MoveCursorToScreen(inputEvent.MouseX, inputEvent.MouseY))
+                if (
+                    inputEvent.MouseButton == MouseButton.Left
+                    && MoveCursorToScreen(inputEvent.MouseX, inputEvent.MouseY)
+                )
                 {
                     _mouseDragging = true;
                     _mouseDragAnchor = _cursor;
                 }
                 return;
             case Key.MouseMove:
-                if (_mouseDragging &&
-                    inputEvent.MouseButton == MouseButton.Left)
+                if (_mouseDragging && inputEvent.MouseButton == MouseButton.Left)
                 {
                     ExtendMouseSelection(inputEvent.MouseX, inputEvent.MouseY);
                 }
                 return;
             case Key.MouseUp:
-                if (_mouseDragging &&
-                    inputEvent.MouseButton == MouseButton.Left)
+                if (_mouseDragging && inputEvent.MouseButton == MouseButton.Left)
                 {
                     bool extend = _mode == Mode.Select;
-                    if (!extend &&
-                        TryOffsetAtScreen(inputEvent.MouseX, inputEvent.MouseY,
-                            out long releaseOffset))
+                    if (
+                        !extend
+                        && TryOffsetAtScreen(
+                            inputEvent.MouseX,
+                            inputEvent.MouseY,
+                            out long releaseOffset
+                        )
+                    )
                     {
                         extend = releaseOffset != _mouseDragAnchor;
                     }
@@ -2166,8 +2295,13 @@ public sealed partial class Editor
         PaneBounds bounds = ActivePaneBounds();
         int localX = x - bounds.X;
         int localY = y - bounds.Y;
-        if (localX < 0 || localY < 0 || bounds.Height <= 0 ||
-            localX >= bounds.Width || localY >= bounds.Height)
+        if (
+            localX < 0
+            || localY < 0
+            || bounds.Height <= 0
+            || localX >= bounds.Width
+            || localY >= bounds.Height
+        )
         {
             return false;
         }
@@ -2180,11 +2314,12 @@ public sealed partial class Editor
 
         int gutter = GutterWidthFor(bounds.Width);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-        long visual = localX > gutter
-            ? _leftColumn + (localX - gutter)
-            : 0;
+        long visual = localX > gutter ? _leftColumn + (localX - gutter) : 0;
         int local = UnicodeUtil.ByteOffsetForVisualColumn(
-            _lineBuffer.AsSpan(0, length), visual, TabWidth);
+            _lineBuffer.AsSpan(0, length),
+            visual,
+            TabWidth
+        );
         long start = _document.LineStart(line);
         long end = _document.LineEnd(line);
         offset = Math.Clamp(start + local, start, end);
@@ -2326,8 +2461,7 @@ public sealed partial class Editor
         }
     }
 
-    private void OpenFind(bool multiCursor = false, bool regex = false,
-        bool replace = false)
+    private void OpenFind(bool multiCursor = false, bool regex = false, bool replace = false)
     {
         _findActive = true;
         _findEditing = true;
@@ -2395,7 +2529,10 @@ public sealed partial class Editor
         foreach (Selection selection in selections)
         {
             (long start, long end) = SelectionRange(
-                selection.Anchor, selection.Cursor, selection.Linewise);
+                selection.Anchor,
+                selection.Cursor,
+                selection.Linewise
+            );
             if (end > start)
             {
                 ranges.Add((start, end));
@@ -2459,9 +2596,7 @@ public sealed partial class Editor
 
     private int ActiveFindCursor
     {
-        get => _findReplace && _findEditingReplacement
-            ? _findReplacementCursor
-            : _findQueryCursor;
+        get => _findReplace && _findEditingReplacement ? _findReplacementCursor : _findQueryCursor;
         set
         {
             if (_findReplace && _findEditingReplacement)
@@ -2581,11 +2716,15 @@ public sealed partial class Editor
             }
             case Key.Left:
                 ActiveFindCursor = UnicodeUtil.PreviousBoundary(
-                    ActiveFindField.ToString(), ActiveFindCursor);
+                    ActiveFindField.ToString(),
+                    ActiveFindCursor
+                );
                 return;
             case Key.Right:
                 ActiveFindCursor = UnicodeUtil.NextBoundary(
-                    ActiveFindField.ToString(), ActiveFindCursor);
+                    ActiveFindField.ToString(),
+                    ActiveFindCursor
+                );
                 return;
             case Key.Home:
                 ActiveFindCursor = 0;
@@ -2644,9 +2783,8 @@ public sealed partial class Editor
             return;
         }
 
-        int index = _findMatchIndex >= 0 && _findMatchIndex < _findMatches.Count
-            ? _findMatchIndex
-            : 0;
+        int index =
+            _findMatchIndex >= 0 && _findMatchIndex < _findMatches.Count ? _findMatchIndex : 0;
         FindMatch match = _findMatches[index];
         byte[] replacement = Encoding.UTF8.GetBytes(match.Replacement);
 
@@ -2762,10 +2900,8 @@ public sealed partial class Editor
 
                 int matchLength = Math.Min(query.Length, text.Length - index);
                 long lineStart = _document.LineStart(line);
-                long start = lineStart +
-                    Encoding.UTF8.GetByteCount(text.AsSpan(0, index));
-                long end = start +
-                    Encoding.UTF8.GetByteCount(text.AsSpan(index, matchLength));
+                long start = lineStart + Encoding.UTF8.GetByteCount(text.AsSpan(0, index));
+                long end = start + Encoding.UTF8.GetByteCount(text.AsSpan(index, matchLength));
 
                 if (IsInFindScope(start, end))
                 {
@@ -2814,13 +2950,12 @@ public sealed partial class Editor
 
             try
             {
-                for (Match match = regex.Match(text); match.Success;
-                     match = match.NextMatch())
+                for (Match match = regex.Match(text); match.Success; match = match.NextMatch())
                 {
-                    long start = lineStart +
-                        Encoding.UTF8.GetByteCount(text.AsSpan(0, match.Index));
-                    long end = start + Encoding.UTF8.GetByteCount(
-                        text.AsSpan(match.Index, match.Length));
+                    long start =
+                        lineStart + Encoding.UTF8.GetByteCount(text.AsSpan(0, match.Index));
+                    long end =
+                        start + Encoding.UTF8.GetByteCount(text.AsSpan(match.Index, match.Length));
 
                     string replacement = string.Empty;
                     if (_findReplace)
@@ -2871,15 +3006,12 @@ public sealed partial class Editor
         {
             string query = _findQuery.ToString();
             CloseFind();
-            SetMessage(query.Length == 0
-                ? "No search query."
-                : $"No matches for '{query}'.");
+            SetMessage(query.Length == 0 ? "No search query." : $"No matches for '{query}'.");
             return;
         }
 
-        int primaryIndex = _findMatchIndex >= 0 && _findMatchIndex < _findMatches.Count
-            ? _findMatchIndex
-            : 0;
+        int primaryIndex =
+            _findMatchIndex >= 0 && _findMatchIndex < _findMatches.Count ? _findMatchIndex : 0;
 
         var selections = new List<Selection>(_findMatches.Count);
         selections.Add(CreateFindSelection(_findMatches[primaryIndex]));
@@ -2915,7 +3047,7 @@ public sealed partial class Editor
             Anchor = match.Start,
             Linewise = false,
             PreferredColumn = 0,
-            PreferredColumnValid = false
+            PreferredColumnValid = false,
         };
     }
 
@@ -2930,8 +3062,7 @@ public sealed partial class Editor
         long lineStart = _document.LineStart(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         int local = (int)Math.Clamp(offset - lineStart, 0, length);
-        return lineStart +
-               UnicodeUtil.PreviousBoundary(_lineBuffer.AsSpan(0, length), local);
+        return lineStart + UnicodeUtil.PreviousBoundary(_lineBuffer.AsSpan(0, length), local);
     }
 
     private void SelectFindMatch(int index)
@@ -2959,9 +3090,7 @@ public sealed partial class Editor
             return;
         }
 
-        int index = _findMatchIndex < 0
-            ? 0
-            : (_findMatchIndex + 1) % _findMatches.Count;
+        int index = _findMatchIndex < 0 ? 0 : (_findMatchIndex + 1) % _findMatches.Count;
         SelectFindMatch(index);
     }
 
@@ -2973,14 +3102,14 @@ public sealed partial class Editor
             return;
         }
 
-        int index = _findMatchIndex < 0
-            ? _findMatches.Count - 1
-            : (_findMatchIndex - 1 + _findMatches.Count) % _findMatches.Count;
+        int index =
+            _findMatchIndex < 0
+                ? _findMatches.Count - 1
+                : (_findMatchIndex - 1 + _findMatches.Count) % _findMatches.Count;
         SelectFindMatch(index);
     }
 
-    private void OpenPicker(PickerKind kind, string? root = null,
-        string? title = null)
+    private void OpenPicker(PickerKind kind, string? root = null, string? title = null)
     {
         _pickerPreviewCache.Clear();
         _pickerPreviewCacheOrder.Clear();
@@ -3007,13 +3136,18 @@ public sealed partial class Editor
             _themeBeforePicker = _theme.Id;
         }
 
-        if (kind is PickerKind.Plugin or PickerKind.CodeActions or
-            PickerKind.Problems or PickerKind.Palette or PickerKind.Themes)
+        if (
+            kind
+            is PickerKind.Plugin
+                or PickerKind.CodeActions
+                or PickerKind.Problems
+                or PickerKind.Palette
+                or PickerKind.Themes
+        )
         {
             BeginPickerQuery();
         }
-        else if (!_pickerFilesLoaded ||
-                 !SamePath(_pickerRoot, _pickerFilesRoot))
+        else if (!_pickerFilesLoaded || !SamePath(_pickerRoot, _pickerFilesRoot))
         {
             StartPickerFileScan();
         }
@@ -3026,9 +3160,7 @@ public sealed partial class Editor
     private void ClosePicker(bool cancelled = true)
     {
         PickerKind oldKind = _pickerKind;
-        Action<int?>? pluginCallback = oldKind == PickerKind.Plugin
-            ? _pluginSelectCallback
-            : null;
+        Action<int?>? pluginCallback = oldKind == PickerKind.Plugin ? _pluginSelectCallback : null;
         _pluginSelectCallback = null;
 
         CancelPickerWork();
@@ -3049,8 +3181,7 @@ public sealed partial class Editor
         _pluginSelectTitle = string.Empty;
         _pluginSelectItems.Clear();
 
-        if (cancelled && oldKind == PickerKind.Themes &&
-            _themeBeforePicker.Length > 0)
+        if (cancelled && oldKind == PickerKind.Themes && _themeBeforePicker.Length > 0)
         {
             SetActiveTheme(_themeBeforePicker, persist: false, announce: false);
         }
@@ -3072,31 +3203,38 @@ public sealed partial class Editor
         string root = _pickerRoot;
         bool showGitIgnored = _showGitIgnored;
 
-        _pickerTask = Task.Run(() =>
-        {
-            var result = new PickerScanResult
+        _pickerTask = Task.Run(
+            () =>
             {
-                Generation = generation,
-                FileList = true,
-                Root = root
-            };
+                var result = new PickerScanResult
+                {
+                    Generation = generation,
+                    FileList = true,
+                    Root = root,
+                };
 
-            try
-            {
-                result.Files = FileSearch.EnumerateFiles(root, FileSearch.DefaultMaxFiles,
-                    showGitIgnored, cancellation.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // Superseded by a newer picker operation.
-            }
-            catch (Exception ex)
-            {
-                result.Error = ex.Message;
-            }
+                try
+                {
+                    result.Files = FileSearch.EnumerateFiles(
+                        root,
+                        FileSearch.DefaultMaxFiles,
+                        showGitIgnored,
+                        cancellation.Token
+                    );
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by a newer picker operation.
+                }
+                catch (Exception ex)
+                {
+                    result.Error = ex.Message;
+                }
 
-            return result;
-        }, cancellation.Token);
+                return result;
+            },
+            cancellation.Token
+        );
     }
 
     private void BeginPickerQuery()
@@ -3146,11 +3284,13 @@ public sealed partial class Editor
         {
             foreach (string path in _pickerFiles)
             {
-                _pickerItems.Add(new PickerItem
-                {
-                    Display = path,
-                    Path = Path.GetFullPath(Path.Combine(_pickerRoot, path))
-                });
+                _pickerItems.Add(
+                    new PickerItem
+                    {
+                        Display = path,
+                        Path = Path.GetFullPath(Path.Combine(_pickerRoot, path)),
+                    }
+                );
             }
         }
         else
@@ -3161,22 +3301,32 @@ public sealed partial class Editor
                 int score = FuzzyScore(path, query);
                 if (score < int.MaxValue)
                 {
-                    scored.Add((score, new PickerItem
-                    {
-                        Display = path,
-                        Path = Path.GetFullPath(Path.Combine(_pickerRoot, path))
-                    }));
+                    scored.Add(
+                        (
+                            score,
+                            new PickerItem
+                            {
+                                Display = path,
+                                Path = Path.GetFullPath(Path.Combine(_pickerRoot, path)),
+                            }
+                        )
+                    );
                 }
             }
 
-            scored.Sort((left, right) =>
-            {
-                int comparison = left.Score.CompareTo(right.Score);
-                return comparison != 0
-                    ? comparison
-                    : string.Compare(left.Item.Display, right.Item.Display,
-                        StringComparison.OrdinalIgnoreCase);
-            });
+            scored.Sort(
+                (left, right) =>
+                {
+                    int comparison = left.Score.CompareTo(right.Score);
+                    return comparison != 0
+                        ? comparison
+                        : string.Compare(
+                            left.Item.Display,
+                            right.Item.Display,
+                            StringComparison.OrdinalIgnoreCase
+                        );
+                }
+            );
 
             foreach ((int _, PickerItem item) in scored)
             {
@@ -3187,9 +3337,10 @@ public sealed partial class Editor
         _pickerSelected = 0;
         _pickerTop = 0;
         _pickerLoading = false;
-        _pickerStatus = _pickerItems.Count == 0
-            ? "No matching files"
-            : $"{_pickerItems.Count} file{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        _pickerStatus =
+            _pickerItems.Count == 0
+                ? "No matching files"
+                : $"{_pickerItems.Count} file{(_pickerItems.Count == 1 ? string.Empty : "s")}";
         UpdatePickerPreview();
     }
 
@@ -3202,11 +3353,7 @@ public sealed partial class Editor
         {
             for (int i = 0; i < _pluginSelectItems.Count; ++i)
             {
-                _pickerItems.Add(new PickerItem
-                {
-                    Display = _pluginSelectItems[i],
-                    Value = i
-                });
+                _pickerItems.Add(new PickerItem { Display = _pluginSelectItems[i], Value = i });
             }
         }
         else
@@ -3218,22 +3365,23 @@ public sealed partial class Editor
                 int score = FuzzyScore(item, query);
                 if (score < int.MaxValue)
                 {
-                    scored.Add((score, new PickerItem
-                    {
-                        Display = item,
-                        Value = i
-                    }));
+                    scored.Add((score, new PickerItem { Display = item, Value = i }));
                 }
             }
 
-            scored.Sort((left, right) =>
-            {
-                int comparison = left.Score.CompareTo(right.Score);
-                return comparison != 0
-                    ? comparison
-                    : string.Compare(left.Item.Display, right.Item.Display,
-                        StringComparison.OrdinalIgnoreCase);
-            });
+            scored.Sort(
+                (left, right) =>
+                {
+                    int comparison = left.Score.CompareTo(right.Score);
+                    return comparison != 0
+                        ? comparison
+                        : string.Compare(
+                            left.Item.Display,
+                            right.Item.Display,
+                            StringComparison.OrdinalIgnoreCase
+                        );
+                }
+            );
 
             foreach ((int _, PickerItem item) in scored)
             {
@@ -3244,9 +3392,10 @@ public sealed partial class Editor
         _pickerSelected = 0;
         _pickerTop = 0;
         _pickerLoading = false;
-        _pickerStatus = _pickerItems.Count == 0
-            ? "No matching items"
-            : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        _pickerStatus =
+            _pickerItems.Count == 0
+                ? "No matching items"
+                : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
     }
 
     private void PopulateCodeActionItems()
@@ -3257,28 +3406,24 @@ public sealed partial class Editor
         for (int i = 0; i < _codeActions.Count; ++i)
         {
             LspCodeAction action = _codeActions[i];
-            string label = action.Kind.Length > 0
-                ? $"[{action.Kind}] {action.Title}"
-                : action.Title;
+            string label =
+                action.Kind.Length > 0 ? $"[{action.Kind}] {action.Title}" : action.Title;
 
             if (query.Length > 0 && FuzzyScore(label, query) == int.MaxValue)
             {
                 continue;
             }
 
-            _pickerItems.Add(new PickerItem
-            {
-                Display = label,
-                Value = i
-            });
+            _pickerItems.Add(new PickerItem { Display = label, Value = i });
         }
 
         _pickerSelected = 0;
         _pickerTop = 0;
         _pickerLoading = false;
-        _pickerStatus = _pickerItems.Count == 0
-            ? "No matching code actions"
-            : $"{_pickerItems.Count} code action{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        _pickerStatus =
+            _pickerItems.Count == 0
+                ? "No matching code actions"
+                : $"{_pickerItems.Count} code action{(_pickerItems.Count == 1 ? string.Empty : "s")}";
     }
 
     private void PopulateProblemItems()
@@ -3303,7 +3448,7 @@ public sealed partial class Editor
                 1 => "E",
                 2 => "W",
                 3 => "I",
-                _ => "H"
+                _ => "H",
             };
 
             string label =
@@ -3313,23 +3458,25 @@ public sealed partial class Editor
                 continue;
             }
 
-            _pickerItems.Add(new PickerItem
-            {
-                Display = label,
-                Path = path,
-                Line = diagnostic.Line,
-                Column = diagnostic.Column,
-                Value = diagnostic.Severity
-            });
+            _pickerItems.Add(
+                new PickerItem
+                {
+                    Display = label,
+                    Path = path,
+                    Line = diagnostic.Line,
+                    Column = diagnostic.Column,
+                    Value = diagnostic.Severity,
+                }
+            );
         }
 
-        _pickerSelected = Math.Clamp(_pickerSelected, 0,
-            Math.Max(0, _pickerItems.Count - 1));
+        _pickerSelected = Math.Clamp(_pickerSelected, 0, Math.Max(0, _pickerItems.Count - 1));
         _pickerTop = 0;
         _pickerLoading = false;
-        _pickerStatus = _pickerItems.Count == 0
-            ? "No problems reported"
-            : $"{_pickerItems.Count} problem{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        _pickerStatus =
+            _pickerItems.Count == 0
+                ? "No problems reported"
+                : $"{_pickerItems.Count} problem{(_pickerItems.Count == 1 ? string.Empty : "s")}";
     }
 
     private List<(string Path, LspDiagnostic Diagnostic)> CollectProblems()
@@ -3347,16 +3494,15 @@ public sealed partial class Editor
             {
                 path = Path.GetFullPath(LspManager.UriToPath(report.Uri));
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 continue;
             }
 
             if (!_problemsWorkspace)
             {
-                if (currentPath.Length == 0 ||
-                    !PathsEqual(path, currentPath))
+                if (currentPath.Length == 0 || !PathsEqual(path, currentPath))
                 {
                     continue;
                 }
@@ -3372,41 +3518,53 @@ public sealed partial class Editor
             }
         }
 
-        result.Sort((left, right) =>
-        {
-            int comparison = string.Compare(left.Path, right.Path,
-                StringComparison.OrdinalIgnoreCase);
-            if (comparison != 0)
+        result.Sort(
+            (left, right) =>
             {
-                return comparison;
+                int comparison = string.Compare(
+                    left.Path,
+                    right.Path,
+                    StringComparison.OrdinalIgnoreCase
+                );
+                if (comparison != 0)
+                {
+                    return comparison;
+                }
+                return left.Diagnostic.Line.CompareTo(right.Diagnostic.Line);
             }
-            return left.Diagnostic.Line.CompareTo(right.Diagnostic.Line);
-        });
+        );
 
         return result;
     }
 
     private static bool PathsEqual(string left, string right)
     {
-        return string.Equals(left, right, OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal);
+        return string.Equals(
+            left,
+            right,
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal
+        );
     }
 
     private static bool IsPathInside(string root, string path)
     {
-        string normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar,
-            Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string normalizedRoot =
+            root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
         string comparisonPath = path;
         if (!comparisonPath.EndsWith(Path.DirectorySeparatorChar))
         {
             comparisonPath += Path.DirectorySeparatorChar;
         }
 
-        return comparisonPath.StartsWith(normalizedRoot,
+        return comparisonPath.StartsWith(
+            normalizedRoot,
             OperatingSystem.IsWindows()
                 ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal);
+                : StringComparison.Ordinal
+        );
     }
 
     private void UpdatePickerPreview()
@@ -3474,8 +3632,10 @@ public sealed partial class Editor
             return;
         }
 
-        while (_pickerPreviewCache.Count >= MaxPickerPreviewCacheEntries &&
-               _pickerPreviewCacheOrder.Count > 0)
+        while (
+            _pickerPreviewCache.Count >= MaxPickerPreviewCacheEntries
+            && _pickerPreviewCacheOrder.Count > 0
+        )
         {
             string oldest = _pickerPreviewCacheOrder.Dequeue();
             _pickerPreviewCache.Remove(oldest);
@@ -3500,29 +3660,35 @@ public sealed partial class Editor
         _pickerLoading = true;
         _pickerStatus = "Searching...";
 
-        _pickerTask = Task.Run(() =>
-        {
-            var result = new PickerScanResult
+        _pickerTask = Task.Run(
+            () =>
             {
-                Generation = generation
-            };
+                var result = new PickerScanResult { Generation = generation };
 
-            try
-            {
-                result.Matches = FileSearch.Search(root, files, query,
-                    FileSearch.DefaultMaxResults, cancellation.Token, matchCase);
-            }
-            catch (OperationCanceledException)
-            {
-                // Superseded by a newer query.
-            }
-            catch (Exception ex)
-            {
-                result.Error = ex.Message;
-            }
+                try
+                {
+                    result.Matches = FileSearch.Search(
+                        root,
+                        files,
+                        query,
+                        FileSearch.DefaultMaxResults,
+                        cancellation.Token,
+                        matchCase
+                    );
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by a newer query.
+                }
+                catch (Exception ex)
+                {
+                    result.Error = ex.Message;
+                }
 
-            return result;
-        }, cancellation.Token);
+                return result;
+            },
+            cancellation.Token
+        );
     }
 
     private bool PollPicker()
@@ -3592,18 +3758,21 @@ public sealed partial class Editor
         {
             foreach (FileSearchMatch match in result.Matches)
             {
-                _pickerItems.Add(new PickerItem
-                {
-                    Display = $"{match.Path}:{match.Line + 1}  {match.Preview}",
-                    Path = Path.GetFullPath(Path.Combine(_pickerRoot, match.Path)),
-                    Line = match.Line,
-                    Column = match.Column
-                });
+                _pickerItems.Add(
+                    new PickerItem
+                    {
+                        Display = $"{match.Path}:{match.Line + 1}  {match.Preview}",
+                        Path = Path.GetFullPath(Path.Combine(_pickerRoot, match.Path)),
+                        Line = match.Line,
+                        Column = match.Column,
+                    }
+                );
             }
 
-            _pickerStatus = _pickerItems.Count == 0
-                ? "No matches"
-                : $"{_pickerItems.Count} match{(_pickerItems.Count == 1 ? string.Empty : "es")}";
+            _pickerStatus =
+                _pickerItems.Count == 0
+                    ? "No matches"
+                    : $"{_pickerItems.Count} match{(_pickerItems.Count == 1 ? string.Empty : "es")}";
         }
 
         _pickerSelected = 0;
@@ -3672,12 +3841,16 @@ public sealed partial class Editor
                 }
                 return;
             case Key.Left:
-                _pickerQueryCursor = UnicodeUtil.PreviousBoundary(_pickerQuery.ToString(),
-                    _pickerQueryCursor);
+                _pickerQueryCursor = UnicodeUtil.PreviousBoundary(
+                    _pickerQuery.ToString(),
+                    _pickerQueryCursor
+                );
                 return;
             case Key.Right:
-                _pickerQueryCursor = UnicodeUtil.NextBoundary(_pickerQuery.ToString(),
-                    _pickerQueryCursor);
+                _pickerQueryCursor = UnicodeUtil.NextBoundary(
+                    _pickerQuery.ToString(),
+                    _pickerQueryCursor
+                );
                 return;
             case Key.Home:
                 _pickerQueryCursor = 0;
@@ -3751,9 +3924,10 @@ public sealed partial class Editor
             return;
         }
 
-        string count = _pickerKind == PickerKind.Themes
-            ? $"{_pickerItems.Count} theme{(_pickerItems.Count == 1 ? string.Empty : "s")}"
-            : $"{_pickerItems.Count} command{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+        string count =
+            _pickerKind == PickerKind.Themes
+                ? $"{_pickerItems.Count} theme{(_pickerItems.Count == 1 ? string.Empty : "s")}"
+                : $"{_pickerItems.Count} command{(_pickerItems.Count == 1 ? string.Empty : "s")}";
         _pickerStatus = $"{count}  ·  {item.Detail}";
     }
 
@@ -3791,9 +3965,10 @@ public sealed partial class Editor
         if (_pickerKind == PickerKind.Palette)
         {
             int index = item.Value;
-            Action? action = index >= 0 && index < _paletteCommands.Count
-                ? _paletteCommands[index].Action
-                : null;
+            Action? action =
+                index >= 0 && index < _paletteCommands.Count
+                    ? _paletteCommands[index].Action
+                    : null;
             ClosePicker(cancelled: false);
             action?.Invoke();
             return;
@@ -3825,9 +4000,9 @@ public sealed partial class Editor
             string problemPath = item.Path;
             long problemLine = item.Line;
             long problemColumn = LspColumnToByteOffset(problemPath, item.Line, (int)item.Column);
-            bool sameFile = _document.Path is not null &&
-                            PathsEqual(Path.GetFullPath(_document.Path),
-                                Path.GetFullPath(problemPath));
+            bool sameFile =
+                _document.Path is not null
+                && PathsEqual(Path.GetFullPath(_document.Path), Path.GetFullPath(problemPath));
 
             ClosePicker(cancelled: false);
             if (sameFile)
@@ -3868,13 +4043,17 @@ public sealed partial class Editor
 
         try
         {
-            if (_document.Path is not null &&
-                PathsEqual(Path.GetFullPath(_document.Path), Path.GetFullPath(path)) &&
-                line < _document.LineCount)
+            if (
+                _document.Path is not null
+                && PathsEqual(Path.GetFullPath(_document.Path), Path.GetFullPath(path))
+                && line < _document.LineCount
+            )
             {
                 int length = _document.CopyLineText(line, ref _lineBuffer, out _);
                 return LspPositions.Utf16ColumnToByteOffset(
-                    _lineBuffer.AsSpan(0, length), character);
+                    _lineBuffer.AsSpan(0, length),
+                    character
+                );
             }
 
             foreach (string text in File.ReadLines(path))
@@ -3887,8 +4066,13 @@ public sealed partial class Editor
                 --line;
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             // Fall back to the raw column below.
         }
@@ -3930,9 +4114,7 @@ public sealed partial class Editor
 
         foreach (char queryChar in query)
         {
-            char wanted = _searchMatchCase
-                ? queryChar
-                : char.ToLowerInvariant(queryChar);
+            char wanted = _searchMatchCase ? queryChar : char.ToLowerInvariant(queryChar);
             bool found = false;
 
             while (textIndex < text.Length)
@@ -4321,9 +4503,7 @@ public sealed partial class Editor
         }
 
         PersistDisplaySettings();
-        SetMessage(_showGitIgnored
-            ? "Showing git-ignored files."
-            : "Hiding git-ignored files.");
+        SetMessage(_showGitIgnored ? "Showing git-ignored files." : "Hiding git-ignored files.");
     }
 
     private void ToggleSearchMatchCase()
@@ -4342,9 +4522,7 @@ public sealed partial class Editor
         }
 
         _forceFullRedraw = true;
-        SetMessage(_searchMatchCase
-            ? "Search is case-sensitive."
-            : "Search is case-insensitive.");
+        SetMessage(_searchMatchCase ? "Search is case-sensitive." : "Search is case-insensitive.");
     }
 
     /// <summary>
@@ -4362,8 +4540,10 @@ public sealed partial class Editor
         }
 
         int width = useTabs ? _document.TabWidth : _document.IndentWidth;
-        if (arguments.Count == 1 &&
-            (!int.TryParse(arguments[0], out width) || width < 1 || width > 16))
+        if (
+            arguments.Count == 1
+            && (!int.TryParse(arguments[0], out width) || width < 1 || width > 16)
+        )
         {
             SetError($"invalid indent width '{arguments[0]}' (expected 1-16)");
             return;
@@ -4381,10 +4561,11 @@ public sealed partial class Editor
         }
     }
 
-    private static bool IsFutureCommand(string name)
-        => name is "sf" or "g" or "setup";
+    private static bool IsFutureCommand(string name) => name is "sf" or "g" or "setup";
 
-    private void FormatCurrentDocument()
+    private void FormatCurrentDocument() => FormatCurrentDocument(saveAfter: false);
+
+    private void FormatCurrentDocument(bool saveAfter)
     {
         if (_formatOperation is not null)
         {
@@ -4404,12 +4585,10 @@ public sealed partial class Editor
             return;
         }
 
-        StartFormat(_language.Formatter, savePath: null, quitAfter: false,
-            saveAfter: false);
+        StartFormat(_language.Formatter, savePath: null, quitAfter: false, saveAfter);
     }
 
-    private bool ShouldFormatOnSave()
-        => _language?.FormatOnSave ?? _config.FormatOnSave;
+    private bool ShouldFormatOnSave() => _language?.FormatOnSave ?? _config.FormatOnSave;
 
     private bool TryGetFormatter(out FormatterConfig formatter)
     {
@@ -4417,8 +4596,12 @@ public sealed partial class Editor
         return formatter is not null;
     }
 
-    private void StartFormat(FormatterConfig formatter, string? savePath,
-        bool quitAfter, bool saveAfter)
+    private void StartFormat(
+        FormatterConfig formatter,
+        string? savePath,
+        bool quitAfter,
+        bool saveAfter
+    )
     {
         if (_formatOperation is not null)
         {
@@ -4436,8 +4619,10 @@ public sealed partial class Editor
 
         Task<FormatResult> task = Task.Factory.StartNew(
             () => FormatterRunner.Run(formatter, input, path, cancellation.Token),
-            CancellationToken.None, TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default
+        );
 
         _formatOperation = new FormatOperation
         {
@@ -4447,7 +4632,7 @@ public sealed partial class Editor
             SavePath = savePath,
             SaveAfter = saveAfter,
             QuitAfter = quitAfter,
-            Selections = selections
+            Selections = selections,
         };
 
         string name = Path.GetFileName(formatter.Command);
@@ -4464,18 +4649,22 @@ public sealed partial class Editor
         var result = new List<FormatSelectionSnapshot>(selections.Count);
         foreach (Selection selection in selections)
         {
-            result.Add(new FormatSelectionSnapshot(
-                _document.LineOfOffset(selection.Cursor),
-                VisualColumnOfOffset(selection.Cursor),
-                _document.LineOfOffset(selection.Anchor),
-                VisualColumnOfOffset(selection.Anchor),
-                selection.Linewise));
+            result.Add(
+                new FormatSelectionSnapshot(
+                    _document.LineOfOffset(selection.Cursor),
+                    VisualColumnOfOffset(selection.Cursor),
+                    _document.LineOfOffset(selection.Anchor),
+                    VisualColumnOfOffset(selection.Anchor),
+                    selection.Linewise
+                )
+            );
         }
         return result;
     }
 
     private List<Selection> RestoreFormatSelections(
-        IReadOnlyList<FormatSelectionSnapshot> snapshots)
+        IReadOnlyList<FormatSelectionSnapshot> snapshots
+    )
     {
         var result = new List<Selection>(snapshots.Count);
         long lastLine = _document.LineCount - 1;
@@ -4483,29 +4672,37 @@ public sealed partial class Editor
         foreach (FormatSelectionSnapshot snapshot in snapshots)
         {
             long cursorLine = Math.Clamp(snapshot.CursorLine, 0, lastLine);
-            int cursorLength = _document.CopyLineText(cursorLine,
-                ref _lineBuffer, out _);
+            int cursorLength = _document.CopyLineText(cursorLine, ref _lineBuffer, out _);
             long cursorStart = _document.LineStart(cursorLine);
-            long cursor = cursorStart + UnicodeUtil.ByteOffsetForVisualColumn(
-                _lineBuffer.AsSpan(0, cursorLength), snapshot.CursorColumn,
-                TabWidth);
+            long cursor =
+                cursorStart
+                + UnicodeUtil.ByteOffsetForVisualColumn(
+                    _lineBuffer.AsSpan(0, cursorLength),
+                    snapshot.CursorColumn,
+                    TabWidth
+                );
 
             long anchorLine = Math.Clamp(snapshot.AnchorLine, 0, lastLine);
-            int anchorLength = _document.CopyLineText(anchorLine,
-                ref _lineBuffer, out _);
+            int anchorLength = _document.CopyLineText(anchorLine, ref _lineBuffer, out _);
             long anchorStart = _document.LineStart(anchorLine);
-            long anchor = anchorStart + UnicodeUtil.ByteOffsetForVisualColumn(
-                _lineBuffer.AsSpan(0, anchorLength), snapshot.AnchorColumn,
-                TabWidth);
+            long anchor =
+                anchorStart
+                + UnicodeUtil.ByteOffsetForVisualColumn(
+                    _lineBuffer.AsSpan(0, anchorLength),
+                    snapshot.AnchorColumn,
+                    TabWidth
+                );
 
-            result.Add(new Selection
-            {
-                Cursor = cursor,
-                Anchor = anchor,
-                Linewise = snapshot.Linewise,
-                PreferredColumn = snapshot.CursorColumn,
-                PreferredColumnValid = true
-            });
+            result.Add(
+                new Selection
+                {
+                    Cursor = cursor,
+                    Anchor = anchor,
+                    Linewise = snapshot.Linewise,
+                    PreferredColumn = snapshot.CursorColumn,
+                    PreferredColumnValid = true,
+                }
+            );
         }
 
         return result;
@@ -4703,8 +4900,7 @@ public sealed partial class Editor
             return;
         }
 
-        if (!skipFormat && ShouldFormatOnSave() &&
-            TryGetFormatter(out FormatterConfig formatter))
+        if (!skipFormat && ShouldFormatOnSave() && TryGetFormatter(out FormatterConfig formatter))
         {
             StartFormat(formatter, path, quitAfter, saveAfter: true);
             return;
@@ -4727,24 +4923,29 @@ public sealed partial class Editor
         }
 
         Document document = _document;
-        Task<SaveResult> task = Task.Factory.StartNew(() =>
-        {
-            bool ok = snapshot.WriteTo(out string writeError);
-            return new SaveResult
+        Task<SaveResult> task = Task.Factory.StartNew(
+            () =>
             {
-                Ok = ok,
-                Error = writeError,
-                Path = snapshot.Path,
-                Pose = snapshot.Pose,
-                Revision = snapshot.Revision
-            };
-        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                bool ok = snapshot.WriteTo(out string writeError);
+                return new SaveResult
+                {
+                    Ok = ok,
+                    Error = writeError,
+                    Path = snapshot.Path,
+                    Pose = snapshot.Pose,
+                    Revision = snapshot.Revision,
+                };
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default
+        );
 
         _saveOperation = new SaveOperation
         {
             Task = task,
             Document = document,
-            Snapshot = snapshot
+            Snapshot = snapshot,
         };
 
         if (quitAfter)
@@ -4768,6 +4969,10 @@ public sealed partial class Editor
             redraw = true;
         }
         if (PollFormat())
+        {
+            redraw = true;
+        }
+        if (PollSidebarFormat())
         {
             redraw = true;
         }
@@ -4824,7 +5029,7 @@ public sealed partial class Editor
                 Error = ex.Message,
                 Path = operation.Snapshot.Path,
                 Pose = operation.Snapshot.Pose,
-                Revision = operation.Snapshot.Revision
+                Revision = operation.Snapshot.Revision,
             };
         }
 
@@ -4836,8 +5041,11 @@ public sealed partial class Editor
             {
                 string? previousPath = operation.Document.Path;
                 operation.Document.MarkSaved(result.Path, result.Pose, result.Revision);
-                bool pathChanged = !string.Equals(previousPath, result.Path,
-                    StringComparison.Ordinal);
+                bool pathChanged = !string.Equals(
+                    previousPath,
+                    result.Path,
+                    StringComparison.Ordinal
+                );
                 if (pathChanged)
                 {
                     ResetLsp();
@@ -4847,11 +5055,14 @@ public sealed partial class Editor
                 RefreshFileStamp();
                 RefreshDiffLines();
                 SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
-                FirePluginEvent("buffer_saved", new Dictionary<string, object?>
-                {
-                    ["path"] = result.Path,
-                    ["id"] = CurrentBufferId
-                });
+                FirePluginEvent(
+                    "buffer_saved",
+                    new Dictionary<string, object?>
+                    {
+                        ["path"] = result.Path,
+                        ["id"] = CurrentBufferId,
+                    }
+                );
                 NotifyLspSaved();
 
                 // Saving an unnamed buffer assigns a path and therefore a
@@ -4865,8 +5076,7 @@ public sealed partial class Editor
             }
             else
             {
-                operation.Document.MarkSaved(result.Path, result.Pose,
-                    result.Revision);
+                operation.Document.MarkSaved(result.Path, result.Pose, result.Revision);
                 SetMessage($"Wrote {result.Path}");
             }
 
@@ -5026,9 +5236,7 @@ public sealed partial class Editor
         _selectionAnchor = _cursor;
         RefreshFileStamp();
         RefreshDiffLines();
-        SetMessage(line >= 0
-            ? $"Opened {path}:{line + 1}"
-            : $"Opened {path}");
+        SetMessage(line >= 0 ? $"Opened {path}:{line + 1}" : $"Opened {path}");
 
         Dictionary<string, object?> opened = CurrentBufferData();
         opened["line"] = line;
@@ -5079,14 +5287,15 @@ public sealed partial class Editor
     // NAVIGATION
     // -----------------------------------------------------------------------
 
-    private Selection CapturePrimarySelection() => new()
-    {
-        Cursor = _cursor,
-        Anchor = _selectionAnchor,
-        Linewise = _selectionLinewise,
-        PreferredColumn = _preferredColumn,
-        PreferredColumnValid = _preferredColumnValid
-    };
+    private Selection CapturePrimarySelection() =>
+        new()
+        {
+            Cursor = _cursor,
+            Anchor = _selectionAnchor,
+            Linewise = _selectionLinewise,
+            PreferredColumn = _preferredColumn,
+            PreferredColumnValid = _preferredColumnValid,
+        };
 
     private void LoadSelection(Selection selection)
     {
@@ -5101,7 +5310,7 @@ public sealed partial class Editor
     {
         var selections = new List<Selection>(_extraSelections.Count + 1)
         {
-            CapturePrimarySelection()
+            CapturePrimarySelection(),
         };
         foreach (Selection selection in _extraSelections)
         {
@@ -5135,7 +5344,7 @@ public sealed partial class Editor
                 Anchor = SnapOffset(source.Anchor),
                 Linewise = source.Linewise,
                 PreferredColumn = source.PreferredColumn,
-                PreferredColumnValid = source.PreferredColumnValid
+                PreferredColumnValid = source.PreferredColumnValid,
             };
 
             if (seen.Add(selection.Cursor))
@@ -5170,8 +5379,10 @@ public sealed partial class Editor
         Mode modeBefore = _mode;
         if (editing)
         {
-            Array.Sort(order, (left, right) =>
-                selections[right].Cursor.CompareTo(selections[left].Cursor));
+            Array.Sort(
+                order,
+                (left, right) => selections[right].Cursor.CompareTo(selections[left].Cursor)
+            );
             _document.BeginCompositeEdit();
         }
 
@@ -5199,10 +5410,8 @@ public sealed partial class Editor
                             continue;
                         }
 
-                        result.Cursor = AdjustOffset(result.Cursor, offset,
-                            removed, inserted);
-                        result.Anchor = AdjustOffset(result.Anchor, offset,
-                            removed, inserted);
+                        result.Cursor = AdjustOffset(result.Cursor, offset, removed, inserted);
+                        result.Anchor = AdjustOffset(result.Anchor, offset, removed, inserted);
                     }
                 }
 
@@ -5248,8 +5457,11 @@ public sealed partial class Editor
         long line = _document.LineOfOffset(offset);
         long begin = _document.LineStart(line);
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
-        return UnicodeUtil.VisualColumn(_lineBuffer.AsSpan(0, length),
-            (int)(offset - begin), TabWidth);
+        return UnicodeUtil.VisualColumn(
+            _lineBuffer.AsSpan(0, length),
+            (int)(offset - begin),
+            TabWidth
+        );
     }
 
     private long CursorLine() => _document.LineOfOffset(_cursor);
@@ -5345,8 +5557,13 @@ public sealed partial class Editor
 
         long start = _document.LineStart(target);
         int length = _document.CopyLineText(target, ref _lineBuffer, out _);
-        _cursor = start + UnicodeUtil.ByteOffsetForVisualColumn(
-            _lineBuffer.AsSpan(0, length), _preferredColumn, TabWidth);
+        _cursor =
+            start
+            + UnicodeUtil.ByteOffsetForVisualColumn(
+                _lineBuffer.AsSpan(0, length),
+                _preferredColumn,
+                TabWidth
+            );
 
         _document.BreakUndoGroup();
         SnapCursor();
@@ -5378,11 +5595,9 @@ public sealed partial class Editor
         SnapCursor();
     }
 
-    private void MoveToDocumentStart(bool recordJump)
-        => MoveTo(0, recordJump);
+    private void MoveToDocumentStart(bool recordJump) => MoveTo(0, recordJump);
 
-    private void MoveToDocumentEnd(bool recordJump)
-        => MoveTo(_document.Size, recordJump);
+    private void MoveToDocumentEnd(bool recordJump) => MoveTo(_document.Size, recordJump);
 
     private void MoveToPreviousLocation()
     {
@@ -5433,8 +5648,7 @@ public sealed partial class Editor
             return;
         }
 
-        if (_document.Path is not null &&
-            SamePath(_document.Path, location.Path))
+        if (_document.Path is not null && SamePath(_document.Path, location.Path))
         {
             MoveToLineColumn(location.Line, location.Column);
             return;
@@ -5477,8 +5691,8 @@ public sealed partial class Editor
         {
             return PathsEqual(Path.GetFullPath(left), Path.GetFullPath(right));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return PathsEqual(left, right);
         }
@@ -5556,10 +5770,14 @@ public sealed partial class Editor
         _preferredColumnValid = false;
         ClearMessage();
 
-        if (_extraSelections.Count == 0 && codePoint < 0x80 &&
-            !char.IsWhiteSpace((char)codePoint) &&
-            _lsp.IsRunning && _lsp.IsInitialized &&
-            _lsp.IsCompletionTriggerCharacter((char)codePoint))
+        if (
+            _extraSelections.Count == 0
+            && codePoint < 0x80
+            && !char.IsWhiteSpace((char)codePoint)
+            && _lsp.IsRunning
+            && _lsp.IsInitialized
+            && _lsp.IsCompletionTriggerCharacter((char)codePoint)
+        )
         {
             TryRequestLspCompletion(((char)codePoint).ToString());
         }
@@ -5996,8 +6214,11 @@ public sealed partial class Editor
         {
             payload.Append(content);
 
-            if (currentLineHasText && insertAt < _document.Size &&
-                (content.Length == 0 || content[^1] != (byte)'\n'))
+            if (
+                currentLineHasText
+                && insertAt < _document.Size
+                && (content.Length == 0 || content[^1] != (byte)'\n')
+            )
             {
                 payload.Append(eol);
             }
@@ -6053,11 +6274,10 @@ public sealed partial class Editor
     /// selections include the scalar under the cursor; line selections include
     /// the final line's terminator when one exists.
     /// </summary>
-    private (long Start, long End) SelectionRange()
-        => SelectionRange(_selectionAnchor, _cursor, _selectionLinewise);
+    private (long Start, long End) SelectionRange() =>
+        SelectionRange(_selectionAnchor, _cursor, _selectionLinewise);
 
-    private (long Start, long End) SelectionRange(long anchor, long cursor,
-        bool linewise)
+    private (long Start, long End) SelectionRange(long anchor, long cursor, bool linewise)
     {
         if (linewise)
         {
@@ -6066,9 +6286,10 @@ public sealed partial class Editor
             long firstLine = Math.Min(anchorLine, cursorLine);
             long lastLine = Math.Max(anchorLine, cursorLine);
             long start = _document.LineStart(firstLine);
-            long end = lastLine + 1 < _document.LineCount
-                ? _document.LineStart(lastLine + 1)
-                : _document.Size;
+            long end =
+                lastLine + 1 < _document.LineCount
+                    ? _document.LineStart(lastLine + 1)
+                    : _document.Size;
             return (start, end);
         }
 
@@ -6085,8 +6306,8 @@ public sealed partial class Editor
             {
                 int length = _document.CopyLineText(line, ref _lineBuffer, out _);
                 int local = (int)(rangeEnd - lineStart);
-                rangeEnd = lineStart +
-                           UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
+                rangeEnd =
+                    lineStart + UnicodeUtil.NextBoundary(_lineBuffer.AsSpan(0, length), local);
             }
             else if (rangeEnd == lineEnd && line + 1 < _document.LineCount)
             {
@@ -6157,16 +6378,29 @@ public sealed partial class Editor
         int targetLength = _document.CopyLineText(targetLine, ref _lineBuffer, out _);
         long cursorColumn = VisualColumnOfOffset(source.Cursor);
 
-        long targetCursor = targetStart + UnicodeUtil.ByteOffsetForVisualColumn(
-            _lineBuffer.AsSpan(0, targetLength), cursorColumn, TabWidth);
+        long targetCursor =
+            targetStart
+            + UnicodeUtil.ByteOffsetForVisualColumn(
+                _lineBuffer.AsSpan(0, targetLength),
+                cursorColumn,
+                TabWidth
+            );
         long targetAnchor = targetCursor;
 
-        if (_mode == Mode.Select && source.Anchor != source.Cursor &&
-            _document.LineOfOffset(source.Anchor) == sourceLine)
+        if (
+            _mode == Mode.Select
+            && source.Anchor != source.Cursor
+            && _document.LineOfOffset(source.Anchor) == sourceLine
+        )
         {
             long anchorColumn = VisualColumnOfOffset(source.Anchor);
-            targetAnchor = targetStart + UnicodeUtil.ByteOffsetForVisualColumn(
-                _lineBuffer.AsSpan(0, targetLength), anchorColumn, TabWidth);
+            targetAnchor =
+                targetStart
+                + UnicodeUtil.ByteOffsetForVisualColumn(
+                    _lineBuffer.AsSpan(0, targetLength),
+                    anchorColumn,
+                    TabWidth
+                );
         }
 
         created = new Selection
@@ -6175,7 +6409,7 @@ public sealed partial class Editor
             Anchor = targetAnchor,
             Linewise = source.Linewise,
             PreferredColumn = cursorColumn,
-            PreferredColumnValid = true
+            PreferredColumnValid = true,
         };
         return true;
     }
@@ -6246,8 +6480,7 @@ public sealed partial class Editor
         string blockStart = _language?.BlockCommentStart ?? string.Empty;
         string blockEnd = _language?.BlockCommentEnd ?? string.Empty;
 
-        if (string.IsNullOrEmpty(lineComment) &&
-            (blockStart.Length == 0 || blockEnd.Length == 0))
+        if (string.IsNullOrEmpty(lineComment) && (blockStart.Length == 0 || blockEnd.Length == 0))
         {
             SetError("No comment syntax is available for this language.");
             return;
@@ -6286,8 +6519,7 @@ public sealed partial class Editor
         ClearMessage();
     }
 
-    private void AddTouchedLines(SortedSet<long> lines, Selection selection,
-        bool selecting)
+    private void AddTouchedLines(SortedSet<long> lines, Selection selection, bool selecting)
     {
         if (!selecting || selection.Anchor == selection.Cursor)
         {
@@ -6304,17 +6536,17 @@ public sealed partial class Editor
         {
             firstLine = Math.Min(
                 _document.LineOfOffset(selection.Anchor),
-                _document.LineOfOffset(selection.Cursor));
+                _document.LineOfOffset(selection.Cursor)
+            );
             lastLine = Math.Max(
                 _document.LineOfOffset(selection.Anchor),
-                _document.LineOfOffset(selection.Cursor));
+                _document.LineOfOffset(selection.Cursor)
+            );
         }
         else
         {
             firstLine = _document.LineOfOffset(start);
-            lastLine = end > start
-                ? _document.LineOfOffset(end - 1)
-                : firstLine;
+            lastLine = end > start ? _document.LineOfOffset(end - 1) : firstLine;
         }
 
         for (long line = firstLine; line <= lastLine; ++line)
@@ -6326,8 +6558,7 @@ public sealed partial class Editor
     private static int IndentLength(ReadOnlySpan<byte> text)
     {
         int offset = 0;
-        while (offset < text.Length &&
-               (text[offset] == (byte)' ' || text[offset] == (byte)'\t'))
+        while (offset < text.Length && (text[offset] == (byte)' ' || text[offset] == (byte)'\t'))
         {
             ++offset;
         }
@@ -6337,23 +6568,22 @@ public sealed partial class Editor
     private static int TrimTrailingWhitespace(ReadOnlySpan<byte> text, int minimum)
     {
         int end = text.Length;
-        while (end > minimum &&
-               (text[end - 1] == (byte)' ' || text[end - 1] == (byte)'\t'))
+        while (end > minimum && (text[end - 1] == (byte)' ' || text[end - 1] == (byte)'\t'))
         {
             --end;
         }
         return end;
     }
 
-    private static bool StartsWith(ReadOnlySpan<byte> text,
-        ReadOnlySpan<byte> prefix)
-        => prefix.Length > 0 && text.Length >= prefix.Length &&
-           text[..prefix.Length].SequenceEqual(prefix);
+    private static bool StartsWith(ReadOnlySpan<byte> text, ReadOnlySpan<byte> prefix) =>
+        prefix.Length > 0
+        && text.Length >= prefix.Length
+        && text[..prefix.Length].SequenceEqual(prefix);
 
-    private static bool EndsWith(ReadOnlySpan<byte> text,
-        ReadOnlySpan<byte> suffix)
-        => suffix.Length > 0 && text.Length >= suffix.Length &&
-           text[^suffix.Length..].SequenceEqual(suffix);
+    private static bool EndsWith(ReadOnlySpan<byte> text, ReadOnlySpan<byte> suffix) =>
+        suffix.Length > 0
+        && text.Length >= suffix.Length
+        && text[^suffix.Length..].SequenceEqual(suffix);
 
     private void ToggleLineComments(SortedSet<long> lines, string marker)
     {
@@ -6403,8 +6633,7 @@ public sealed partial class Editor
         ApplyCommentChanges(changes);
     }
 
-    private void ToggleBlockComments(SortedSet<long> lines, string start,
-        string end)
+    private void ToggleBlockComments(SortedSet<long> lines, string start, string end)
     {
         byte[] startBytes = Encoding.UTF8.GetBytes(start);
         byte[] endBytes = Encoding.UTF8.GetBytes(end);
@@ -6416,9 +6645,11 @@ public sealed partial class Editor
             ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
             int indent = IndentLength(text);
             int contentEnd = TrimTrailingWhitespace(text, indent);
-            if (contentEnd <= indent ||
-                !StartsWith(text[indent..contentEnd], startBytes) ||
-                !EndsWith(text[indent..contentEnd], endBytes))
+            if (
+                contentEnd <= indent
+                || !StartsWith(text[indent..contentEnd], startBytes)
+                || !EndsWith(text[indent..contentEnd], endBytes)
+            )
             {
                 allBlocked = false;
                 break;
@@ -6446,8 +6677,10 @@ public sealed partial class Editor
 
                 long endOffset = lineStart + contentEnd - endBytes.Length;
                 int removeEnd = endBytes.Length;
-                if (endOffset > lineStart + indent + removeStart &&
-                    text[contentEnd - endBytes.Length - 1] == (byte)' ')
+                if (
+                    endOffset > lineStart + indent + removeStart
+                    && text[contentEnd - endBytes.Length - 1] == (byte)' '
+                )
                 {
                     --endOffset;
                     ++removeEnd;
@@ -6461,18 +6694,15 @@ public sealed partial class Editor
             }
             else
             {
-                changes.Add((lineStart + indent, 0,
-                    Encoding.UTF8.GetBytes(start + " ")));
-                changes.Add((lineStart + contentEnd, 0,
-                    Encoding.UTF8.GetBytes(" " + end)));
+                changes.Add((lineStart + indent, 0, Encoding.UTF8.GetBytes(start + " ")));
+                changes.Add((lineStart + contentEnd, 0, Encoding.UTF8.GetBytes(" " + end)));
             }
         }
 
         ApplyCommentChanges(changes);
     }
 
-    private void ApplyCommentChanges(
-        List<(long Offset, long Remove, byte[] Insert)> changes)
+    private void ApplyCommentChanges(List<(long Offset, long Remove, byte[] Insert)> changes)
     {
         if (changes.Count == 0)
         {
@@ -6491,10 +6721,8 @@ public sealed partial class Editor
 
             foreach (Selection selection in selections)
             {
-                selection.Cursor = AdjustOffset(selection.Cursor, offset, remove,
-                    insert.Length);
-                selection.Anchor = AdjustOffset(selection.Anchor, offset, remove,
-                    insert.Length);
+                selection.Cursor = AdjustOffset(selection.Cursor, offset, remove, insert.Length);
+                selection.Anchor = AdjustOffset(selection.Anchor, offset, remove, insert.Length);
             }
 
             _document.Replace(offset, remove, insert);
@@ -6504,8 +6732,7 @@ public sealed partial class Editor
         _document.BreakUndoGroup();
     }
 
-    private static long AdjustOffset(long position, long offset, long removed,
-        long inserted)
+    private static long AdjustOffset(long position, long offset, long removed, long inserted)
     {
         if (position < offset)
         {
@@ -6525,9 +6752,10 @@ public sealed partial class Editor
     private bool FindDialogFits()
     {
         int available = (int)Math.Max(0, StatusRow());
-        return available >= 5 && _columns >= 20 &&
-               FindDialogWidth() >= 20 &&
-               available >= FindDialogHeight() + 1;
+        return available >= 5
+            && _columns >= 20
+            && FindDialogWidth() >= 20
+            && available >= FindDialogHeight() + 1;
     }
 
     private int VisiblePaneRows(int paneY, int paneHeight, bool activePane)
@@ -6644,7 +6872,7 @@ public sealed partial class Editor
             Mode.Select => "SELECT",
             Mode.Command => "COMMAND",
             Mode.PluginPrompt => "PROMPT",
-            _ => "NORMAL"
+            _ => "NORMAL",
         };
     }
 
@@ -6729,12 +6957,17 @@ public sealed partial class Editor
             Style? highlight = LineHighlightStyle(line);
             if (highlight is { } rowStyle)
             {
-                _screen.Fill(_editorLeft, row,
-                    Math.Max(0, _columns - _editorLeft), 1, ' ', rowStyle);
+                _screen.Fill(
+                    _editorLeft,
+                    row,
+                    Math.Max(0, _columns - _editorLeft),
+                    1,
+                    ' ',
+                    rowStyle
+                );
             }
 
-            if (markerWidth > 0 &&
-                TryGetDiffMarker(line, out char marker, out Style markerStyle))
+            if (markerWidth > 0 && TryGetDiffMarker(line, out char marker, out Style markerStyle))
             {
                 if (highlight is { } markerHighlight)
                 {
@@ -6743,9 +6976,7 @@ public sealed partial class Editor
                 _screen.Put(_editorLeft, row, marker, markerStyle);
             }
 
-            Style style = line == current
-                ? _theme.CurrentLineNumberStyle
-                : _theme.MutedStyle;
+            Style style = line == current ? _theme.CurrentLineNumberStyle : _theme.MutedStyle;
             if (highlight is { } highlightStyle)
             {
                 style.Bg = highlightStyle.Bg;
@@ -6780,8 +7011,7 @@ public sealed partial class Editor
             Style? lineHighlight = LineHighlightStyle(line);
             if (lineHighlight is { } fillStyle)
             {
-                _screen.Fill(_editorLeft + gutter, row, textWidth, 1, ' ',
-                    fillStyle);
+                _screen.Fill(_editorLeft + gutter, row, textWidth, 1, ' ', fillStyle);
             }
 
             int offset = 0;
@@ -6790,15 +7020,13 @@ public sealed partial class Editor
             while (offset < length)
             {
                 int runeStart = offset;
-                while (tokenIndex < _lineTokens.Count &&
-                       _lineTokens[tokenIndex].End <= runeStart)
+                while (tokenIndex < _lineTokens.Count && _lineTokens[tokenIndex].End <= runeStart)
                 {
                     ++tokenIndex;
                 }
 
                 SyntaxTokenKind tokenKind = SyntaxTokenKind.Default;
-                if (tokenIndex < _lineTokens.Count &&
-                    _lineTokens[tokenIndex].Start <= runeStart)
+                if (tokenIndex < _lineTokens.Count && _lineTokens[tokenIndex].Start <= runeStart)
                 {
                     tokenKind = _lineTokens[tokenIndex].Kind;
                 }
@@ -6893,8 +7121,7 @@ public sealed partial class Editor
 
     private void RenderSelection(long firstLine, int rows, int gutter)
     {
-        if (_mode != Mode.Select || rows <= 0 ||
-            _columns <= _editorLeft + gutter)
+        if (_mode != Mode.Select || rows <= 0 || _columns <= _editorLeft + gutter)
         {
             return;
         }
@@ -6902,17 +7129,32 @@ public sealed partial class Editor
         foreach (Selection selection in CaptureAllSelections())
         {
             (long selectionStart, long selectionEnd) = SelectionRange(
-                selection.Anchor, selection.Cursor, selection.Linewise);
+                selection.Anchor,
+                selection.Cursor,
+                selection.Linewise
+            );
             if (selectionEnd > selectionStart)
             {
-                RenderSelectionRange(selectionStart, selectionEnd,
-                    selection.Linewise, firstLine, rows, gutter);
+                RenderSelectionRange(
+                    selectionStart,
+                    selectionEnd,
+                    selection.Linewise,
+                    firstLine,
+                    rows,
+                    gutter
+                );
             }
         }
     }
 
-    private void RenderSelectionRange(long selectionStart, long selectionEnd,
-        bool linewise, long firstLine, int rows, int gutter)
+    private void RenderSelectionRange(
+        long selectionStart,
+        long selectionEnd,
+        bool linewise,
+        long firstLine,
+        int rows,
+        int gutter
+    )
     {
         var style = _theme.SelectionStyle;
         long total = _document.LineCount;
@@ -6927,9 +7169,7 @@ public sealed partial class Editor
 
             long lineStart = _document.LineStart(line);
             long lineEnd = _document.LineEnd(line);
-            long nextLineStart = line + 1 < total
-                ? _document.LineStart(line + 1)
-                : _document.Size;
+            long nextLineStart = line + 1 < total ? _document.LineStart(line + 1) : _document.Size;
 
             if (linewise)
             {
@@ -6949,8 +7189,7 @@ public sealed partial class Editor
             {
                 // A selection that ends exactly on a line break still needs a
                 // visible cell when the line itself is empty.
-                if (selectionStart == lineStart && selectionEnd > lineStart &&
-                    lineEnd == lineStart)
+                if (selectionStart == lineStart && selectionEnd > lineStart && lineEnd == lineStart)
                 {
                     if (_editorLeft + gutter < _columns)
                     {
@@ -6965,14 +7204,21 @@ public sealed partial class Editor
             int localTo = (int)Math.Clamp(to - lineStart, 0, length);
 
             long visualFrom = UnicodeUtil.VisualColumn(
-                _lineBuffer.AsSpan(0, length), localFrom, TabWidth);
+                _lineBuffer.AsSpan(0, length),
+                localFrom,
+                TabWidth
+            );
             long visualTo = UnicodeUtil.VisualColumn(
-                _lineBuffer.AsSpan(0, length), localTo, TabWidth);
+                _lineBuffer.AsSpan(0, length),
+                localTo,
+                TabWidth
+            );
 
-            long firstX = Math.Max(_editorLeft + gutter,
-                _editorLeft + gutter + visualFrom - _leftColumn);
-            long lastX = Math.Min(_columns,
-                _editorLeft + gutter + visualTo - _leftColumn);
+            long firstX = Math.Max(
+                _editorLeft + gutter,
+                _editorLeft + gutter + visualFrom - _leftColumn
+            );
+            long lastX = Math.Min(_columns, _editorLeft + gutter + visualTo - _leftColumn);
 
             for (long x = firstX; x < lastX; ++x)
             {
@@ -6983,8 +7229,12 @@ public sealed partial class Editor
 
     private void RenderFindMatches(long firstLine, int rows, int gutter)
     {
-        if (!_findActive || _findMatches.Count == 0 || rows <= 0 ||
-            _columns <= _editorLeft + gutter)
+        if (
+            !_findActive
+            || _findMatches.Count == 0
+            || rows <= 0
+            || _columns <= _editorLeft + gutter
+        )
         {
             return;
         }
@@ -7010,15 +7260,22 @@ public sealed partial class Editor
             }
 
             long visualFrom = UnicodeUtil.VisualColumn(
-                _lineBuffer.AsSpan(0, length), localFrom, TabWidth);
+                _lineBuffer.AsSpan(0, length),
+                localFrom,
+                TabWidth
+            );
             long visualTo = UnicodeUtil.VisualColumn(
-                _lineBuffer.AsSpan(0, length), localTo, TabWidth);
+                _lineBuffer.AsSpan(0, length),
+                localTo,
+                TabWidth
+            );
 
             int row = (int)(match.Line - firstLine);
-            long firstX = Math.Max(_editorLeft + gutter,
-                _editorLeft + gutter + visualFrom - _leftColumn);
-            long lastX = Math.Min(_columns,
-                _editorLeft + gutter + visualTo - _leftColumn);
+            long firstX = Math.Max(
+                _editorLeft + gutter,
+                _editorLeft + gutter + visualFrom - _leftColumn
+            );
+            long lastX = Math.Min(_columns, _editorLeft + gutter + visualTo - _leftColumn);
 
             Style style = i == _findMatchIndex ? currentStyle : matchStyle;
             for (long x = firstX; x < lastX; ++x)
@@ -7146,8 +7403,7 @@ public sealed partial class Editor
             var diagnosticStyle = style;
             diagnosticStyle.Fg = _theme.Error;
             diagnosticStyle.Bold = true;
-            _screen.PutString(diagnosticX, (int)y, diagnostic,
-                diagnosticStyle, diagnosticWidth);
+            _screen.PutString(diagnosticX, (int)y, diagnostic, diagnosticStyle, diagnosticWidth);
         }
 
         int rightMax = _columns - rightX;
@@ -7180,8 +7436,13 @@ public sealed partial class Editor
             _screen.Put(BottomLinePadding, (int)y, ':', promptStyle);
 
             string line = _commandLine.ToString();
-            _screen.PutString(BottomLinePadding + 1, (int)y, line, baseStyle,
-                _columns - BottomLinePadding - 1);
+            _screen.PutString(
+                BottomLinePadding + 1,
+                (int)y,
+                line,
+                baseStyle,
+                _columns - BottomLinePadding - 1
+            );
 
             long visual = UnicodeUtil.VisualColumn(line, _commandCursor, 1);
             long x = BottomLinePadding + 1 + visual;
@@ -7199,25 +7460,28 @@ public sealed partial class Editor
             string text = _prompt switch
             {
                 PromptKind.Quit => "Unsaved changes. Quit without saving? (y/N)",
-                PromptKind.Open =>
-                    $"Unsaved changes. Discard and open '{_pendingOpen}'? (y/N)",
+                PromptKind.Open => $"Unsaved changes. Discard and open '{_pendingOpen}'? (y/N)",
                 PromptKind.SidebarDelete => _pendingSidebarDeletes.Count == 1
                     ? $"Delete '{Path.GetFileName(_pendingSidebarDeletes[0].Path)}'? (y/N)"
                     : $"Delete {_pendingSidebarDeletes.Count} selected items? (y/N)",
-                _ => string.Empty
+                _ => string.Empty,
             };
 
             var style = _theme.WarningStyle;
-            _screen.PutString(BottomLinePadding, (int)y, text, style,
-                _columns - BottomLinePadding);
+            _screen.PutString(BottomLinePadding, (int)y, text, style, _columns - BottomLinePadding);
             return;
         }
 
         if (_message.Length > 0)
         {
             var style = _messageIsError ? _theme.ErrorStyle : _theme.TextStyle;
-            _screen.PutString(BottomLinePadding, (int)y, _message, style,
-                _columns - BottomLinePadding);
+            _screen.PutString(
+                BottomLinePadding,
+                (int)y,
+                _message,
+                style,
+                _columns - BottomLinePadding
+            );
         }
     }
 
@@ -7309,9 +7573,8 @@ public sealed partial class Editor
             return;
         }
 
-        int rows = _completionItems.Count == 0
-            ? 1
-            : Math.Min(_completionItems.Count, CompletionMaxRows());
+        int rows =
+            _completionItems.Count == 0 ? 1 : Math.Min(_completionItems.Count, CompletionMaxRows());
         if (rows < 1)
         {
             return;
@@ -7336,11 +7599,10 @@ public sealed partial class Editor
             CompletionKind.Arguments =>
                 $"Values {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}",
             _ =>
-                $"Commands {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}"
+                $"Commands {(_completionItems.Count == 0 ? 0 : _completionSelected + 1)}/{_completionItems.Count}",
         };
 
-        int desiredWidth = Math.Max(title.Length + 6,
-            _completionStatus.Length + 6);
+        int desiredWidth = Math.Max(title.Length + 6, _completionStatus.Length + 6);
         for (int row = 0; row < rows; ++row)
         {
             int index = _completionTop + row;
@@ -7348,17 +7610,14 @@ public sealed partial class Editor
             {
                 break;
             }
-            desiredWidth = Math.Max(desiredWidth,
-                _completionItems[index].Length + 4);
+            desiredWidth = Math.Max(desiredWidth, _completionItems[index].Length + 4);
         }
 
         string description = string.Empty;
         string descriptionTitle = "Description";
-        if (_completionKind == CompletionKind.Commands &&
-            _completionItems.Count > 0)
+        if (_completionKind == CompletionKind.Commands && _completionItems.Count > 0)
         {
-            int selectedIndex = Math.Clamp(_completionSelected, 0,
-                _completionItems.Count - 1);
+            int selectedIndex = Math.Clamp(_completionSelected, 0, _completionItems.Count - 1);
             string commandName = _completionItems[selectedIndex];
             description = CommandDescription(commandName);
             if (description.Length == 0)
@@ -7391,8 +7650,7 @@ public sealed partial class Editor
         if (_completionItems.Count == 0)
         {
             var emptyStyle = _theme.WarningStyle;
-            _screen.PutString(x + 2, y + 1, _completionStatus, emptyStyle,
-                width - 4);
+            _screen.PutString(x + 2, y + 1, _completionStatus, emptyStyle, width - 4);
             return;
         }
 
@@ -7410,8 +7668,7 @@ public sealed partial class Editor
             int screenRow = y + 1 + row;
             Style style = index == _completionSelected ? selectedStyle : itemStyle;
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
-            _screen.PutString(x + 2, screenRow, _completionItems[index], style,
-                width - 4);
+            _screen.PutString(x + 2, screenRow, _completionItems[index], style, width - 4);
         }
 
         if (description.Length > 0)
@@ -7420,26 +7677,36 @@ public sealed partial class Editor
             int descriptionWidth = Math.Min(56, _columns - descriptionX - 1);
             if (descriptionWidth >= 16)
             {
-                List<string> descriptionLines = WrapText(description,
-                    descriptionWidth - 4);
+                List<string> descriptionLines = WrapText(description, descriptionWidth - 4);
                 int maxDescriptionRows = Math.Max(1, available - 2);
                 if (descriptionLines.Count > maxDescriptionRows)
                 {
-                    descriptionLines.RemoveRange(maxDescriptionRows,
-                        descriptionLines.Count - maxDescriptionRows);
+                    descriptionLines.RemoveRange(
+                        maxDescriptionRows,
+                        descriptionLines.Count - maxDescriptionRows
+                    );
                 }
 
                 int descriptionHeight = descriptionLines.Count + 2;
                 int descriptionY = Math.Max(0, available - descriptionHeight);
-                DrawBox(descriptionX, descriptionY, descriptionWidth,
-                    descriptionHeight, descriptionTitle);
+                DrawBox(
+                    descriptionX,
+                    descriptionY,
+                    descriptionWidth,
+                    descriptionHeight,
+                    descriptionTitle
+                );
 
                 var descriptionStyle = _theme.TextStyle;
                 for (int row = 0; row < descriptionLines.Count; ++row)
                 {
-                    _screen.PutString(descriptionX + 2,
-                        descriptionY + 1 + row, descriptionLines[row],
-                        descriptionStyle, descriptionWidth - 4);
+                    _screen.PutString(
+                        descriptionX + 2,
+                        descriptionY + 1 + row,
+                        descriptionLines[row],
+                        descriptionStyle,
+                        descriptionWidth - 4
+                    );
                 }
             }
         }
@@ -7529,9 +7796,8 @@ public sealed partial class Editor
         }
         else if (_findMultiCursor)
         {
-            title = _findScope.Count > 0
-                ? "Find in selection (multi-cursor)"
-                : "Find (multi-cursor)";
+            title =
+                _findScope.Count > 0 ? "Find in selection (multi-cursor)" : "Find (multi-cursor)";
         }
         else
         {
@@ -7563,30 +7829,29 @@ public sealed partial class Editor
             int fieldX = x + 2 + labelWidth;
             int fieldWidth = Math.Max(0, width - labelWidth - 4);
 
-            Style findLabelStyle = _findEditingReplacement
-                ? mutedStyle
-                : promptStyle;
-            Style replaceLabelStyle = _findEditingReplacement
-                ? promptStyle
-                : mutedStyle;
+            Style findLabelStyle = _findEditingReplacement ? mutedStyle : promptStyle;
+            Style replaceLabelStyle = _findEditingReplacement ? promptStyle : mutedStyle;
 
             _screen.PutString(x + 2, y + 1, "Find", findLabelStyle, labelWidth);
             _screen.PutString(fieldX, y + 1, query, queryStyle, fieldWidth);
-            _screen.PutString(x + 2, y + 2, "Replace", replaceLabelStyle,
-                labelWidth);
+            _screen.PutString(x + 2, y + 2, "Replace", replaceLabelStyle, labelWidth);
             _screen.PutString(fieldX, y + 2, replacement, queryStyle, fieldWidth);
 
             if (_findEditing)
             {
                 if (_findEditingReplacement)
                 {
-                    RenderFindCursor(fieldX, y + 2, replacement,
-                        _findReplacementCursor, fieldWidth);
+                    RenderFindCursor(
+                        fieldX,
+                        y + 2,
+                        replacement,
+                        _findReplacementCursor,
+                        fieldWidth
+                    );
                 }
                 else
                 {
-                    RenderFindCursor(fieldX, y + 1, query, _findQueryCursor,
-                        fieldWidth);
+                    RenderFindCursor(fieldX, y + 1, query, _findQueryCursor, fieldWidth);
                 }
             }
         }
@@ -7599,9 +7864,7 @@ public sealed partial class Editor
         }
         else if (query.Length == 0)
         {
-            status = _findRegex
-                ? "Type a regular expression"
-                : "Type to search";
+            status = _findRegex ? "Type a regular expression" : "Type to search";
         }
         else if (_findMatches.Count == 0)
         {
@@ -7616,9 +7879,7 @@ public sealed partial class Editor
             }
             else
             {
-                string enterHint = _findMultiCursor
-                    ? "Enter: select all"
-                    : "Enter: navigate";
+                string enterHint = _findMultiCursor ? "Enter: select all" : "Enter: navigate";
                 status = _findEditing
                     ? $"{position}/{_findMatches.Count} matches  {enterHint}  Esc: cancel"
                     : $"{position}/{_findMatches.Count} matches  n: next  p: previous  Esc: exit";
@@ -7628,9 +7889,10 @@ public sealed partial class Editor
         if (_findReplace)
         {
             _screen.PutString(x + 2, y + 3, status, statusStyle, width - 4);
-            string hint = _findError.Length > 0
-                ? "Esc: close"
-                : "Tab: switch  Enter: replace  Ctrl+A: replace all  Esc: close";
+            string hint =
+                _findError.Length > 0
+                    ? "Esc: close"
+                    : "Tab: switch  Enter: replace  Ctrl+A: replace all  Esc: close";
             _screen.PutString(x + 2, y + 4, hint, mutedStyle, width - 4);
         }
         else
@@ -7691,16 +7953,14 @@ public sealed partial class Editor
         string title = _pickerKind switch
         {
             PickerKind.Files => _pickerTitle.Length > 0 ? _pickerTitle : "Open file",
-            PickerKind.Plugin => _pluginSelectTitle.Length > 0
-                ? _pluginSelectTitle
-                : "Select",
+            PickerKind.Plugin => _pluginSelectTitle.Length > 0 ? _pluginSelectTitle : "Select",
             PickerKind.CodeActions => "Code actions",
             PickerKind.Problems => _problemsWorkspace
                 ? "Workspace diagnostics"
                 : "Document diagnostics",
             PickerKind.Palette => "Command palette",
             PickerKind.Themes => "Select theme",
-            _ => "Search across files"
+            _ => "Search across files",
         };
 
         DrawBox(x, y, width, height, title);
@@ -7737,12 +7997,9 @@ public sealed partial class Editor
             }
 
             int screenRow = y + 2 + row;
-            Style style = index == _pickerSelected
-                ? selectedStyle
-                : _theme.TextStyle;
+            Style style = index == _pickerSelected ? selectedStyle : _theme.TextStyle;
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
-            _screen.PutString(x + 2, screenRow, _pickerItems[index].Display, style,
-                width - 4);
+            _screen.PutString(x + 2, screenRow, _pickerItems[index].Display, style, width - 4);
         }
 
         string status = _pickerLoading
@@ -7750,9 +8007,10 @@ public sealed partial class Editor
             : _pickerStatus;
         if (status.Length == 0)
         {
-            status = _pickerItems.Count == 0
-                ? "No items"
-                : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
+            status =
+                _pickerItems.Count == 0
+                    ? "No items"
+                    : $"{_pickerItems.Count} item{(_pickerItems.Count == 1 ? string.Empty : "s")}";
         }
 
         var statusStyle = _theme.AccentStyle;
@@ -7779,9 +8037,7 @@ public sealed partial class Editor
             }
         }
 
-        string title = relativePath.Length > 0
-            ? $"Preview: {relativePath}"
-            : "Preview";
+        string title = relativePath.Length > 0 ? $"Preview: {relativePath}" : "Preview";
         if (_pickerPreviewStatus.Length > 0)
         {
             title += $" — {_pickerPreviewStatus}";
@@ -7797,8 +8053,7 @@ public sealed partial class Editor
 
         if (_pickerPreviewStatus.StartsWith("E: ", StringComparison.Ordinal))
         {
-            _screen.PutString(x + 2, y + 1, _pickerPreviewStatus, errorStyle,
-                contentWidth);
+            _screen.PutString(x + 2, y + 1, _pickerPreviewStatus, errorStyle, contentWidth);
             return;
         }
 
@@ -7810,9 +8065,13 @@ public sealed partial class Editor
 
         if (_pickerPreviewLines.Count == 0)
         {
-            _screen.PutString(x + 2, y + 1,
+            _screen.PutString(
+                x + 2,
+                y + 1,
                 _pickerPreviewStatus.Length > 0 ? _pickerPreviewStatus : "No preview",
-                dimStyle, contentWidth);
+                dimStyle,
+                contentWidth
+            );
             return;
         }
 
@@ -7829,13 +8088,25 @@ public sealed partial class Editor
                 continue;
             }
 
-            RenderPreviewHighlightedLine(x + 2, y + 1 + row, line, language,
-                ref inBlock, contentWidth);
+            RenderPreviewHighlightedLine(
+                x + 2,
+                y + 1 + row,
+                line,
+                language,
+                ref inBlock,
+                contentWidth
+            );
         }
     }
 
-    private void RenderPreviewHighlightedLine(int x, int y, string line,
-        LanguageDefinition language, ref bool inBlock, int width)
+    private void RenderPreviewHighlightedLine(
+        int x,
+        int y,
+        string line,
+        LanguageDefinition language,
+        ref bool inBlock,
+        int width
+    )
     {
         if (width <= 0)
         {
@@ -7844,8 +8115,7 @@ public sealed partial class Editor
 
         byte[] bytes = Encoding.UTF8.GetBytes(line);
         _lineTokens.Clear();
-        SyntaxHighlighter.GetLineTokens(language, bytes, inBlock, _lineTokens,
-            out inBlock);
+        SyntaxHighlighter.GetLineTokens(language, bytes, inBlock, _lineTokens, out inBlock);
 
         var textStyle = _theme.TextStyle;
         int column = 0;
@@ -7937,12 +8207,15 @@ public sealed partial class Editor
             case Key.PageDown:
                 _hoverTop = Math.Min(
                     Math.Max(0, _hoverLines.Count - HoverContentRows()),
-                    _hoverTop + Math.Max(1, HoverContentRows()));
+                    _hoverTop + Math.Max(1, HoverContentRows())
+                );
                 return;
         }
 
-        if (inputEvent.Key == Key.Character &&
-            (inputEvent.Character.Value == 'q' || inputEvent.Character.Value == 'Q'))
+        if (
+            inputEvent.Key == Key.Character
+            && (inputEvent.Character.Value == 'q' || inputEvent.Character.Value == 'Q')
+        )
         {
             CloseHover();
         }
@@ -8000,11 +8273,15 @@ public sealed partial class Editor
                     break;
                 }
 
-                Style segmentStyle = segment.Kind == SyntaxTokenKind.Default
-                    ? style
-                    : TokenStyle(segment.Kind);
-                _screen.PutString(x + 2 + column, y + 1 + row, segment.Text,
-                    segmentStyle, contentWidth - column);
+                Style segmentStyle =
+                    segment.Kind == SyntaxTokenKind.Default ? style : TokenStyle(segment.Kind);
+                _screen.PutString(
+                    x + 2 + column,
+                    y + 1 + row,
+                    segment.Text,
+                    segmentStyle,
+                    contentWidth - column
+                );
                 column += (int)UnicodeUtil.ColumnWidth(segment.Text);
             }
         }

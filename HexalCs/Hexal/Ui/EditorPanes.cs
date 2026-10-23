@@ -11,7 +11,7 @@ public sealed partial class Editor
     private enum PaneSplitOrientation
     {
         Vertical,
-        Horizontal
+        Horizontal,
     }
 
     private enum PaneDirection
@@ -19,7 +19,7 @@ public sealed partial class Editor
         Left,
         Right,
         Up,
-        Down
+        Down,
     }
 
     private abstract class PaneNode
@@ -77,24 +77,11 @@ public sealed partial class Editor
         public long DiffRevision = -1;
     }
 
-    private readonly record struct PaneView(
-        EditorPane Pane,
-        int X,
-        int Y,
-        int Width,
-        int Height);
+    private readonly record struct PaneView(EditorPane Pane, int X, int Y, int Width, int Height);
 
-    private readonly record struct PaneBounds(
-        int X,
-        int Y,
-        int Width,
-        int Height);
+    private readonly record struct PaneBounds(int X, int Y, int Width, int Height);
 
-    private readonly record struct PaneDivider(
-        int X,
-        int Y,
-        int Length,
-        bool Vertical);
+    private readonly record struct PaneDivider(int X, int Y, int Length, bool Vertical);
 
     private const int MinPaneSplitWidth = 12;
     private const int MinPaneSplitHeight = 3;
@@ -219,7 +206,7 @@ public sealed partial class Editor
             DiffLines = new Dictionary<long, GitDiffLineKind>(source.DiffLines),
             DiffBaseline = source.DiffBaseline,
             DiffBaselinePath = source.DiffBaselinePath,
-            DiffRevision = source.DiffRevision
+            DiffRevision = source.DiffRevision,
         };
         pane.Syntax.SetDocument(pane.Document, pane.Language);
         return pane;
@@ -230,9 +217,8 @@ public sealed partial class Editor
         return node switch
         {
             PaneLeaf leaf when ReferenceEquals(leaf.Pane, pane) => leaf,
-            PaneSplit split => FindPaneLeaf(split.First, pane) ??
-                               FindPaneLeaf(split.Second, pane),
-            _ => null
+            PaneSplit split => FindPaneLeaf(split.First, pane) ?? FindPaneLeaf(split.Second, pane),
+            _ => null,
         };
     }
 
@@ -241,9 +227,9 @@ public sealed partial class Editor
         return node switch
         {
             PaneLeaf leaf => ReferenceEquals(leaf.Pane, pane),
-            PaneSplit split => PaneNodeContains(split.First, pane) ||
-                               PaneNodeContains(split.Second, pane),
-            _ => false
+            PaneSplit split => PaneNodeContains(split.First, pane)
+                || PaneNodeContains(split.Second, pane),
+            _ => false,
         };
     }
 
@@ -294,15 +280,19 @@ public sealed partial class Editor
     {
         ComputePaneLayout();
         PaneBounds bounds = ActivePaneBounds();
-        if (orientation == PaneSplitOrientation.Vertical &&
-            bounds.Width < MinPaneSplitWidth * 2 + 1)
+        if (
+            orientation == PaneSplitOrientation.Vertical
+            && bounds.Width < MinPaneSplitWidth * 2 + 1
+        )
         {
             SetError("Pane is too narrow to split vertically.");
             return;
         }
 
-        if (orientation == PaneSplitOrientation.Horizontal &&
-            bounds.Height < MinPaneSplitHeight * 2 + 1)
+        if (
+            orientation == PaneSplitOrientation.Horizontal
+            && bounds.Height < MinPaneSplitHeight * 2 + 1
+        )
         {
             SetError("Pane is too short to split horizontally.");
             return;
@@ -323,7 +313,7 @@ public sealed partial class Editor
             Orientation = orientation,
             Ratio = 0.5,
             First = leaf,
-            Second = createdLeaf
+            Second = createdLeaf,
         };
 
         ReplacePaneNode(leaf, split);
@@ -333,9 +323,11 @@ public sealed partial class Editor
         _pendingG = false;
         SwitchToPane(created);
         _forceFullRedraw = true;
-        SetMessage(orientation == PaneSplitOrientation.Vertical
-            ? "Split pane vertically."
-            : "Split pane horizontally.");
+        SetMessage(
+            orientation == PaneSplitOrientation.Vertical
+                ? "Split pane vertically."
+                : "Split pane horizontally."
+        );
     }
 
     private void CloseCurrentBuffer()
@@ -367,8 +359,8 @@ public sealed partial class Editor
 
         Document document = _document;
         bool displayedElsewhere = panes.Any(pane =>
-            !ReferenceEquals(pane, _activePane) &&
-            ReferenceEquals(pane.Document, document));
+            !ReferenceEquals(pane, _activePane) && ReferenceEquals(pane.Document, document)
+        );
         if (document.IsDirty && !displayedElsewhere)
         {
             SetError("Save the buffer before closing its last pane.");
@@ -376,9 +368,7 @@ public sealed partial class Editor
         }
 
         PaneSplit split = leaf.Parent;
-        PaneNode sibling = ReferenceEquals(split.First, leaf)
-            ? split.Second
-            : split.First;
+        PaneNode sibling = ReferenceEquals(split.First, leaf) ? split.Second : split.First;
 
         ReplacePaneNode(split, sibling);
         split.Parent = null;
@@ -469,8 +459,7 @@ public sealed partial class Editor
                 continue;
             }
 
-            if (overlap > bestOverlap ||
-                (overlap == bestOverlap && distance < bestDistance))
+            if (overlap > bestOverlap || (overlap == bestOverlap && distance < bestDistance))
             {
                 choice = candidate;
                 bestOverlap = overlap;
@@ -486,30 +475,34 @@ public sealed partial class Editor
         }
     }
 
-    private static int Overlap(PaneView current, PaneView candidate,
-        PaneDirection direction)
+    private static int Overlap(PaneView current, PaneView candidate, PaneDirection direction)
     {
         return direction is PaneDirection.Left or PaneDirection.Right
-            ? Math.Max(0, Math.Min(current.Y + current.Height,
-                candidate.Y + candidate.Height) - Math.Max(current.Y, candidate.Y))
-            : Math.Max(0, Math.Min(current.X + current.Width,
-                candidate.X + candidate.Width) - Math.Max(current.X, candidate.X));
+            ? Math.Max(
+                0,
+                Math.Min(current.Y + current.Height, candidate.Y + candidate.Height)
+                    - Math.Max(current.Y, candidate.Y)
+            )
+            : Math.Max(
+                0,
+                Math.Min(current.X + current.Width, candidate.X + candidate.Width)
+                    - Math.Max(current.X, candidate.X)
+            );
     }
 
-    private static int Distance(PaneView current, PaneView candidate,
-        PaneDirection direction)
+    private static int Distance(PaneView current, PaneView candidate, PaneDirection direction)
     {
         return direction switch
         {
-            PaneDirection.Left when candidate.X + candidate.Width <= current.X =>
-                current.X - (candidate.X + candidate.Width),
-            PaneDirection.Right when candidate.X >= current.X + current.Width =>
-                candidate.X - (current.X + current.Width),
-            PaneDirection.Up when candidate.Y + candidate.Height <= current.Y =>
-                current.Y - (candidate.Y + candidate.Height),
-            PaneDirection.Down when candidate.Y >= current.Y + current.Height =>
-                candidate.Y - (current.Y + current.Height),
-            _ => -1
+            PaneDirection.Left when candidate.X + candidate.Width <= current.X => current.X
+                - (candidate.X + candidate.Width),
+            PaneDirection.Right when candidate.X >= current.X + current.Width => candidate.X
+                - (current.X + current.Width),
+            PaneDirection.Up when candidate.Y + candidate.Height <= current.Y => current.Y
+                - (candidate.Y + candidate.Height),
+            PaneDirection.Down when candidate.Y >= current.Y + current.Height => candidate.Y
+                - (current.Y + current.Height),
+            _ => -1,
         };
     }
 
@@ -559,8 +552,7 @@ public sealed partial class Editor
         {
             direction = PaneDirection.Down;
         }
-        else if (inputEvent.Key == Key.Character && !inputEvent.Ctrl &&
-                 !inputEvent.Alt)
+        else if (inputEvent.Key == Key.Character && !inputEvent.Ctrl && !inputEvent.Alt)
         {
             char key = (char)inputEvent.Character.Value;
             switch (key)
@@ -624,8 +616,7 @@ public sealed partial class Editor
         return new PaneBounds(_editorLeft, 0, width, height);
     }
 
-    private int ActivePaneRows()
-        => Math.Max(0, ActivePaneBounds().Height);
+    private int ActivePaneRows() => Math.Max(0, ActivePaneBounds().Height);
 
     private void ComputePaneLayout()
     {
@@ -786,16 +777,14 @@ public sealed partial class Editor
             {
                 for (int row = 0; row < divider.Length; ++row)
                 {
-                    _screen.Put(divider.X, divider.Y + row, '\u2502',
-                        _theme.BorderStyle);
+                    _screen.Put(divider.X, divider.Y + row, '\u2502', _theme.BorderStyle);
                 }
             }
             else
             {
                 for (int column = 0; column < divider.Length; ++column)
                 {
-                    _screen.Put(divider.X + column, divider.Y, '\u2500',
-                        _theme.BorderStyle);
+                    _screen.Put(divider.X + column, divider.Y, '\u2500', _theme.BorderStyle);
                 }
             }
         }
@@ -807,8 +796,7 @@ public sealed partial class Editor
         ComputePaneLayout();
         foreach (PaneView view in _paneViews)
         {
-            if (x >= view.X && x < view.X + view.Width &&
-                y >= view.Y && y < view.Y + view.Height)
+            if (x >= view.X && x < view.X + view.Width && y >= view.Y && y < view.Y + view.Height)
             {
                 pane = view.Pane;
                 return true;
@@ -837,9 +825,7 @@ public sealed partial class Editor
         var seen = new HashSet<Document>(ReferenceEqualityComparer.Instance);
         foreach (EditorPane pane in AllPanes())
         {
-            Document document = ReferenceEquals(pane, _activePane)
-                ? _document
-                : pane.Document;
+            Document document = ReferenceEquals(pane, _activePane) ? _document : pane.Document;
             if (document.IsDirty && seen.Add(document))
             {
                 return true;

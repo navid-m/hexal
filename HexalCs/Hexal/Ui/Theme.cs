@@ -76,107 +76,144 @@ public sealed class Theme
 
     public Style TextStyle => new() { Fg = Foreground, Bg = Background };
 
-    public Style MutedStyle => new() { Fg = Muted, Bg = Background, Dim = true };
+    public Style MutedStyle =>
+        new()
+        {
+            Fg = Muted,
+            Bg = Background,
+            Dim = true,
+        };
 
-    public Style AccentStyle => new() { Fg = Accent, Bg = Background, Bold = true };
+    public Style AccentStyle =>
+        new()
+        {
+            Fg = Accent,
+            Bg = Background,
+            Bold = true,
+        };
 
-    public Style BorderStyle => new() { Fg = Border, Bg = Background, Dim = true };
+    public Style BorderStyle =>
+        new()
+        {
+            Fg = Border,
+            Bg = Background,
+            Dim = true,
+        };
 
-    public Style ErrorStyle => new() { Fg = Error, Bg = Background, Bold = true };
+    public Style ErrorStyle =>
+        new()
+        {
+            Fg = Error,
+            Bg = Background,
+            Bold = true,
+        };
 
-    public Style WarningStyle => new() { Fg = Warning, Bg = Background, Bold = true };
+    public Style WarningStyle =>
+        new()
+        {
+            Fg = Warning,
+            Bg = Background,
+            Bold = true,
+        };
 
-    public Style SelectionStyle => new()
-    {
-        Fg = SelectionForeground,
-        Bg = SelectionBackground
-    };
+    public Style SelectionStyle => new() { Fg = SelectionForeground, Bg = SelectionBackground };
 
-    public Style SelectedItemStyle => new()
-    {
-        Fg = SelectionForeground,
-        Bg = SelectionBackground,
-        Bold = true
-    };
+    public Style SelectedItemStyle =>
+        new()
+        {
+            Fg = SelectionForeground,
+            Bg = SelectionBackground,
+            Bold = true,
+        };
 
-    public Style StatusStyle => new()
-    {
-        Fg = StatusForeground,
-        Bg = StatusBackground,
-        Bold = true
-    };
+    public Style StatusStyle =>
+        new()
+        {
+            Fg = StatusForeground,
+            Bg = StatusBackground,
+            Bold = true,
+        };
 
-    public Style InsertStatusStyle => new()
-    {
-        Fg = InsertForeground,
-        Bg = InsertBackground,
-        Bold = true
-    };
+    public Style InsertStatusStyle =>
+        new()
+        {
+            Fg = InsertForeground,
+            Bg = InsertBackground,
+            Bold = true,
+        };
 
-    public Style SelectStatusStyle => new()
-    {
-        Fg = SelectForeground,
-        Bg = SelectBackground,
-        Bold = true
-    };
+    public Style SelectStatusStyle =>
+        new()
+        {
+            Fg = SelectForeground,
+            Bg = SelectBackground,
+            Bold = true,
+        };
 
-    public Style PromptStatusStyle => new()
-    {
-        Fg = AlertForeground,
-        Bg = AlertBackground,
-        Bold = true
-    };
+    public Style PromptStatusStyle =>
+        new()
+        {
+            Fg = AlertForeground,
+            Bg = AlertBackground,
+            Bold = true,
+        };
 
-    public Style CommandStatusStyle => new()
-    {
-        Fg = CommandForeground,
-        Bg = CommandBackground,
-        Bold = true
-    };
+    public Style CommandStatusStyle =>
+        new()
+        {
+            Fg = CommandForeground,
+            Bg = CommandBackground,
+            Bold = true,
+        };
 
     public Style MatchStyle => new() { Fg = MatchForeground, Bg = MatchBackground };
 
-    public Style CurrentMatchStyle => new()
-    {
-        Fg = CurrentMatchForeground,
-        Bg = CurrentMatchBackground,
-        Bold = true
-    };
+    public Style CurrentMatchStyle =>
+        new()
+        {
+            Fg = CurrentMatchForeground,
+            Bg = CurrentMatchBackground,
+            Bold = true,
+        };
 
-    public Style CurrentLineNumberStyle => new()
-    {
-        Fg = Foreground,
-        Bg = Background,
-        Bold = true
-    };
+    public Style CurrentLineNumberStyle =>
+        new()
+        {
+            Fg = Foreground,
+            Bg = Background,
+            Bold = true,
+        };
 
-    public Style DiffAddedStyle => new()
-    {
-        Fg = DiffAdded,
-        Bg = Background,
-        Bold = true
-    };
+    public Style DiffAddedStyle =>
+        new()
+        {
+            Fg = DiffAdded,
+            Bg = Background,
+            Bold = true,
+        };
 
-    public Style DiffDeletedStyle => new()
-    {
-        Fg = DiffDeleted,
-        Bg = Background,
-        Bold = true
-    };
+    public Style DiffDeletedStyle =>
+        new()
+        {
+            Fg = DiffDeleted,
+            Bg = Background,
+            Bold = true,
+        };
 
-    public Style DiffModifiedStyle => new()
-    {
-        Fg = DiffModified,
-        Bg = Background,
-        Bold = true
-    };
+    public Style DiffModifiedStyle =>
+        new()
+        {
+            Fg = DiffModified,
+            Bg = Background,
+            Bold = true,
+        };
 
     public Style SyntaxStyle(uint foreground) => new() { Fg = foreground, Bg = Background };
 
     public static Theme CreateDefault() => new();
 
-    public static uint Rgb(byte red, byte green, byte blue)
-        => TrueColorFlag | ((uint)red << 16) | ((uint)green << 8) | blue;
+    public static uint Rgb(byte red, byte green, byte blue) =>
+        TrueColorFlag | ((uint)red << 16) | ((uint)green << 8) | blue;
 
     public static bool IsTrueColor(uint color) => (color & TrueColorFlag) != 0;
 
@@ -186,20 +223,21 @@ public sealed class Theme
 
     public static byte Blue(uint color) => (byte)(color & 0xFF);
 
-    public static bool TryParse(string json, string sourcePath, out Theme? theme,
-        out string error)
+    public static bool TryParse(string json, string sourcePath, out Theme? theme, out string error)
     {
         theme = null;
         error = string.Empty;
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(json,
+            using JsonDocument document = JsonDocument.Parse(
+                json,
                 new JsonDocumentOptions
                 {
                     AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                });
+                    CommentHandling = JsonCommentHandling.Skip,
+                }
+            );
 
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
@@ -228,10 +266,8 @@ public sealed class Theme
                     return false;
                 }
 
-                result.Foreground = ReadColor(colors, "foreground", result.Foreground,
-                    ref error);
-                result.Background = ReadColor(colors, "background", result.Background,
-                    ref error);
+                result.Foreground = ReadColor(colors, "foreground", result.Foreground, ref error);
+                result.Background = ReadColor(colors, "background", result.Background, ref error);
                 result.Muted = ReadColor(colors, "muted", result.Muted, ref error);
                 result.Accent = ReadColor(colors, "accent", result.Accent, ref error);
                 result.Border = ReadColor(colors, "border", result.Border, ref error);
@@ -240,32 +276,68 @@ public sealed class Theme
                 result.Success = ReadColor(colors, "success", result.Success, ref error);
 
                 (result.AlertForeground, result.AlertBackground) = ReadPair(
-                    colors, "alert", result.AlertForeground,
-                    result.AlertBackground, ref error);
+                    colors,
+                    "alert",
+                    result.AlertForeground,
+                    result.AlertBackground,
+                    ref error
+                );
                 (result.SelectionForeground, result.SelectionBackground) = ReadPair(
-                    colors, "selection", result.SelectionForeground,
-                    result.SelectionBackground, ref error);
+                    colors,
+                    "selection",
+                    result.SelectionForeground,
+                    result.SelectionBackground,
+                    ref error
+                );
                 (result.StatusForeground, result.StatusBackground) = ReadPair(
-                    colors, "status", result.StatusForeground,
-                    result.StatusBackground, ref error);
+                    colors,
+                    "status",
+                    result.StatusForeground,
+                    result.StatusBackground,
+                    ref error
+                );
                 (result.InsertForeground, result.InsertBackground) = ReadPair(
-                    colors, "insert", result.InsertForeground,
-                    result.InsertBackground, ref error);
+                    colors,
+                    "insert",
+                    result.InsertForeground,
+                    result.InsertBackground,
+                    ref error
+                );
                 (result.SelectForeground, result.SelectBackground) = ReadPair(
-                    colors, "select", result.SelectForeground,
-                    result.SelectBackground, ref error);
+                    colors,
+                    "select",
+                    result.SelectForeground,
+                    result.SelectBackground,
+                    ref error
+                );
                 (result.PromptForeground, result.PromptBackground) = ReadPair(
-                    colors, "prompt", result.PromptForeground,
-                    result.PromptBackground, ref error);
+                    colors,
+                    "prompt",
+                    result.PromptForeground,
+                    result.PromptBackground,
+                    ref error
+                );
                 (result.CommandForeground, result.CommandBackground) = ReadPair(
-                    colors, "command", result.CommandForeground,
-                    result.CommandBackground, ref error);
+                    colors,
+                    "command",
+                    result.CommandForeground,
+                    result.CommandBackground,
+                    ref error
+                );
                 (result.MatchForeground, result.MatchBackground) = ReadPair(
-                    colors, "match", result.MatchForeground,
-                    result.MatchBackground, ref error);
+                    colors,
+                    "match",
+                    result.MatchForeground,
+                    result.MatchBackground,
+                    ref error
+                );
                 (result.CurrentMatchForeground, result.CurrentMatchBackground) = ReadPair(
-                    colors, "currentMatch", result.CurrentMatchForeground,
-                    result.CurrentMatchBackground, ref error);
+                    colors,
+                    "currentMatch",
+                    result.CurrentMatchForeground,
+                    result.CurrentMatchBackground,
+                    ref error
+                );
 
                 if (colors.TryGetProperty("syntax", out JsonElement syntax))
                 {
@@ -275,19 +347,23 @@ public sealed class Theme
                         return false;
                     }
 
-                    result.Keyword = ReadColor(syntax, "keyword", result.Keyword,
-                        ref error);
-                    result.ControlStatement = ReadColor(syntax, "control",
-                        result.ControlStatement, ref error);
+                    result.Keyword = ReadColor(syntax, "keyword", result.Keyword, ref error);
+                    result.ControlStatement = ReadColor(
+                        syntax,
+                        "control",
+                        result.ControlStatement,
+                        ref error
+                    );
                     result.Type = ReadColor(syntax, "type", result.Type, ref error);
-                    result.Constant = ReadColor(syntax, "constant", result.Constant,
-                        ref error);
-                    result.StringLiteral = ReadColor(syntax, "string",
-                        result.StringLiteral, ref error);
-                    result.Comment = ReadColor(syntax, "comment", result.Comment,
-                        ref error);
-                    result.Number = ReadColor(syntax, "number", result.Number,
-                        ref error);
+                    result.Constant = ReadColor(syntax, "constant", result.Constant, ref error);
+                    result.StringLiteral = ReadColor(
+                        syntax,
+                        "string",
+                        result.StringLiteral,
+                        ref error
+                    );
+                    result.Comment = ReadColor(syntax, "comment", result.Comment, ref error);
+                    result.Number = ReadColor(syntax, "number", result.Number, ref error);
                 }
             }
 
@@ -339,13 +415,27 @@ public sealed class Theme
                 hex = string.Concat(hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]);
             }
 
-            if (hex.Length == 6 &&
-                byte.TryParse(hex[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture,
-                    out byte red) &&
-                byte.TryParse(hex[2..4], NumberStyles.HexNumber, CultureInfo.InvariantCulture,
-                    out byte green) &&
-                byte.TryParse(hex[4..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture,
-                    out byte blue))
+            if (
+                hex.Length == 6
+                && byte.TryParse(
+                    hex[..2],
+                    NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture,
+                    out byte red
+                )
+                && byte.TryParse(
+                    hex[2..4],
+                    NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture,
+                    out byte green
+                )
+                && byte.TryParse(
+                    hex[4..6],
+                    NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture,
+                    out byte blue
+                )
+            )
             {
                 color = Rgb(red, green, blue);
                 return true;
@@ -354,8 +444,7 @@ public sealed class Theme
             return false;
         }
 
-        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture,
-                out int index))
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index))
         {
             if (index is >= 0 and <= 255)
             {
@@ -374,47 +463,53 @@ public sealed class Theme
         return false;
     }
 
-    private static readonly Dictionary<string, uint> NamedColors =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["black"] = 0,
-            ["red"] = 1,
-            ["green"] = 2,
-            ["yellow"] = 3,
-            ["blue"] = 4,
-            ["magenta"] = 5,
-            ["cyan"] = 6,
-            ["white"] = 7,
-            ["bright-black"] = 8,
-            ["bright_black"] = 8,
-            ["gray"] = 8,
-            ["grey"] = 8,
-            ["bright-red"] = 9,
-            ["bright_red"] = 9,
-            ["bright-green"] = 10,
-            ["bright_green"] = 10,
-            ["bright-yellow"] = 11,
-            ["bright_yellow"] = 11,
-            ["bright-blue"] = 12,
-            ["bright_blue"] = 12,
-            ["bright-magenta"] = 13,
-            ["bright_magenta"] = 13,
-            ["bright-cyan"] = 14,
-            ["bright_cyan"] = 14,
-            ["bright-white"] = 15,
-            ["bright_white"] = 15
-        };
+    private static readonly Dictionary<string, uint> NamedColors = new(
+        StringComparer.OrdinalIgnoreCase
+    )
+    {
+        ["black"] = 0,
+        ["red"] = 1,
+        ["green"] = 2,
+        ["yellow"] = 3,
+        ["blue"] = 4,
+        ["magenta"] = 5,
+        ["cyan"] = 6,
+        ["white"] = 7,
+        ["bright-black"] = 8,
+        ["bright_black"] = 8,
+        ["gray"] = 8,
+        ["grey"] = 8,
+        ["bright-red"] = 9,
+        ["bright_red"] = 9,
+        ["bright-green"] = 10,
+        ["bright_green"] = 10,
+        ["bright-yellow"] = 11,
+        ["bright_yellow"] = 11,
+        ["bright-blue"] = 12,
+        ["bright_blue"] = 12,
+        ["bright-magenta"] = 13,
+        ["bright_magenta"] = 13,
+        ["bright-cyan"] = 14,
+        ["bright_cyan"] = 14,
+        ["bright-white"] = 15,
+        ["bright_white"] = 15,
+    };
 
     private static string ReadString(JsonElement element, string property, string fallback)
     {
-        return element.TryGetProperty(property, out JsonElement value) &&
-               value.ValueKind == JsonValueKind.String
+        return
+            element.TryGetProperty(property, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? fallback
             : fallback;
     }
 
-    private static uint ReadColor(JsonElement element, string property, uint fallback,
-        ref string error)
+    private static uint ReadColor(
+        JsonElement element,
+        string property,
+        uint fallback,
+        ref string error
+    )
     {
         if (!element.TryGetProperty(property, out JsonElement value))
         {
@@ -433,8 +528,13 @@ public sealed class Theme
         return color;
     }
 
-    private static (uint Foreground, uint Background) ReadPair(JsonElement colors,
-        string name, uint foreground, uint background, ref string error)
+    private static (uint Foreground, uint Background) ReadPair(
+        JsonElement colors,
+        string name,
+        uint foreground,
+        uint background,
+        ref string error
+    )
     {
         if (!colors.TryGetProperty(name, out JsonElement pair))
         {
@@ -464,8 +564,7 @@ public sealed class Theme
 public sealed class ThemeRegistry
 {
     private readonly List<Theme> _themes = new();
-    private readonly Dictionary<string, Theme> _byId =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Theme> _byId = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _errors = new();
 
     public Theme ActiveTheme { get; private set; } = Theme.CreateDefault();
@@ -488,8 +587,13 @@ public sealed class ThemeRegistry
             Directory.CreateDirectory(directory);
             registry.LoadDirectory(directory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             registry._errors.Add($"cannot create theme directory '{directory}': {ex.Message}");
         }
@@ -505,8 +609,9 @@ public sealed class ThemeRegistry
 
         error = registry._errors.Count > 0 ? registry._errors[0] : string.Empty;
         HexalPaths.Log(
-            $"Themes: {directory} ({registry._themes.Count} loaded, " +
-            $"{registry._errors.Count} error(s), active '{registry.ActiveTheme.Id}')");
+            $"Themes: {directory} ({registry._themes.Count} loaded, "
+                + $"{registry._errors.Count} error(s), active '{registry.ActiveTheme.Id}')"
+        );
         return registry;
     }
 
@@ -517,8 +622,13 @@ public sealed class ThemeRegistry
         {
             files = Directory.GetFiles(directory, "*.json");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _errors.Add($"cannot read theme directory '{directory}': {ex.Message}");
             return;
@@ -529,27 +639,36 @@ public sealed class ThemeRegistry
         // Theme files are independent; parse them concurrently and merge in
         // sorted file order for stable duplicate handling.
         var parsed = new (Theme? Theme, string? Error)[files.Length];
-        Parallel.For(0, files.Length, index =>
-        {
-            string file = files[index];
-            try
+        Parallel.For(
+            0,
+            files.Length,
+            index =>
             {
-                string text = File.ReadAllText(file);
-                if (Theme.TryParse(text, file, out Theme? theme, out string error))
+                string file = files[index];
+                try
                 {
-                    parsed[index] = (theme, null);
+                    string text = File.ReadAllText(file);
+                    if (Theme.TryParse(text, file, out Theme? theme, out string error))
+                    {
+                        parsed[index] = (theme, null);
+                    }
+                    else
+                    {
+                        parsed[index] = (null, error);
+                    }
                 }
-                else
+                catch (Exception ex)
+                    when (ex
+                            is IOException
+                                or UnauthorizedAccessException
+                                or NotSupportedException
+                                or ArgumentException
+                    )
                 {
-                    parsed[index] = (null, error);
+                    parsed[index] = (null, ex.Message);
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
-            {
-                parsed[index] = (null, ex.Message);
-            }
-        });
+        );
 
         for (int index = 0; index < files.Length; ++index)
         {
@@ -597,8 +716,13 @@ public sealed class ThemeRegistry
 
             return File.ReadAllText(ActiveThemePath).Trim();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             return string.Empty;
         }
@@ -613,8 +737,13 @@ public sealed class ThemeRegistry
             File.WriteAllText(ActiveThemePath, id + Environment.NewLine);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = ex.Message;
             return false;

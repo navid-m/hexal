@@ -15,12 +15,12 @@ public static class Clipboard
     private const int HelperTimeoutMilliseconds = 5000;
 
     private const string WindowsCopyCommand =
-        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); " +
-        "$text = [Console]::In.ReadToEnd(); Set-Clipboard -Value $text";
+        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        + "$text = [Console]::In.ReadToEnd(); Set-Clipboard -Value $text";
 
     private const string WindowsPasteCommand =
-        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " +
-        "$text = Get-Clipboard -Raw; if ($null -ne $text) { [Console]::Out.Write($text) }";
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        + "$text = Get-Clipboard -Raw; if ($null -ne $text) { [Console]::Out.Write($text) }";
 
     /// <summary>
     /// Copies UTF-8 text to the system clipboard. Returns false only when the
@@ -36,8 +36,7 @@ public static class Clipboard
             return false;
         }
 
-        if (OperatingSystem.IsWindows() &&
-            WindowsClipboard.TrySetText(text, out _))
+        if (OperatingSystem.IsWindows() && WindowsClipboard.TrySetText(text, out _))
         {
             return true;
         }
@@ -94,9 +93,10 @@ public static class Clipboard
             }
         }
 
-        error = lastError.Length > 0
-            ? $"cannot read the system clipboard: {lastError}"
-            : "cannot read the system clipboard: no clipboard helper found";
+        error =
+            lastError.Length > 0
+                ? $"cannot read the system clipboard: {lastError}"
+                : "cannot read the system clipboard: no clipboard helper found";
         return false;
     }
 
@@ -104,8 +104,14 @@ public static class Clipboard
     {
         if (OperatingSystem.IsWindows())
         {
-            yield return ("pwsh.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsCopyCommand });
-            yield return ("powershell.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsCopyCommand });
+            yield return (
+                "pwsh.exe",
+                new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsCopyCommand }
+            );
+            yield return (
+                "powershell.exe",
+                new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsCopyCommand }
+            );
             yield break;
         }
 
@@ -128,8 +134,14 @@ public static class Clipboard
     {
         if (OperatingSystem.IsWindows())
         {
-            yield return ("pwsh.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsPasteCommand });
-            yield return ("powershell.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsPasteCommand });
+            yield return (
+                "pwsh.exe",
+                new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsPasteCommand }
+            );
+            yield return (
+                "powershell.exe",
+                new[] { "-NoProfile", "-NonInteractive", "-Command", WindowsPasteCommand }
+            );
             yield break;
         }
 
@@ -154,15 +166,20 @@ public static class Clipboard
         return Encoding.ASCII.GetBytes($"\u001b]52;c;{payload}\u0007");
     }
 
-    private static bool TryRunWriter(string program, string[] arguments,
-        ReadOnlySpan<byte> text, out string error)
+    private static bool TryRunWriter(
+        string program,
+        string[] arguments,
+        ReadOnlySpan<byte> text,
+        out string error
+    )
     {
         error = string.Empty;
 
         try
         {
-            using Process? process = Process.Start(CreateStartInfo(program, arguments,
-                redirectOutput: false));
+            using Process? process = Process.Start(
+                CreateStartInfo(program, arguments, redirectOutput: false)
+            );
             if (process is null)
             {
                 error = $"{program} did not start";
@@ -193,9 +210,7 @@ public static class Clipboard
             }
 
             string stderr = process.StandardError.ReadToEnd().Trim();
-            error = stderr.Length > 0
-                ? stderr
-                : $"{program} exited with code {process.ExitCode}";
+            error = stderr.Length > 0 ? stderr : $"{program} exited with code {process.ExitCode}";
             return false;
         }
         catch (Exception ex) when (IsHelperFailure(ex))
@@ -206,16 +221,21 @@ public static class Clipboard
         }
     }
 
-    private static bool TryRunReader(string program, string[] arguments,
-        out byte[] output, out string error)
+    private static bool TryRunReader(
+        string program,
+        string[] arguments,
+        out byte[] output,
+        out string error
+    )
     {
         output = Array.Empty<byte>();
         error = string.Empty;
 
         try
         {
-            using Process? process = Process.Start(CreateStartInfo(program, arguments,
-                redirectOutput: true));
+            using Process? process = Process.Start(
+                CreateStartInfo(program, arguments, redirectOutput: true)
+            );
             if (process is null)
             {
                 error = $"{program} did not start";
@@ -247,9 +267,7 @@ public static class Clipboard
             }
 
             string stderr = process.StandardError.ReadToEnd().Trim();
-            error = stderr.Length > 0
-                ? stderr
-                : $"{program} exited with code {process.ExitCode}";
+            error = stderr.Length > 0 ? stderr : $"{program} exited with code {process.ExitCode}";
             return false;
         }
         catch (Exception ex) when (IsHelperFailure(ex))
@@ -259,8 +277,11 @@ public static class Clipboard
         }
     }
 
-    private static ProcessStartInfo CreateStartInfo(string program, string[] arguments,
-        bool redirectOutput)
+    private static ProcessStartInfo CreateStartInfo(
+        string program,
+        string[] arguments,
+        bool redirectOutput
+    )
     {
         var startInfo = new ProcessStartInfo
         {
@@ -271,7 +292,7 @@ public static class Clipboard
             RedirectStandardOutput = redirectOutput,
             RedirectStandardError = true,
             StandardOutputEncoding = redirectOutput ? Encoding.UTF8 : null,
-            StandardErrorEncoding = Encoding.UTF8
+            StandardErrorEncoding = Encoding.UTF8,
         };
 
         foreach (string argument in arguments)
@@ -289,8 +310,12 @@ public static class Clipboard
         return buffer.ToArray();
     }
 
-    private static bool IsHelperFailure(Exception ex)
-        => ex is Win32Exception or IOException or InvalidOperationException or
-            UnauthorizedAccessException or NotSupportedException or
-            ObjectDisposedException;
+    private static bool IsHelperFailure(Exception ex) =>
+        ex
+            is Win32Exception
+                or IOException
+                or InvalidOperationException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ObjectDisposedException;
 }

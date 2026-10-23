@@ -18,8 +18,11 @@ public sealed partial class Editor
     private bool _pluginPanelSelectable = true;
     private Func<string, long, bool>? _pluginPanelOnKey;
 
-    public int OpenPluginPanel(PluginPanelOptions options,
-        Func<string, long, bool>? onKey, string pluginId)
+    public int OpenPluginPanel(
+        PluginPanelOptions options,
+        Func<string, long, bool>? onKey,
+        string pluginId
+    )
     {
         _pluginPanelId = ++_nextPluginPanelId;
         _pluginPanelPluginId = pluginId;
@@ -37,8 +40,7 @@ public sealed partial class Editor
         return _pluginPanelId;
     }
 
-    public void SetPluginPanelLines(int panelId,
-        IReadOnlyList<PluginPanelLine> lines)
+    public void SetPluginPanelLines(int panelId, IReadOnlyList<PluginPanelLine> lines)
     {
         if (!PluginPanelMatches(panelId))
         {
@@ -97,8 +99,7 @@ public sealed partial class Editor
         _pluginPanelSelectable = selectable;
         if (selectable)
         {
-            _pluginPanelSelected =
-                FindSelectableIndex(_pluginPanelSelected);
+            _pluginPanelSelected = FindSelectableIndex(_pluginPanelSelected);
             EnsurePluginPanelSelectionVisible();
         }
         _forceFullRedraw = true;
@@ -114,15 +115,17 @@ public sealed partial class Editor
 
     public void ClosePluginPanels(string pluginId)
     {
-        if (_pluginPanelVisible &&
-            string.Equals(_pluginPanelPluginId, pluginId, StringComparison.Ordinal))
+        if (
+            _pluginPanelVisible
+            && string.Equals(_pluginPanelPluginId, pluginId, StringComparison.Ordinal)
+        )
         {
             ClosePluginPanel();
         }
     }
 
-    private bool PluginPanelMatches(int panelId)
-        => _pluginPanelVisible && panelId == _pluginPanelId;
+    private bool PluginPanelMatches(int panelId) =>
+        _pluginPanelVisible && panelId == _pluginPanelId;
 
     private void ClosePluginPanel()
     {
@@ -138,9 +141,8 @@ public sealed partial class Editor
         _forceFullRedraw = true;
     }
 
-    private bool PluginPanelLineSelectable(int index)
-        => index >= 0 && index < _pluginPanelLines.Count &&
-           _pluginPanelLines[index].Selectable;
+    private bool PluginPanelLineSelectable(int index) =>
+        index >= 0 && index < _pluginPanelLines.Count && _pluginPanelLines[index].Selectable;
 
     private long FindSelectableIndex(long preferred)
     {
@@ -191,15 +193,11 @@ public sealed partial class Editor
                 return;
             case Key.Up:
             case Key.ScrollUp:
-                MovePluginPanelSelection(inputEvent.Key == Key.ScrollUp
-                    ? -MouseScrollLines
-                    : -1);
+                MovePluginPanelSelection(inputEvent.Key == Key.ScrollUp ? -MouseScrollLines : -1);
                 return;
             case Key.Down:
             case Key.ScrollDown:
-                MovePluginPanelSelection(inputEvent.Key == Key.ScrollDown
-                    ? MouseScrollLines
-                    : 1);
+                MovePluginPanelSelection(inputEvent.Key == Key.ScrollDown ? MouseScrollLines : 1);
                 return;
             case Key.PageUp:
                 MovePluginPanelSelection(-PluginPanelContentRows());
@@ -325,8 +323,7 @@ public sealed partial class Editor
         {
             _pluginPanelTop = first
                 ? 0
-                : Math.Max(0, _pluginPanelLines.Count -
-                               PluginPanelContentRows());
+                : Math.Max(0, _pluginPanelLines.Count - PluginPanelContentRows());
             return;
         }
 
@@ -356,8 +353,11 @@ public sealed partial class Editor
             _pluginPanelTop = (int)_pluginPanelSelected - rows + 1;
         }
 
-        _pluginPanelTop = Math.Clamp(_pluginPanelTop, 0,
-            Math.Max(0, _pluginPanelLines.Count - rows));
+        _pluginPanelTop = Math.Clamp(
+            _pluginPanelTop,
+            0,
+            Math.Max(0, _pluginPanelLines.Count - rows)
+        );
     }
 
     private int PluginPanelContentRows()
@@ -404,8 +404,11 @@ public sealed partial class Editor
 
         int contentRows = Math.Max(1, height - 3);
         int contentWidth = Math.Max(0, width - 4);
-        _pluginPanelTop = Math.Clamp(_pluginPanelTop, 0,
-            Math.Max(0, _pluginPanelLines.Count - contentRows));
+        _pluginPanelTop = Math.Clamp(
+            _pluginPanelTop,
+            0,
+            Math.Max(0, _pluginPanelLines.Count - contentRows)
+        );
 
         for (int row = 0; row < contentRows; ++row)
         {
@@ -416,8 +419,8 @@ public sealed partial class Editor
             }
 
             PluginPanelLine line = _pluginPanelLines[index];
-            bool selected = _pluginPanelSelectable && line.Selectable &&
-                            index == _pluginPanelSelected;
+            bool selected =
+                _pluginPanelSelectable && line.Selectable && index == _pluginPanelSelected;
             int column = 0;
             foreach (PluginPanelSegment segment in line.Segments)
             {
@@ -434,16 +437,26 @@ public sealed partial class Editor
                     style.Dim = false;
                 }
 
-                _screen.PutString(x + 2 + column, y + 1 + row, segment.Text,
-                    style, contentWidth - column);
+                _screen.PutString(
+                    x + 2 + column,
+                    y + 1 + row,
+                    segment.Text,
+                    style,
+                    contentWidth - column
+                );
                 column += (int)UnicodeUtil.ColumnWidth(segment.Text);
             }
         }
 
         if (_pluginPanelFooter.Length > 0)
         {
-            _screen.PutString(x + 2, y + height - 2, _pluginPanelFooter,
-                _theme.MutedStyle, width - 4);
+            _screen.PutString(
+                x + 2,
+                y + height - 2,
+                _pluginPanelFooter,
+                _theme.MutedStyle,
+                width - 4
+            );
         }
     }
 
@@ -459,12 +472,12 @@ public sealed partial class Editor
             {
                 Fg = _theme.Success,
                 Bg = _theme.Background,
-                Bold = true
+                Bold = true,
             },
             "diff_added" => _theme.DiffAddedStyle,
             "diff_deleted" => _theme.DiffDeletedStyle,
             "diff_modified" => _theme.DiffModifiedStyle,
-            _ => _theme.TextStyle
+            _ => _theme.TextStyle,
         };
     }
 }

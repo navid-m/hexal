@@ -42,11 +42,14 @@ public sealed partial class Editor
 
     private void UpdateDiffLinesForBufferChange()
     {
-        if (!_showDiffLines || _diffBaseline is null ||
-            _document.Path is null ||
-            !SamePath(_document.Path, _diffBaselinePath) ||
-            _document.Revision == _diffRevision ||
-            !GitDiff.CanComputeLive(_document.LineCount))
+        if (
+            !_showDiffLines
+            || _diffBaseline is null
+            || _document.Path is null
+            || !SamePath(_document.Path, _diffBaselinePath)
+            || _document.Revision == _diffRevision
+            || !GitDiff.CanComputeLive(_document.LineCount)
+        )
         {
             return;
         }
@@ -104,15 +107,12 @@ public sealed partial class Editor
         RefreshAllPaneDiffLines();
         PersistDisplaySettings();
         _forceFullRedraw = true;
-        SetMessage(_showDiffLines
-            ? "Showing git diff lines."
-            : "Hiding git diff lines.");
+        SetMessage(_showDiffLines ? "Showing git diff lines." : "Hiding git diff lines.");
     }
 
     private bool TryGetDiffMarker(long line, out char marker, out Style style)
     {
-        if (!_showDiffLines ||
-            !_diffLines.TryGetValue(line, out GitDiffLineKind kind))
+        if (!_showDiffLines || !_diffLines.TryGetValue(line, out GitDiffLineKind kind))
         {
             marker = '\0';
             style = default;
@@ -124,15 +124,22 @@ public sealed partial class Editor
         {
             GitDiffLineKind.Added => _theme.DiffAddedStyle,
             GitDiffLineKind.Deleted => _theme.DiffDeletedStyle,
-            _ => _theme.DiffModifiedStyle
+            _ => _theme.DiffModifiedStyle,
         };
         return true;
     }
 
     private void PersistDisplaySettings()
     {
-        if (HexalConfig.UpdateDisplaySettings(_config.SourcePath,
-                _showDiffLines, _showGitIgnored, _searchMatchCase, out string error))
+        if (
+            HexalConfig.UpdateDisplaySettings(
+                _config.SourcePath,
+                _showDiffLines,
+                _showGitIgnored,
+                _searchMatchCase,
+                out string error
+            )
+        )
         {
             return;
         }

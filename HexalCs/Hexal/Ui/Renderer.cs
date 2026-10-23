@@ -28,8 +28,10 @@ public sealed class Renderer
         }
 
         ReadOnlySpan<Cell> cells = screen.Cells;
-        bool sizeChanged = width != _previousWidth || height != _previousHeight ||
-                           _previous.Length != cells.Length;
+        bool sizeChanged =
+            width != _previousWidth
+            || height != _previousHeight
+            || _previous.Length != cells.Length;
 
         if (sizeChanged)
         {
@@ -45,8 +47,10 @@ public sealed class Renderer
             while (x < width)
             {
                 int index = (y * width) + x;
-                bool changed = forceFullRedraw || index >= _previous.Length ||
-                               !cells[index].Equals(_previous[index]);
+                bool changed =
+                    forceFullRedraw
+                    || index >= _previous.Length
+                    || !cells[index].Equals(_previous[index]);
 
                 if (!changed || cells[index].WideContinuation)
                 {
@@ -58,8 +62,10 @@ public sealed class Renderer
                 while (x < width)
                 {
                     int runIndex = (y * width) + x;
-                    bool runChanged = forceFullRedraw || runIndex >= _previous.Length ||
-                                      !cells[runIndex].Equals(_previous[runIndex]);
+                    bool runChanged =
+                        forceFullRedraw
+                        || runIndex >= _previous.Length
+                        || !cells[runIndex].Equals(_previous[runIndex]);
                     if (!runChanged)
                     {
                         break;
@@ -191,8 +197,7 @@ public sealed class Renderer
         {
             digits[--position] = (byte)('0' + (value % 10));
             value /= 10;
-        }
-        while (value > 0);
+        } while (value > 0);
 
         output.Append(digits[position..]);
     }

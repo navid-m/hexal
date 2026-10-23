@@ -125,29 +125,49 @@ internal sealed partial class WindowsTerminal : ITerminal
     [StructLayout(LayoutKind.Explicit, Size = 20)]
     private struct InputRecord
     {
-        [FieldOffset(0)] public ushort EventType;
-        [FieldOffset(4)] public KeyEventRecord KeyEvent;
-        [FieldOffset(4)] public MouseEventRecord MouseEvent;
-        [FieldOffset(4)] public WindowBufferSizeRecord WindowBufferSizeEvent;
-        [FieldOffset(4)] public int FocusSet;
+        [FieldOffset(0)]
+        public ushort EventType;
+
+        [FieldOffset(4)]
+        public KeyEventRecord KeyEvent;
+
+        [FieldOffset(4)]
+        public MouseEventRecord MouseEvent;
+
+        [FieldOffset(4)]
+        public WindowBufferSizeRecord WindowBufferSizeEvent;
+
+        [FieldOffset(4)]
+        public int FocusSet;
     }
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial IntPtr GetStdHandle(int stdHandle);
 
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW",
-        SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    private static partial IntPtr CreateFile(string fileName,
-        uint desiredAccess, uint shareMode, IntPtr securityAttributes,
-        uint creationDisposition, uint flagsAndAttributes,
-        IntPtr templateFile);
+    [LibraryImport(
+        "kernel32.dll",
+        EntryPoint = "CreateFileW",
+        SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf16
+    )]
+    private static partial IntPtr CreateFile(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile
+    );
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial int CloseHandle(IntPtr handle);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial int GetConsoleScreenBufferInfo(IntPtr consoleHandle,
-        out ConsoleScreenBufferInfo info);
+    private static partial int GetConsoleScreenBufferInfo(
+        IntPtr consoleHandle,
+        out ConsoleScreenBufferInfo info
+    );
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial int GetConsoleMode(IntPtr consoleHandle, out uint mode);
@@ -156,8 +176,12 @@ internal sealed partial class WindowsTerminal : ITerminal
     private static partial int SetConsoleMode(IntPtr consoleHandle, uint mode);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial int ReadConsoleInputW(IntPtr consoleHandle,
-        ref InputRecord inputRecord, uint length, out uint numberOfEventsRead);
+    private static partial int ReadConsoleInputW(
+        IntPtr consoleHandle,
+        ref InputRecord inputRecord,
+        uint length,
+        out uint numberOfEventsRead
+    );
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial uint WaitForSingleObject(IntPtr handle, uint milliseconds);
@@ -194,13 +218,19 @@ internal sealed partial class WindowsTerminal : ITerminal
 
     private static IntPtr CreateConsoleFile(string name)
     {
-        return CreateFile(name, GenericRead | GenericWrite,
-            FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0,
-            IntPtr.Zero);
+        return CreateFile(
+            name,
+            GenericRead | GenericWrite,
+            FileShareRead | FileShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            0,
+            IntPtr.Zero
+        );
     }
 
-    private static bool IsInvalidHandle(IntPtr handle)
-        => handle == IntPtr.Zero || handle == new IntPtr(-1);
+    private static bool IsInvalidHandle(IntPtr handle) =>
+        handle == IntPtr.Zero || handle == new IntPtr(-1);
 
     public bool Init(out string error)
     {
@@ -214,8 +244,9 @@ internal sealed partial class WindowsTerminal : ITerminal
             _inputHandle = CreateConsoleFile("CONIN$");
             if (IsInvalidHandle(_inputHandle))
             {
-                error = "standard input/output is not an interactive terminal: " +
-                        $"cannot open CONIN$ ({Win32Message()})";
+                error =
+                    "standard input/output is not an interactive terminal: "
+                    + $"cannot open CONIN$ ({Win32Message()})";
                 return false;
             }
 
@@ -224,8 +255,9 @@ internal sealed partial class WindowsTerminal : ITerminal
             {
                 CloseHandle(_inputHandle);
                 _inputHandle = IntPtr.Zero;
-                error = "standard input/output is not an interactive terminal: " +
-                        $"cannot open CONOUT$ ({Win32Message()})";
+                error =
+                    "standard input/output is not an interactive terminal: "
+                    + $"cannot open CONOUT$ ({Win32Message()})";
                 return false;
             }
 
@@ -256,10 +288,14 @@ internal sealed partial class WindowsTerminal : ITerminal
             return false;
         }
 
-        uint inputMode = (_originalInputMode &
-                          ~(EnableEchoInput | EnableLineInput | EnableProcessedInput |
-                            EnableQuickEditMode)) |
-                         EnableWindowInput | EnableExtendedFlags | EnableMouseInput;
+        uint inputMode =
+            (
+                _originalInputMode
+                & ~(EnableEchoInput | EnableLineInput | EnableProcessedInput | EnableQuickEditMode)
+            )
+            | EnableWindowInput
+            | EnableExtendedFlags
+            | EnableMouseInput;
 
         if (SetConsoleMode(_inputHandle, inputMode) == 0)
         {
@@ -267,8 +303,11 @@ internal sealed partial class WindowsTerminal : ITerminal
             return false;
         }
 
-        uint outputMode = _originalOutputMode | EnableProcessedOutput |
-                          EnableVirtualTerminalProcessing | DisableNewlineAutoReturn;
+        uint outputMode =
+            _originalOutputMode
+            | EnableProcessedOutput
+            | EnableVirtualTerminalProcessing
+            | DisableNewlineAutoReturn;
 
         if (SetConsoleMode(_outputHandle, outputMode) == 0)
         {
@@ -283,8 +322,11 @@ internal sealed partial class WindowsTerminal : ITerminal
         SetConsoleOutputCP(65001);
 
         _output = _ownsOutputHandle
-            ? new FileStream(new SafeFileHandle(_outputHandle, ownsHandle: false),
-                FileAccess.Write, bufferSize: 1)
+            ? new FileStream(
+                new SafeFileHandle(_outputHandle, ownsHandle: false),
+                FileAccess.Write,
+                bufferSize: 1
+            )
             : Console.OpenStandardOutput();
         Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H"u8);
         _initialized = true;
@@ -356,8 +398,14 @@ internal sealed partial class WindowsTerminal : ITerminal
             }
             else
             {
-                if (!ReadKeyEvent(out InputEvent special, out bool hasSpecial,
-                        out key, timeoutMilliseconds))
+                if (
+                    !ReadKeyEvent(
+                        out InputEvent special,
+                        out bool hasSpecial,
+                        out key,
+                        timeoutMilliseconds
+                    )
+                )
                 {
                     return false;
                 }
@@ -450,9 +498,10 @@ internal sealed partial class WindowsTerminal : ITerminal
                 // Fall through to the conventional default.
             }
         }
-        else if (!IsInvalidHandle(_outputHandle) &&
-                 GetConsoleScreenBufferInfo(_outputHandle,
-                     out ConsoleScreenBufferInfo info) != 0)
+        else if (
+            !IsInvalidHandle(_outputHandle)
+            && GetConsoleScreenBufferInfo(_outputHandle, out ConsoleScreenBufferInfo info) != 0
+        )
         {
             columns = info.Window.Right - info.Window.Left + 1;
             rows = info.Window.Bottom - info.Window.Top + 1;
@@ -468,8 +517,12 @@ internal sealed partial class WindowsTerminal : ITerminal
 
     public void Dispose() => Shutdown();
 
-    private bool ReadKeyEvent(out InputEvent special, out bool hasSpecial,
-        out KeyEventRecord key, int timeoutMilliseconds)
+    private bool ReadKeyEvent(
+        out InputEvent special,
+        out bool hasSpecial,
+        out KeyEventRecord key,
+        int timeoutMilliseconds
+    )
     {
         special = default;
         hasSpecial = false;
@@ -493,8 +546,7 @@ internal sealed partial class WindowsTerminal : ITerminal
             }
 
             InputRecord record = default;
-            if (ReadConsoleInputW(_inputHandle, ref record, 1,
-                    out uint read) == 0 || read == 0)
+            if (ReadConsoleInputW(_inputHandle, ref record, 1, out uint read) == 0 || read == 0)
             {
                 return false;
             }
@@ -743,6 +795,6 @@ internal sealed partial class WindowsTerminal : ITerminal
         _repeatRemaining = (ushort)(repeatCount - 1);
     }
 
-    private static string Win32Message()
-        => new Win32Exception(Marshal.GetLastPInvokeError()).Message;
+    private static string Win32Message() =>
+        new Win32Exception(Marshal.GetLastPInvokeError()).Message;
 }

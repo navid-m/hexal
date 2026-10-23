@@ -9,8 +9,7 @@ public sealed class HexalConfig
 {
     public const string DefaultFileName = ".hexcfg";
 
-    public const string DefaultCentralRepositoryUrl =
-        "https://github.com/navid-m/hexal-plugins";
+    public const string DefaultCentralRepositoryUrl = "https://github.com/navid-m/hexal-plugins";
 
     private const string DefaultContents = """
         {
@@ -38,8 +37,7 @@ public sealed class HexalConfig
     /// Git repository used by <c>hexal install-plugin</c>. Plugin folders live
     /// at the repository root.
     /// </summary>
-    public string CentralRepositoryUrl { get; init; } =
-        DefaultCentralRepositoryUrl;
+    public string CentralRepositoryUrl { get; init; } = DefaultCentralRepositoryUrl;
 
     public bool FormatOnSave { get; init; }
 
@@ -105,8 +103,7 @@ public sealed class HexalConfig
     public static string DefaultPath =>
         Path.Combine(HexalPaths.HexalHomeDirectory, DefaultFileName);
 
-    public static string AlternatePath =>
-        Path.Combine(HexalPaths.HexalHomeDirectory, "hexcfg");
+    public static string AlternatePath => Path.Combine(HexalPaths.HexalHomeDirectory, "hexcfg");
 
     public static string ResolvePath()
     {
@@ -146,28 +143,39 @@ public sealed class HexalConfig
 
             return config!;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = ex.Message;
             return new HexalConfig { SourcePath = path };
         }
     }
 
-    public static bool TryParse(string json, string sourcePath,
-        out HexalConfig? config, out string error)
+    public static bool TryParse(
+        string json,
+        string sourcePath,
+        out HexalConfig? config,
+        out string error
+    )
     {
         config = null;
         error = string.Empty;
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(json,
+            using JsonDocument document = JsonDocument.Parse(
+                json,
                 new JsonDocumentOptions
                 {
                     AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                });
+                    CommentHandling = JsonCommentHandling.Skip,
+                }
+            );
 
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
@@ -177,76 +185,76 @@ public sealed class HexalConfig
             }
 
             string? centralRepositoryUrl =
-                ReadString(root, "centralRepositoryUrl") ??
-                ReadString(root, "central_repository_url");
-            bool? formatOnSave = ReadBool(root, "formatOnSave") ??
-                                 ReadBool(root, "format_on_save");
+                ReadString(root, "centralRepositoryUrl")
+                ?? ReadString(root, "central_repository_url");
+            bool? formatOnSave = ReadBool(root, "formatOnSave") ?? ReadBool(root, "format_on_save");
             bool? trimTrailingWhitespaceOnSave =
-                ReadBool(root, "trimTrailingWhitespaceOnSave") ??
-                ReadBool(root, "trim_trailing_whitespace_on_save");
-            bool? smartBackspace = ReadBool(root, "smartBackspace") ??
-                                   ReadBool(root, "smart_backspace");
+                ReadBool(root, "trimTrailingWhitespaceOnSave")
+                ?? ReadBool(root, "trim_trailing_whitespace_on_save");
+            bool? smartBackspace =
+                ReadBool(root, "smartBackspace") ?? ReadBool(root, "smart_backspace");
             bool? autoDetectIndentationOnStartup =
-                ReadBool(root, "autoDetectIndentationOnStartup") ??
-                ReadBool(root, "auto_detect_indentation_on_startup");
-            bool? startupBenchmarker = ReadBool(root, "startupBenchmarker") ??
-                                       ReadBool(root, "startup_benchmarker");
+                ReadBool(root, "autoDetectIndentationOnStartup")
+                ?? ReadBool(root, "auto_detect_indentation_on_startup");
+            bool? startupBenchmarker =
+                ReadBool(root, "startupBenchmarker") ?? ReadBool(root, "startup_benchmarker");
             bool? syntaxHighlightPickerPreview =
-                ReadBool(root, "syntaxHighlightPickerPreview") ??
-                ReadBool(root, "syntax_highlight_picker_preview");
-            bool? debugAdapter = ReadBool(root, "debugAdapter") ??
-                                 ReadBool(root, "debug_adapter");
-            bool? showDiffLines = ReadBool(root, "showDiffLines") ??
-                                  ReadBool(root, "show_diff_lines");
-            bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
-                                   ReadBool(root, "show_git_ignored");
+                ReadBool(root, "syntaxHighlightPickerPreview")
+                ?? ReadBool(root, "syntax_highlight_picker_preview");
+            bool? debugAdapter = ReadBool(root, "debugAdapter") ?? ReadBool(root, "debug_adapter");
+            bool? showDiffLines =
+                ReadBool(root, "showDiffLines") ?? ReadBool(root, "show_diff_lines");
+            bool? showGitIgnored =
+                ReadBool(root, "showGitIgnored") ?? ReadBool(root, "show_git_ignored");
             bool? keepSidebarFocusOnOpen =
-                ReadBool(root, "keepSidebarFocusOnOpen") ??
-                ReadBool(root, "keep_sidebar_focus_on_open");
+                ReadBool(root, "keepSidebarFocusOnOpen")
+                ?? ReadBool(root, "keep_sidebar_focus_on_open");
             bool? confirmQuitWithoutSaving =
-                ReadBool(root, "confirmQuitWithoutSaving") ??
-                ReadBool(root, "confirm_quit_without_saving");
+                ReadBool(root, "confirmQuitWithoutSaving")
+                ?? ReadBool(root, "confirm_quit_without_saving");
             bool? searchMatchCaseEnabled =
-                ReadBool(root, "searchMatchCaseEnabled") ??
-                ReadBool(root, "search_match_case_enabled");
+                ReadBool(root, "searchMatchCaseEnabled")
+                ?? ReadBool(root, "search_match_case_enabled");
 
-            if (root.TryGetProperty("editor", out JsonElement editor) &&
-                editor.ValueKind == JsonValueKind.Object)
+            if (
+                root.TryGetProperty("editor", out JsonElement editor)
+                && editor.ValueKind == JsonValueKind.Object
+            )
             {
                 centralRepositoryUrl ??=
-                    ReadString(editor, "centralRepositoryUrl") ??
-                    ReadString(editor, "central_repository_url");
-                formatOnSave ??= ReadBool(editor, "formatOnSave") ??
-                                 ReadBool(editor, "format_on_save");
+                    ReadString(editor, "centralRepositoryUrl")
+                    ?? ReadString(editor, "central_repository_url");
+                formatOnSave ??=
+                    ReadBool(editor, "formatOnSave") ?? ReadBool(editor, "format_on_save");
                 trimTrailingWhitespaceOnSave ??=
-                    ReadBool(editor, "trimTrailingWhitespaceOnSave") ??
-                    ReadBool(editor, "trim_trailing_whitespace_on_save");
-                smartBackspace ??= ReadBool(editor, "smartBackspace") ??
-                                   ReadBool(editor, "smart_backspace");
+                    ReadBool(editor, "trimTrailingWhitespaceOnSave")
+                    ?? ReadBool(editor, "trim_trailing_whitespace_on_save");
+                smartBackspace ??=
+                    ReadBool(editor, "smartBackspace") ?? ReadBool(editor, "smart_backspace");
                 autoDetectIndentationOnStartup ??=
-                    ReadBool(editor, "autoDetectIndentationOnStartup") ??
-                    ReadBool(editor, "auto_detect_indentation_on_startup");
+                    ReadBool(editor, "autoDetectIndentationOnStartup")
+                    ?? ReadBool(editor, "auto_detect_indentation_on_startup");
                 startupBenchmarker ??=
-                    ReadBool(editor, "startupBenchmarker") ??
-                    ReadBool(editor, "startup_benchmarker");
+                    ReadBool(editor, "startupBenchmarker")
+                    ?? ReadBool(editor, "startup_benchmarker");
                 syntaxHighlightPickerPreview ??=
-                    ReadBool(editor, "syntaxHighlightPickerPreview") ??
-                    ReadBool(editor, "syntax_highlight_picker_preview");
-                debugAdapter ??= ReadBool(editor, "debugAdapter") ??
-                                 ReadBool(editor, "debug_adapter");
-                showDiffLines ??= ReadBool(editor, "showDiffLines") ??
-                                  ReadBool(editor, "show_diff_lines");
-                showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
-                                   ReadBool(editor, "show_git_ignored");
+                    ReadBool(editor, "syntaxHighlightPickerPreview")
+                    ?? ReadBool(editor, "syntax_highlight_picker_preview");
+                debugAdapter ??=
+                    ReadBool(editor, "debugAdapter") ?? ReadBool(editor, "debug_adapter");
+                showDiffLines ??=
+                    ReadBool(editor, "showDiffLines") ?? ReadBool(editor, "show_diff_lines");
+                showGitIgnored ??=
+                    ReadBool(editor, "showGitIgnored") ?? ReadBool(editor, "show_git_ignored");
                 keepSidebarFocusOnOpen ??=
-                    ReadBool(editor, "keepSidebarFocusOnOpen") ??
-                    ReadBool(editor, "keep_sidebar_focus_on_open");
+                    ReadBool(editor, "keepSidebarFocusOnOpen")
+                    ?? ReadBool(editor, "keep_sidebar_focus_on_open");
                 confirmQuitWithoutSaving ??=
-                    ReadBool(editor, "confirmQuitWithoutSaving") ??
-                    ReadBool(editor, "confirm_quit_without_saving");
+                    ReadBool(editor, "confirmQuitWithoutSaving")
+                    ?? ReadBool(editor, "confirm_quit_without_saving");
                 searchMatchCaseEnabled ??=
-                    ReadBool(editor, "searchMatchCaseEnabled") ??
-                    ReadBool(editor, "search_match_case_enabled");
+                    ReadBool(editor, "searchMatchCaseEnabled")
+                    ?? ReadBool(editor, "search_match_case_enabled");
             }
 
             config = new HexalConfig
@@ -256,20 +264,17 @@ public sealed class HexalConfig
                     ? DefaultCentralRepositoryUrl
                     : centralRepositoryUrl,
                 FormatOnSave = formatOnSave ?? false,
-                TrimTrailingWhitespaceOnSave =
-                    trimTrailingWhitespaceOnSave ?? false,
+                TrimTrailingWhitespaceOnSave = trimTrailingWhitespaceOnSave ?? false,
                 SmartBackspace = smartBackspace ?? true,
-                AutoDetectIndentationOnStartup =
-                    autoDetectIndentationOnStartup ?? true,
+                AutoDetectIndentationOnStartup = autoDetectIndentationOnStartup ?? true,
                 StartupBenchmarker = startupBenchmarker ?? false,
-                SyntaxHighlightPickerPreview =
-                    syntaxHighlightPickerPreview ?? false,
+                SyntaxHighlightPickerPreview = syntaxHighlightPickerPreview ?? false,
                 DebugAdapter = debugAdapter ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 KeepSidebarFocusOnOpen = keepSidebarFocusOnOpen ?? true,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,
-                SearchMatchCaseEnabled = searchMatchCaseEnabled ?? false
+                SearchMatchCaseEnabled = searchMatchCaseEnabled ?? false,
             };
             return true;
         }
@@ -294,8 +299,13 @@ public sealed class HexalConfig
             }
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = ex.Message;
             return false;
@@ -306,8 +316,13 @@ public sealed class HexalConfig
     /// Writes the persisted display toggles into the configuration file while
     /// leaving unrelated properties untouched.
     /// </summary>
-    public static bool UpdateDisplaySettings(string path, bool showDiffLines,
-        bool showGitIgnored, bool searchMatchCaseEnabled, out string error)
+    public static bool UpdateDisplaySettings(
+        string path,
+        bool showDiffLines,
+        bool showGitIgnored,
+        bool searchMatchCaseEnabled,
+        out string error
+    )
     {
         error = string.Empty;
 
@@ -323,11 +338,14 @@ public sealed class HexalConfig
             if (File.Exists(path))
             {
                 string json = File.ReadAllText(path);
-                JsonNode? node = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
-                {
-                    AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                });
+                JsonNode? node = JsonNode.Parse(
+                    json,
+                    documentOptions: new JsonDocumentOptions
+                    {
+                        AllowTrailingCommas = true,
+                        CommentHandling = JsonCommentHandling.Skip,
+                    }
+                );
 
                 if (node is not JsonObject parsed)
                 {
@@ -339,28 +357,25 @@ public sealed class HexalConfig
             }
             else
             {
-                root = new JsonObject
-                {
-                    ["version"] = 1,
-                    ["formatOnSave"] = false
-                };
+                root = new JsonObject { ["version"] = 1, ["formatOnSave"] = false };
             }
 
             root["showDiffLines"] = showDiffLines;
             root["showGitIgnored"] = showGitIgnored;
             root["searchMatchCaseEnabled"] = searchMatchCaseEnabled;
 
-            string output = root.ToJsonString(new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-            File.WriteAllText(path, output + Environment.NewLine,
-                new UTF8Encoding(false));
+            string output = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(path, output + Environment.NewLine, new UTF8Encoding(false));
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException or
-                                   JsonException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or JsonException
+            )
         {
             error = ex.Message;
             return false;
@@ -369,8 +384,10 @@ public sealed class HexalConfig
 
     private static string? ReadString(JsonElement element, string property)
     {
-        if (!element.TryGetProperty(property, out JsonElement value) ||
-            value.ValueKind != JsonValueKind.String)
+        if (
+            !element.TryGetProperty(property, out JsonElement value)
+            || value.ValueKind != JsonValueKind.String
+        )
         {
             return null;
         }
@@ -389,7 +406,7 @@ public sealed class HexalConfig
         {
             JsonValueKind.True => true,
             JsonValueKind.False => false,
-            _ => null
+            _ => null,
         };
     }
 }

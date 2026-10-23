@@ -9,7 +9,7 @@ public enum GitDiffLineKind
 {
     Deleted,
     Added,
-    Modified
+    Modified,
 }
 
 /// <summary>
@@ -25,12 +25,12 @@ public static class GitDiff
     private const long LiveDiffMemoryBudget = 32L * 1024 * 1024;
 
     private static readonly Regex HunkHeader = new(
-        @"^@@ -(?<oldStart>\d+)(?:,(?<oldCount>\d+))? " +
-        @"\+(?<newStart>\d+)(?:,(?<newCount>\d+))? @@",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        @"^@@ -(?<oldStart>\d+)(?:,(?<oldCount>\d+))? "
+            + @"\+(?<newStart>\d+)(?:,(?<newCount>\d+))? @@",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant
+    );
 
-    public static Dictionary<long, GitDiffLineKind> Load(string? path,
-        long lineCount)
+    public static Dictionary<long, GitDiffLineKind> Load(string? path, long lineCount)
     {
         var result = new Dictionary<long, GitDiffLineKind>();
         if (string.IsNullOrEmpty(path) || lineCount <= 0)
@@ -62,8 +62,7 @@ public static class GitDiff
     /// <summary>
     /// True when the file is small enough for live in-memory diffing.
     /// </summary>
-    public static bool CanComputeLive(long lineCount)
-        => lineCount <= LiveDiffMaxLines;
+    public static bool CanComputeLive(long lineCount) => lineCount <= LiveDiffMaxLines;
 
     /// <summary>
     /// Reads the committed version of a file. Used as the baseline for live
@@ -92,8 +91,7 @@ public static class GitDiff
     /// Myers diff so unsaved insertions, deletions and replacements are shown
     /// immediately.
     /// </summary>
-    public static Dictionary<long, GitDiffLineKind> Compute(ulong[] oldLines,
-        ulong[] newLines)
+    public static Dictionary<long, GitDiffLineKind> Compute(ulong[] oldLines, ulong[] newLines)
     {
         var result = new Dictionary<long, GitDiffLineKind>();
         if (oldLines.Length == 0 && newLines.Length == 0)
@@ -107,16 +105,18 @@ public static class GitDiff
         }
 
         int prefix = 0;
-        while (prefix < oldLines.Length && prefix < newLines.Length &&
-               oldLines[prefix] == newLines[prefix])
+        while (
+            prefix < oldLines.Length
+            && prefix < newLines.Length
+            && oldLines[prefix] == newLines[prefix]
+        )
         {
             ++prefix;
         }
 
         int oldEnd = oldLines.Length;
         int newEnd = newLines.Length;
-        while (oldEnd > prefix && newEnd > prefix &&
-               oldLines[oldEnd - 1] == newLines[newEnd - 1])
+        while (oldEnd > prefix && newEnd > prefix && oldLines[oldEnd - 1] == newLines[newEnd - 1])
         {
             --oldEnd;
             --newEnd;
@@ -132,8 +132,7 @@ public static class GitDiff
         List<EditKind>? edits = Myers(middleOld, middleNew);
         if (edits is null)
         {
-            MarkLargeChange(result, middleOld.Length, prefix, newEnd,
-                newLines.Length);
+            MarkLargeChange(result, middleOld.Length, prefix, newEnd, newLines.Length);
             return result;
         }
 
@@ -149,8 +148,7 @@ public static class GitDiff
             {
                 if (inBlock)
                 {
-                    MarkBlock(result, blockNewStart, blockDeletes,
-                        blockInserts, newLines.Length);
+                    MarkBlock(result, blockNewStart, blockDeletes, blockInserts, newLines.Length);
                     inBlock = false;
                     blockDeletes = 0;
                     blockInserts = 0;
@@ -179,8 +177,7 @@ public static class GitDiff
 
         if (inBlock)
         {
-            MarkBlock(result, blockNewStart, blockDeletes, blockInserts,
-                newLines.Length);
+            MarkBlock(result, blockNewStart, blockDeletes, blockInserts, newLines.Length);
         }
 
         return result;
@@ -197,8 +194,13 @@ public static class GitDiff
         return hash;
     }
 
-    private static void MarkBlock(Dictionary<long, GitDiffLineKind> result,
-        long newStart, long deletes, long inserts, long newLineCount)
+    private static void MarkBlock(
+        Dictionary<long, GitDiffLineKind> result,
+        long newStart,
+        long deletes,
+        long inserts,
+        long newLineCount
+    )
     {
         long common = Math.Min(deletes, inserts);
         for (long index = 0; index < common; ++index)
@@ -221,10 +223,10 @@ public static class GitDiff
     private static ulong[] HashLines(byte[] content)
     {
         var hashes = new List<ulong>();
-        int start = content.Length >= 3 &&
-                    content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF
-            ? 3
-            : 0;
+        int start =
+            content.Length >= 3 && content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF
+                ? 3
+                : 0;
         for (int index = start; index < content.Length; ++index)
         {
             if (content[index] != (byte)'\n')
@@ -250,7 +252,7 @@ public static class GitDiff
     {
         Equal,
         Delete,
-        Insert
+        Insert,
     }
 
     private static List<EditKind>? Myers(ulong[] oldLines, ulong[] newLines)
@@ -261,8 +263,11 @@ public static class GitDiff
         int offset = max;
         var frontier = new int[max * 2 + 1];
         long frontierBytes = (long)frontier.Length * sizeof(int);
-        int depthBudget = (int)Math.Min(max, Math.Min(LiveDiffMaxDepth,
-            LiveDiffMemoryBudget / Math.Max(1L, frontierBytes)));
+        int depthBudget = (int)
+            Math.Min(
+                max,
+                Math.Min(LiveDiffMaxDepth, LiveDiffMemoryBudget / Math.Max(1L, frontierBytes))
+            );
         var trace = new List<int[]>();
 
         for (int depth = 0; depth <= max; ++depth)
@@ -276,10 +281,13 @@ public static class GitDiff
             for (int diagonal = -depth; diagonal <= depth; diagonal += 2)
             {
                 int x;
-                if (diagonal == -depth ||
-                    (diagonal != depth &&
-                     frontier[offset + diagonal - 1] <
-                     frontier[offset + diagonal + 1]))
+                if (
+                    diagonal == -depth
+                    || (
+                        diagonal != depth
+                        && frontier[offset + diagonal - 1] < frontier[offset + diagonal + 1]
+                    )
+                )
                 {
                     x = frontier[offset + diagonal + 1];
                 }
@@ -289,8 +297,7 @@ public static class GitDiff
                 }
 
                 int y = x - diagonal;
-                while (x < oldCount && y < newCount &&
-                       oldLines[x] == newLines[y])
+                while (x < oldCount && y < newCount && oldLines[x] == newLines[y])
                 {
                     ++x;
                     ++y;
@@ -307,30 +314,37 @@ public static class GitDiff
         return new List<EditKind>();
     }
 
-    private static void MarkLargeChange(Dictionary<long, GitDiffLineKind> result,
-        int oldCount, int newStart, int newEnd, int newLineCount)
+    private static void MarkLargeChange(
+        Dictionary<long, GitDiffLineKind> result,
+        int oldCount,
+        int newStart,
+        int newEnd,
+        int newLineCount
+    )
     {
         if (newStart >= newEnd)
         {
             if (newLineCount > 0)
             {
-                result[Math.Clamp(newStart, 0, newLineCount - 1)] =
-                    GitDiffLineKind.Deleted;
+                result[Math.Clamp(newStart, 0, newLineCount - 1)] = GitDiffLineKind.Deleted;
             }
             return;
         }
 
-        GitDiffLineKind kind = oldCount == 0
-            ? GitDiffLineKind.Added
-            : GitDiffLineKind.Modified;
+        GitDiffLineKind kind = oldCount == 0 ? GitDiffLineKind.Added : GitDiffLineKind.Modified;
         for (int line = newStart; line < newEnd; ++line)
         {
             result[line] = kind;
         }
     }
 
-    private static List<EditKind> Backtrack(List<int[]> trace, int depth,
-        int offset, int oldCount, int newCount)
+    private static List<EditKind> Backtrack(
+        List<int[]> trace,
+        int depth,
+        int offset,
+        int oldCount,
+        int newCount
+    )
     {
         var edits = new List<EditKind>(oldCount + newCount);
         int x = oldCount;
@@ -341,10 +355,13 @@ public static class GitDiff
             int[] frontier = trace[current];
             int diagonal = x - y;
             int previousDiagonal;
-            if (diagonal == -current ||
-                (diagonal != current &&
-                 frontier[offset + diagonal - 1] <
-                 frontier[offset + diagonal + 1]))
+            if (
+                diagonal == -current
+                || (
+                    diagonal != current
+                    && frontier[offset + diagonal - 1] < frontier[offset + diagonal + 1]
+                )
+            )
             {
                 previousDiagonal = diagonal + 1;
             }
@@ -396,7 +413,7 @@ public static class GitDiff
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
             };
 
             startInfo.ArgumentList.Add("-C");
@@ -420,9 +437,12 @@ public static class GitDiff
                 {
                     process.Kill(entireProcessTree: true);
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or
-                                           NotSupportedException or
-                                           System.ComponentModel.Win32Exception)
+                catch (Exception ex)
+                    when (ex
+                            is InvalidOperationException
+                                or NotSupportedException
+                                or System.ComponentModel.Win32Exception
+                    )
                 {
                     // The process may already have exited.
                 }
@@ -434,9 +454,14 @@ public static class GitDiff
             _ = errorTask.GetAwaiter().GetResult();
             return process.ExitCode == 0 ? output : null;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
-                                   IOException or InvalidOperationException or
-                                   NotSupportedException or UnauthorizedAccessException)
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or IOException
+                        or InvalidOperationException
+                        or NotSupportedException
+                        or UnauthorizedAccessException
+            )
         {
             return null;
         }
@@ -462,7 +487,7 @@ public static class GitDiff
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
+                StandardErrorEncoding = Encoding.UTF8,
             };
 
             startInfo.ArgumentList.Add("-C");
@@ -495,9 +520,12 @@ public static class GitDiff
                 {
                     process.Kill(entireProcessTree: true);
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or
-                                           NotSupportedException or
-                                           System.ComponentModel.Win32Exception)
+                catch (Exception ex)
+                    when (ex
+                            is InvalidOperationException
+                                or NotSupportedException
+                                or System.ComponentModel.Win32Exception
+                    )
                 {
                     // The process may already have exited.
                 }
@@ -509,16 +537,24 @@ public static class GitDiff
             _ = errorTask.GetAwaiter().GetResult();
             return process.ExitCode == 0 ? output : null;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
-                                   IOException or InvalidOperationException or
-                                   NotSupportedException or UnauthorizedAccessException)
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or IOException
+                        or InvalidOperationException
+                        or NotSupportedException
+                        or UnauthorizedAccessException
+            )
         {
             return null;
         }
     }
 
-    private static void Parse(string output, long lineCount,
-        Dictionary<long, GitDiffLineKind> result)
+    private static void Parse(
+        string output,
+        long lineCount,
+        Dictionary<long, GitDiffLineKind> result
+    )
     {
         foreach (string line in output.Split('\n'))
         {
@@ -529,8 +565,10 @@ public static class GitDiff
             }
 
             long oldCount = ReadCount(match, "oldCount");
-            long newStart = long.Parse(match.Groups["newStart"].Value,
-                CultureInfo.InvariantCulture);
+            long newStart = long.Parse(
+                match.Groups["newStart"].Value,
+                CultureInfo.InvariantCulture
+            );
             long newCount = ReadCount(match, "newCount");
 
             long start = Math.Max(1, newStart);
@@ -551,14 +589,13 @@ public static class GitDiff
             {
                 // A zero-length hunk names the line before the deletion point.
                 long deletedLine = newCount == 0 ? newStart : first + newCount;
-                result[Math.Clamp(deletedLine, 0, lineCount - 1)] =
-                    GitDiffLineKind.Deleted;
+                result[Math.Clamp(deletedLine, 0, lineCount - 1)] = GitDiffLineKind.Deleted;
             }
         }
     }
 
-    private static long ReadCount(Match match, string group)
-        => match.Groups[group].Success
+    private static long ReadCount(Match match, string group) =>
+        match.Groups[group].Success
             ? long.Parse(match.Groups[group].Value, CultureInfo.InvariantCulture)
             : 1;
 }

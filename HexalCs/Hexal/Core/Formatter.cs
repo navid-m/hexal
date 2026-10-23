@@ -15,11 +15,9 @@ public sealed class FormatterConfig
 
     public int TimeoutMs { get; init; } = 15000;
 
-    public bool UsesStdin =>
-        !string.Equals(Input, "file", StringComparison.OrdinalIgnoreCase);
+    public bool UsesStdin => !string.Equals(Input, "file", StringComparison.OrdinalIgnoreCase);
 
-    public bool WritesFile =>
-        string.Equals(Output, "file", StringComparison.OrdinalIgnoreCase);
+    public bool WritesFile => string.Equals(Output, "file", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class FormatResult
@@ -30,19 +28,21 @@ public sealed class FormatResult
 
     public string Error { get; init; } = string.Empty;
 
-    public static FormatResult Failure(string error)
-        => new() { Ok = false, Error = error };
+    public static FormatResult Failure(string error) => new() { Ok = false, Error = error };
 
-    public static FormatResult Success(byte[] output)
-        => new() { Ok = true, Output = output };
+    public static FormatResult Success(byte[] output) => new() { Ok = true, Output = output };
 }
 
 public static class FormatterRunner
 {
     private const int DefaultTimeoutMs = 15000;
 
-    public static FormatResult Run(FormatterConfig config, byte[] input,
-        string? documentPath, CancellationToken cancellationToken)
+    public static FormatResult Run(
+        FormatterConfig config,
+        byte[] input,
+        string? documentPath,
+        CancellationToken cancellationToken
+    )
     {
         if (string.IsNullOrWhiteSpace(config.Command))
         {
@@ -72,7 +72,7 @@ public static class FormatterRunner
                 RedirectStandardInput = usesStdin,
                 RedirectStandardOutput = !writesFile,
                 RedirectStandardError = true,
-                CreateNoWindow = true
+                CreateNoWindow = true,
             };
 
             string? workingDirectory = WorkingDirectory(documentPath);
@@ -83,8 +83,7 @@ public static class FormatterRunner
 
             foreach (string argument in config.Arguments)
             {
-                startInfo.ArgumentList.Add(Substitute(argument, documentPath,
-                    tempPath));
+                startInfo.ArgumentList.Add(Substitute(argument, documentPath, tempPath));
             }
 
             using var process = new Process { StartInfo = startInfo };
@@ -92,36 +91,33 @@ public static class FormatterRunner
             {
                 if (!process.Start())
                 {
-                    return FormatResult.Failure(
-                        $"cannot start formatter '{config.Command}'");
+                    return FormatResult.Failure($"cannot start formatter '{config.Command}'");
                 }
             }
             catch (Win32Exception ex)
             {
                 return FormatResult.Failure(
-                    $"cannot start formatter '{config.Command}': {ex.Message}");
+                    $"cannot start formatter '{config.Command}': {ex.Message}"
+                );
             }
             catch (InvalidOperationException ex)
             {
                 return FormatResult.Failure(
-                    $"cannot start formatter '{config.Command}': {ex.Message}");
+                    $"cannot start formatter '{config.Command}': {ex.Message}"
+                );
             }
 
             Task<byte[]>? stdoutTask = writesFile
                 ? null
                 : ReadAllAsync(process.StandardOutput.BaseStream);
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync(
-                CancellationToken.None);
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
             Task? writeTask = usesStdin
                 ? WriteInputAsync(process.StandardInput.BaseStream, input)
                 : null;
 
-            int timeoutMs = config.TimeoutMs > 0
-                ? config.TimeoutMs
-                : DefaultTimeoutMs;
+            int timeoutMs = config.TimeoutMs > 0 ? config.TimeoutMs : DefaultTimeoutMs;
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(timeoutMs);
 
             try
@@ -141,12 +137,8 @@ public static class FormatterRunner
             {
                 writeTask?.GetAwaiter().GetResult();
             }
-            catch (IOException)
-            {
-            }
-            catch (ObjectDisposedException)
-            {
-            }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
 
             string stderr = stderrTask.GetAwaiter().GetResult();
             byte[] stdout = stdoutTask is null
@@ -156,9 +148,11 @@ public static class FormatterRunner
             if (process.ExitCode != 0)
             {
                 string detail = stderr.Trim();
-                return FormatResult.Failure(detail.Length > 0
-                    ? $"formatter exited with code {process.ExitCode}: {detail}"
-                    : $"formatter exited with code {process.ExitCode}");
+                return FormatResult.Failure(
+                    detail.Length > 0
+                        ? $"formatter exited with code {process.ExitCode}: {detail}"
+                        : $"formatter exited with code {process.ExitCode}"
+                );
             }
 
             byte[] output;
@@ -166,8 +160,7 @@ public static class FormatterRunner
             {
                 if (tempPath is null || !File.Exists(tempPath))
                 {
-                    return FormatResult.Failure(
-                        "formatter did not produce an output file");
+                    return FormatResult.Failure("formatter did not produce an output file");
                 }
 
                 output = File.ReadAllBytes(tempPath);
@@ -177,16 +170,20 @@ public static class FormatterRunner
                 output = stdout;
             }
 
-            if (output.Length >= 3 && output[0] == 0xEF &&
-                output[1] == 0xBB && output[2] == 0xBF)
+            if (output.Length >= 3 && output[0] == 0xEF && output[1] == 0xBB && output[2] == 0xBF)
             {
                 output = output[3..];
             }
 
             return FormatResult.Success(output);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             return FormatResult.Failure($"formatter failed: {ex.Message}");
         }
@@ -198,10 +195,7 @@ public static class FormatterRunner
                 {
                     File.Delete(tempPath);
                 }
-                catch (Exception ex) when (ex is IOException or
-                                           UnauthorizedAccessException)
-                {
-                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
         }
     }
@@ -226,8 +220,7 @@ public static class FormatterRunner
             extension = ".tmp";
         }
 
-        return Path.Combine(Path.GetTempPath(),
-            $"hexal-format-{Guid.NewGuid():N}{extension}");
+        return Path.Combine(Path.GetTempPath(), $"hexal-format-{Guid.NewGuid():N}{extension}");
     }
 
     private static string? WorkingDirectory(string? documentPath)
@@ -241,19 +234,16 @@ public static class FormatterRunner
         {
             return Path.GetDirectoryName(Path.GetFullPath(documentPath));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return null;
         }
     }
 
-    private static string Substitute(string argument, string? documentPath,
-        string? tempPath)
+    private static string Substitute(string argument, string? documentPath, string? tempPath)
     {
-        string file = string.IsNullOrEmpty(documentPath)
-            ? tempPath ?? string.Empty
-            : documentPath;
+        string file = string.IsNullOrEmpty(documentPath) ? tempPath ?? string.Empty : documentPath;
         string temp = tempPath ?? file;
 
         return argument
@@ -278,21 +268,15 @@ public static class FormatterRunner
             await stream.WriteAsync(input).ConfigureAwait(false);
             await stream.FlushAsync().ConfigureAwait(false);
         }
-        catch (IOException)
-        {
-        }
+        catch (IOException) { }
         finally
         {
             try
             {
                 stream.Close();
             }
-            catch (IOException)
-            {
-            }
-            catch (ObjectDisposedException)
-            {
-            }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
         }
     }
 
@@ -305,14 +289,8 @@ public static class FormatterRunner
                 process.Kill(entireProcessTree: true);
             }
         }
-        catch (InvalidOperationException)
-        {
-        }
-        catch (Win32Exception)
-        {
-        }
-        catch (NotSupportedException)
-        {
-        }
+        catch (InvalidOperationException) { }
+        catch (Win32Exception) { }
+        catch (NotSupportedException) { }
     }
 }

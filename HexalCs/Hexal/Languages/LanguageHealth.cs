@@ -16,12 +16,15 @@ public sealed record LanguageHealthEntry(
     bool FormatterAvailable,
     string? DebugAdapter,
     bool DebugAdapterAvailable,
-    bool Highlighting);
+    bool Highlighting
+);
 
 public sealed class LanguageHealthReport
 {
-    public LanguageHealthReport(IReadOnlyList<LanguageHealthEntry> entries,
-        IReadOnlyList<string> errors)
+    public LanguageHealthReport(
+        IReadOnlyList<LanguageHealthEntry> entries,
+        IReadOnlyList<string> errors
+    )
     {
         Entries = entries;
         Errors = errors;
@@ -42,21 +45,26 @@ public static class LanguageHealth
 {
     public static LanguageHealthReport BuildDefault()
     {
-        return Build(LanguageRegistry.DefaultGrammarDirectory,
+        return Build(
+            LanguageRegistry.DefaultGrammarDirectory,
             LuaPluginManager.DefaultPluginDirectory,
-            LuaPluginManager.DefaultStatePath);
+            LuaPluginManager.DefaultStatePath
+        );
     }
 
-    public static LanguageHealthReport Build(string grammarDirectory,
-        string pluginDirectory, string? pluginStatePath = null)
+    public static LanguageHealthReport Build(
+        string grammarDirectory,
+        string pluginDirectory,
+        string? pluginStatePath = null
+    )
     {
         var errors = new List<string>();
         var registry = new LanguageRegistry();
         registry.LoadDirectory(grammarDirectory);
         errors.AddRange(registry.Errors);
 
-        List<LanguageDefinition> languages = registry.Languages
-            .OrderBy(language => language.Id, StringComparer.OrdinalIgnoreCase)
+        List<LanguageDefinition> languages = registry
+            .Languages.OrderBy(language => language.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var host = new HealthPluginHost();
@@ -65,16 +73,21 @@ public static class LanguageHealth
 
         try
         {
-            using var plugins = new LuaPluginManager(host, pluginDirectory,
-                pluginStatePath ?? string.Empty);
+            using var plugins = new LuaPluginManager(
+                host,
+                pluginDirectory,
+                pluginStatePath ?? string.Empty
+            );
             plugins.LoadAll();
             errors.AddRange(plugins.Errors);
 
             foreach (LanguageDefinition language in languages)
             {
                 host.CurrentLanguage = language.Id;
-                plugins.FireEvent("buffer_opened",
-                    new Dictionary<string, object?> { ["language"] = language.Id });
+                plugins.FireEvent(
+                    "buffer_opened",
+                    new Dictionary<string, object?> { ["language"] = language.Id }
+                );
             }
 
             host.CurrentLanguage = null;
@@ -101,10 +114,10 @@ public static class LanguageHealth
         {
             List<CapturedServer> servers = builtIn
                 .Concat(captured)
-                .Where(server => string.Equals(server.Language, language.Id,
-                    StringComparison.OrdinalIgnoreCase))
-                .GroupBy(server => (server.Name, server.Command),
-                    StringTupleComparer.Instance)
+                .Where(server =>
+                    string.Equals(server.Language, language.Id, StringComparison.OrdinalIgnoreCase)
+                )
+                .GroupBy(server => (server.Name, server.Command), StringTupleComparer.Instance)
                 .Select(group => group.First())
                 .ToList();
 
@@ -112,29 +125,34 @@ public static class LanguageHealth
             CapturedServer? selected = available ?? servers.FirstOrDefault();
 
             string? formatter = language.Formatter?.Command;
-            bool formatterAvailable = formatter is not null &&
-                                      ExecutableFinder.Find(formatter) is not null;
+            bool formatterAvailable =
+                formatter is not null && ExecutableFinder.Find(formatter) is not null;
 
             string? debugAdapter = language.Debugger?.Adapter;
-            bool debugAdapterAvailable = debugAdapter is not null &&
-                                         DapManager.FindAdapter(debugAdapter) is not null;
+            bool debugAdapterAvailable =
+                debugAdapter is not null && DapManager.FindAdapter(debugAdapter) is not null;
 
-            entries.Add(new LanguageHealthEntry(
-                language.Id,
-                selected?.Name,
-                selected?.Available ?? false,
-                formatter,
-                formatterAvailable,
-                debugAdapter,
-                debugAdapterAvailable,
-                Highlighting: true));
+            entries.Add(
+                new LanguageHealthEntry(
+                    language.Id,
+                    selected?.Name,
+                    selected?.Available ?? false,
+                    formatter,
+                    formatterAvailable,
+                    debugAdapter,
+                    debugAdapterAvailable,
+                    Highlighting: true
+                )
+            );
         }
 
         return new LanguageHealthReport(entries, errors);
     }
 
-    private static HashSet<string> ResolveServerLanguages(LuaLspServer server,
-        LanguageRegistry registry)
+    private static HashSet<string> ResolveServerLanguages(
+        LuaLspServer server,
+        LanguageRegistry registry
+    )
     {
         var languages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string filetype in server.Filetypes)
@@ -160,8 +178,12 @@ public static class LanguageHealth
         return languages;
     }
 
-    private sealed record CapturedServer(string Language, string Name, bool Available,
-        string Command = "");
+    private sealed record CapturedServer(
+        string Language,
+        string Name,
+        bool Available,
+        string Command = ""
+    );
 
     private sealed class HealthPluginHost : IEditorApi
     {
@@ -173,37 +195,25 @@ public static class LanguageHealth
 
         public string? WorkspaceRoot => null;
 
-        public int OpenPluginPanel(PluginPanelOptions options,
-            Func<string, long, bool>? onKey, string pluginId) => 0;
+        public int OpenPluginPanel(
+            PluginPanelOptions options,
+            Func<string, long, bool>? onKey,
+            string pluginId
+        ) => 0;
 
-        public void SetPluginPanelLines(int panelId,
-            IReadOnlyList<PluginPanelLine> lines)
-        {
-        }
+        public void SetPluginPanelLines(int panelId, IReadOnlyList<PluginPanelLine> lines) { }
 
-        public void SetPluginPanelTitle(int panelId, string title)
-        {
-        }
+        public void SetPluginPanelTitle(int panelId, string title) { }
 
-        public void SetPluginPanelFooter(int panelId, string footer)
-        {
-        }
+        public void SetPluginPanelFooter(int panelId, string footer) { }
 
-        public void SetPluginPanelSelected(int panelId, long selected)
-        {
-        }
+        public void SetPluginPanelSelected(int panelId, long selected) { }
 
-        public void SetPluginPanelSelectable(int panelId, bool selectable)
-        {
-        }
+        public void SetPluginPanelSelectable(int panelId, bool selectable) { }
 
-        public void ClosePluginPanel(int panelId)
-        {
-        }
+        public void ClosePluginPanel(int panelId) { }
 
-        public void ClosePluginPanels(string pluginId)
-        {
-        }
+        public void ClosePluginPanels(string pluginId) { }
 
         public string GetText() => string.Empty;
 
@@ -229,29 +239,23 @@ public static class LanguageHealth
             return false;
         }
 
-        public bool ReplaceRange(object? start, object? finish, string text,
-            out string error)
+        public bool ReplaceRange(object? start, object? finish, string text, out string error)
         {
             error = string.Empty;
             return false;
         }
 
-        public void ShowMessage(string text, bool warning)
-        {
-        }
+        public void ShowMessage(string text, bool warning) { }
 
-        public void SetPluginStatus(string key, string? text)
-        {
-        }
+        public void SetPluginStatus(string key, string? text) { }
 
-        public void RequestPrompt(string label, Action<string?> callback)
-        {
-        }
+        public void RequestPrompt(string label, Action<string?> callback) { }
 
-        public void RequestSelect(string title, IReadOnlyList<string> items,
-            Action<int?> callback)
-        {
-        }
+        public void RequestSelect(
+            string title,
+            IReadOnlyList<string> items,
+            Action<int?> callback
+        ) { }
 
         public bool StartLsp(LspServerConfig config, out string error)
         {
@@ -262,28 +266,22 @@ public static class LanguageHealth
 
             if (language.Length > 0)
             {
-                Captured.Add(new CapturedServer(language, config.Name, available,
-                    config.Command));
+                Captured.Add(new CapturedServer(language, config.Name, available, config.Command));
             }
 
             error = available ? string.Empty : $"'{config.Command}' was not found in PATH";
             return available;
         }
 
-        public void StopLsp(string? name)
-        {
-        }
+        public void StopLsp(string? name) { }
 
-        public bool ExecuteCommand(string name, IReadOnlyList<string> args,
-            out string error)
+        public bool ExecuteCommand(string name, IReadOnlyList<string> args, out string error)
         {
             error = string.Empty;
             return false;
         }
 
-        public void ReportPluginError(string pluginId, string message)
-        {
-        }
+        public void ReportPluginError(string pluginId, string message) { }
     }
 
     private sealed class StringTupleComparer : IEqualityComparer<(string, string)>
@@ -292,15 +290,16 @@ public static class LanguageHealth
 
         public bool Equals((string, string) x, (string, string) y)
         {
-            return string.Equals(x.Item1, y.Item1, StringComparison.Ordinal) &&
-                   string.Equals(x.Item2, y.Item2, StringComparison.Ordinal);
+            return string.Equals(x.Item1, y.Item1, StringComparison.Ordinal)
+                && string.Equals(x.Item2, y.Item2, StringComparison.Ordinal);
         }
 
         public int GetHashCode((string, string) obj)
         {
             return HashCode.Combine(
                 StringComparer.Ordinal.GetHashCode(obj.Item1),
-                StringComparer.Ordinal.GetHashCode(obj.Item2));
+                StringComparer.Ordinal.GetHashCode(obj.Item2)
+            );
         }
     }
 }

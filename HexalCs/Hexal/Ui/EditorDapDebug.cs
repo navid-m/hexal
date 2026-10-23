@@ -31,8 +31,7 @@ public sealed partial class Editor
 
     private int DapDebugContentRows() => Math.Max(1, _rows - 3);
 
-    private int DapDebugMaxTop()
-        => Math.Max(0, _dapDebugLines.Count - DapDebugContentRows());
+    private int DapDebugMaxTop() => Math.Max(0, _dapDebugLines.Count - DapDebugContentRows());
 
     private void RefreshDapDebugLines()
     {
@@ -40,10 +39,7 @@ public sealed partial class Editor
         string report = _dap.BuildDebugReport();
 
         _dapDebugLines.Clear();
-        foreach (string rawLine in report
-                     .Replace("\r\n", "\n")
-                     .Replace('\r', '\n')
-                     .Split('\n'))
+        foreach (string rawLine in report.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
         {
             if (rawLine.Length == 0)
             {
@@ -121,9 +117,7 @@ public sealed partial class Editor
             case 'g':
             case 'G':
                 RefreshDapDebugLines();
-                _dapDebugTop = inputEvent.Character.Value == 'g'
-                    ? 0
-                    : DapDebugMaxTop();
+                _dapDebugTop = inputEvent.Character.Value == 'g' ? 0 : DapDebugMaxTop();
                 return;
             case 'y':
             case 'Y':
@@ -150,8 +144,7 @@ public sealed partial class Editor
     private void CopyDapDebugReport()
     {
         string report = _dap.BuildDebugReport();
-        if (!Clipboard.TryCopy(_terminal, Encoding.UTF8.GetBytes(report),
-                out string error))
+        if (!Clipboard.TryCopy(_terminal, Encoding.UTF8.GetBytes(report), out string error))
         {
             _dapDebugStatus = $"Copy failed: {error}";
             return;
@@ -198,9 +191,13 @@ public sealed partial class Editor
             _screen.PutString(x + 2, 1 + row, text, style, contentWidth);
         }
 
-        _screen.PutString(x + 2, height - 2,
-            ":dbg-sv close  :dbg-watch <expr>", _theme.MutedStyle,
-            Math.Max(0, width - 4));
+        _screen.PutString(
+            x + 2,
+            height - 2,
+            ":dbg-sv close  :dbg-watch <expr>",
+            _theme.MutedStyle,
+            Math.Max(0, width - 4)
+        );
     }
 
     private void RenderDapDebug()
@@ -234,16 +231,11 @@ public sealed partial class Editor
                 break;
             }
 
-            _screen.PutString(2, 1 + row, _dapDebugLines[index],
-                _theme.TextStyle, contentWidth);
+            _screen.PutString(2, 1 + row, _dapDebugLines[index], _theme.TextStyle, contentWidth);
         }
 
-        const string hint =
-            "Esc close  |  j/k/arrows scroll  |  Home/End  |  y copy  |  c clear";
-        string footer = _dapDebugStatus.Length > 0
-            ? $"{_dapDebugStatus}  |  {hint}"
-            : hint;
-        _screen.PutString(2, height - 2, footer, _theme.MutedStyle,
-            Math.Max(0, width - 4));
+        const string hint = "Esc close  |  j/k/arrows scroll  |  Home/End  |  y copy  |  c clear";
+        string footer = _dapDebugStatus.Length > 0 ? $"{_dapDebugStatus}  |  {hint}" : hint;
+        _screen.PutString(2, height - 2, footer, _theme.MutedStyle, Math.Max(0, width - 4));
     }
 }

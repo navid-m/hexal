@@ -8,8 +8,12 @@ public sealed partial class Editor
 {
     private bool TryRequestLspCompletion(string? triggerCharacter)
     {
-        if (!_lsp.IsRunning || !_lsp.IsInitialized || _document.Path is null ||
-            _extraSelections.Count > 0)
+        if (
+            !_lsp.IsRunning
+            || !_lsp.IsInitialized
+            || _document.Path is null
+            || _extraSelections.Count > 0
+        )
         {
             return false;
         }
@@ -21,8 +25,7 @@ public sealed partial class Editor
         }
 
         (int line, int character) = CursorLspPosition();
-        if (!_lsp.RequestCompletion(_document.Path, line, character,
-                triggerCharacter))
+        if (!_lsp.RequestCompletion(_document.Path, line, character, triggerCharacter))
         {
             return false;
         }
@@ -97,8 +100,7 @@ public sealed partial class Editor
                 EnsureLspCompletionSelectionVisible();
                 return true;
             case Key.End:
-                _lspCompletionSelected = Math.Max(0,
-                    _lspCompletionItems.Count - 1);
+                _lspCompletionSelected = Math.Max(0, _lspCompletionItems.Count - 1);
                 EnsureLspCompletionSelectionVisible();
                 return true;
             case Key.Enter:
@@ -111,8 +113,7 @@ public sealed partial class Editor
         return false;
     }
 
-    private int LspCompletionRows()
-        => Math.Min(10, Math.Max(1, _lspCompletionItems.Count));
+    private int LspCompletionRows() => Math.Min(10, Math.Max(1, _lspCompletionItems.Count));
 
     private void MoveLspCompletionSelection(int delta)
     {
@@ -122,8 +123,7 @@ public sealed partial class Editor
             return;
         }
 
-        _lspCompletionSelected =
-            ((_lspCompletionSelected + delta) % count + count) % count;
+        _lspCompletionSelected = ((_lspCompletionSelected + delta) % count + count) % count;
         EnsureLspCompletionSelectionVisible();
     }
 
@@ -139,15 +139,21 @@ public sealed partial class Editor
             _lspCompletionTop = _lspCompletionSelected - rows + 1;
         }
 
-        _lspCompletionTop = Math.Clamp(_lspCompletionTop, 0,
-            Math.Max(0, _lspCompletionItems.Count - rows));
+        _lspCompletionTop = Math.Clamp(
+            _lspCompletionTop,
+            0,
+            Math.Max(0, _lspCompletionItems.Count - rows)
+        );
     }
 
     private void AcceptLspCompletion()
     {
-        if (!_lspCompletionVisible || _lspCompletionItems.Count == 0 ||
-            _lspCompletionSelected < 0 ||
-            _lspCompletionSelected >= _lspCompletionItems.Count)
+        if (
+            !_lspCompletionVisible
+            || _lspCompletionItems.Count == 0
+            || _lspCompletionSelected < 0
+            || _lspCompletionSelected >= _lspCompletionItems.Count
+        )
         {
             return;
         }
@@ -157,10 +163,8 @@ public sealed partial class Editor
         long end = _cursor;
         if (item.HasTextEdit && _document.Path is not null)
         {
-            start = LspColumnToByteOffset(_document.Path, item.StartLine,
-                item.StartCharacter);
-            end = LspColumnToByteOffset(_document.Path, item.EndLine,
-                item.EndCharacter);
+            start = LspColumnToByteOffset(_document.Path, item.StartLine, item.StartCharacter);
+            end = LspColumnToByteOffset(_document.Path, item.EndLine, item.EndCharacter);
             if (end < start)
             {
                 (start, end) = (end, start);
@@ -202,8 +206,11 @@ public sealed partial class Editor
         while (index < snippet.Length)
         {
             char character = snippet[index];
-            if (character == '\\' && index + 1 < snippet.Length &&
-                snippet[index + 1] is '$' or '}' or '\\')
+            if (
+                character == '\\'
+                && index + 1 < snippet.Length
+                && snippet[index + 1] is '$' or '}' or '\\'
+            )
             {
                 result.Append(snippet[index + 1]);
                 index += 2;
@@ -221,14 +228,15 @@ public sealed partial class Editor
             if (next is >= '0' and <= '9')
             {
                 int end = index + 1;
-                while (end < snippet.Length &&
-                       snippet[end] is >= '0' and <= '9')
+                while (end < snippet.Length && snippet[end] is >= '0' and <= '9')
                 {
                     ++end;
                 }
 
-                int number = int.TryParse(snippet.AsSpan(index + 1,
-                    end - index - 1), out int parsedNumber)
+                int number = int.TryParse(
+                    snippet.AsSpan(index + 1, end - index - 1),
+                    out int parsedNumber
+                )
                     ? parsedNumber
                     : 0;
                 if (number == 0)
@@ -264,16 +272,14 @@ public sealed partial class Editor
 
             string inner = snippet[(index + 2)..close];
             int digitsEnd = 0;
-            while (digitsEnd < inner.Length &&
-                   inner[digitsEnd] is >= '0' and <= '9')
+            while (digitsEnd < inner.Length && inner[digitsEnd] is >= '0' and <= '9')
             {
                 ++digitsEnd;
             }
 
             if (digitsEnd > 0)
             {
-                int number = int.TryParse(inner.AsSpan(0, digitsEnd),
-                    out int parsedNumber)
+                int number = int.TryParse(inner.AsSpan(0, digitsEnd), out int parsedNumber)
                     ? parsedNumber
                     : 0;
                 string rest = inner[digitsEnd..];
@@ -284,9 +290,7 @@ public sealed partial class Editor
                 else if (rest.StartsWith('|'))
                 {
                     int choiceEnd = rest.IndexOf('|', 1);
-                    string choices = choiceEnd > 1
-                        ? rest[1..choiceEnd]
-                        : rest[1..];
+                    string choices = choiceEnd > 1 ? rest[1..choiceEnd] : rest[1..];
                     int comma = choices.IndexOf(',');
                     result.Append(comma >= 0 ? choices[..comma] : choices);
                 }
@@ -351,8 +355,11 @@ public sealed partial class Editor
         }
 
         int rows = LspCompletionRows();
-        _lspCompletionSelected = Math.Clamp(_lspCompletionSelected, 0,
-            _lspCompletionItems.Count - 1);
+        _lspCompletionSelected = Math.Clamp(
+            _lspCompletionSelected,
+            0,
+            _lspCompletionItems.Count - 1
+        );
         EnsureLspCompletionSelectionVisible();
 
         int width = 24;
@@ -363,8 +370,7 @@ public sealed partial class Editor
             {
                 break;
             }
-            width = Math.Max(width,
-                LspCompletionDisplay(_lspCompletionItems[index]).Length + 4);
+            width = Math.Max(width, LspCompletionDisplay(_lspCompletionItems[index]).Length + 4);
         }
 
         width = Math.Min(width, Math.Max(10, _columns - 4));
@@ -379,8 +385,7 @@ public sealed partial class Editor
         long cursorLine = CursorLine();
         int gutter = GutterWidth();
         int cursorRow = bounds.Y + (int)(cursorLine - _topLine);
-        int cursorColumn = bounds.X + gutter +
-            (int)(CursorVisualColumn() - _leftColumn);
+        int cursorColumn = bounds.X + gutter + (int)(CursorVisualColumn() - _leftColumn);
 
         int y = cursorRow + 1;
         if (y + height > available)
@@ -393,8 +398,13 @@ public sealed partial class Editor
         int maxX = _columns - width - 1;
         x = Math.Clamp(x, bounds.X, Math.Max(bounds.X, maxX));
 
-        DrawBox(x, y, width, height,
-            $" Completions {_lspCompletionSelected + 1}/{_lspCompletionItems.Count} ");
+        DrawBox(
+            x,
+            y,
+            width,
+            height,
+            $" Completions {_lspCompletionSelected + 1}/{_lspCompletionItems.Count} "
+        );
 
         var selectedStyle = _theme.SelectedItemStyle;
         var itemStyle = _theme.TextStyle;
@@ -407,13 +417,15 @@ public sealed partial class Editor
             }
 
             int screenRow = y + 1 + row;
-            Style style = index == _lspCompletionSelected
-                ? selectedStyle
-                : itemStyle;
+            Style style = index == _lspCompletionSelected ? selectedStyle : itemStyle;
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
-            _screen.PutString(x + 2, screenRow,
-                LspCompletionDisplay(_lspCompletionItems[index]), style,
-                width - 4);
+            _screen.PutString(
+                x + 2,
+                screenRow,
+                LspCompletionDisplay(_lspCompletionItems[index]),
+                style,
+                width - 4
+            );
         }
     }
 

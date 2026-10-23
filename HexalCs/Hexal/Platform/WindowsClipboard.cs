@@ -53,8 +53,7 @@ internal static partial class WindowsClipboard
         string text = Encoding.UTF8.GetString(utf8);
         byte[] encoded = Encoding.Unicode.GetBytes(text + "\0");
 
-        IntPtr memory = GlobalAlloc(GmemMoveable | GmemZeroInit,
-            (UIntPtr)encoded.Length);
+        IntPtr memory = GlobalAlloc(GmemMoveable | GmemZeroInit, (UIntPtr)encoded.Length);
         if (memory == IntPtr.Zero)
         {
             error = Win32Message();
@@ -182,9 +181,7 @@ internal static partial class WindowsClipboard
         return false;
     }
 
-    private static string Win32Message()
-        => Win32Message(Marshal.GetLastPInvokeError());
+    private static string Win32Message() => Win32Message(Marshal.GetLastPInvokeError());
 
-    private static string Win32Message(int code)
-        => new Win32Exception(code).Message;
+    private static string Win32Message(int code) => new Win32Exception(code).Message;
 }

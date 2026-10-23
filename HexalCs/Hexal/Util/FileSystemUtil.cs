@@ -31,8 +31,13 @@ public static class FileSystemUtil
             contents = File.ReadAllBytes(path);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = $"cannot read '{path}': {ex.Message}";
             return false;
@@ -79,21 +84,34 @@ public static class FileSystemUtil
         for (int attempt = 0; attempt < 100; ++attempt)
         {
             int suffixNumber = Interlocked.Increment(ref s_tempCounter);
-            temp = Path.Combine(parent,
-                $"{baseName}.hexal-tmp-{Environment.ProcessId}-{suffixNumber}");
+            temp = Path.Combine(
+                parent,
+                $"{baseName}.hexal-tmp-{Environment.ProcessId}-{suffixNumber}"
+            );
 
             try
             {
-                stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write,
-                    FileShare.None, 64 * 1024, FileOptions.SequentialScan);
+                stream = new FileStream(
+                    temp,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    64 * 1024,
+                    FileOptions.SequentialScan
+                );
                 break;
             }
             catch (IOException) when (File.Exists(temp))
             {
                 // Another process chose the same name; try the next suffix.
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       NotSupportedException or ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException
+                )
             {
                 error = $"cannot create temporary file in '{parent}': {ex.Message}";
                 return false;
@@ -131,8 +149,13 @@ public static class FileSystemUtil
             // Windows. The target is never truncated in place.
             File.Move(temp, target, overwrite: true);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             DeleteQuietly(temp);
             error = $"cannot replace '{target}': {ex.Message}";
@@ -160,8 +183,8 @@ public static class FileSystemUtil
             UnixFileMode mode = File.GetUnixFileMode(target);
             File.SetUnixFileMode(temp, mode);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException)
+        catch (Exception ex)
+            when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             // Preserving permissions is best effort, matching the C++ MVP.
         }

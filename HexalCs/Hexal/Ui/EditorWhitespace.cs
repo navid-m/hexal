@@ -26,8 +26,10 @@ public sealed partial class Editor
             return;
         }
 
-        SetMessage($"Removed trailing whitespace from {lines} " +
-                   $"line{(lines == 1 ? string.Empty : "s")}.");
+        SetMessage(
+            $"Removed trailing whitespace from {lines} "
+                + $"line{(lines == 1 ? string.Empty : "s")}."
+        );
     }
 
     private bool BackspaceIndentation(long lineStart)

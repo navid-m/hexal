@@ -17,15 +17,16 @@ public struct Style : IEquatable<Style>
         Bg = 0;
     }
 
-    public readonly bool Equals(Style other)
-        => Fg == other.Fg && Bg == other.Bg && Bold == other.Bold &&
-           Dim == other.Dim && Reverse == other.Reverse;
+    public readonly bool Equals(Style other) =>
+        Fg == other.Fg
+        && Bg == other.Bg
+        && Bold == other.Bold
+        && Dim == other.Dim
+        && Reverse == other.Reverse;
 
-    public readonly override bool Equals(object? obj)
-        => obj is Style other && Equals(other);
+    public override readonly bool Equals(object? obj) => obj is Style other && Equals(other);
 
-    public readonly override int GetHashCode()
-        => HashCode.Combine(Fg, Bg, Bold, Dim, Reverse);
+    public override readonly int GetHashCode() => HashCode.Combine(Fg, Bg, Bold, Dim, Reverse);
 
     public static bool operator ==(Style left, Style right) => left.Equals(right);
 
@@ -45,15 +46,12 @@ public struct Cell : IEquatable<Cell>
         WideContinuation = false;
     }
 
-    public readonly bool Equals(Cell other)
-        => Ch == other.Ch && Style == other.Style &&
-           WideContinuation == other.WideContinuation;
+    public readonly bool Equals(Cell other) =>
+        Ch == other.Ch && Style == other.Style && WideContinuation == other.WideContinuation;
 
-    public readonly override bool Equals(object? obj)
-        => obj is Cell other && Equals(other);
+    public override readonly bool Equals(object? obj) => obj is Cell other && Equals(other);
 
-    public readonly override int GetHashCode()
-        => HashCode.Combine(Ch, Style, WideContinuation);
+    public override readonly int GetHashCode() => HashCode.Combine(Ch, Style, WideContinuation);
 
     public static bool operator ==(Cell left, Cell right) => left.Equals(right);
 
@@ -112,12 +110,16 @@ public sealed class Screen
             style = new Style();
         }
 
-        Cell blank = new() { Ch = ' ', Style = style, WideContinuation = false };
+        Cell blank = new()
+        {
+            Ch = ' ',
+            Style = style,
+            WideContinuation = false,
+        };
         Array.Fill(_cells, blank);
     }
 
-    public bool InBounds(int x, int y)
-        => x >= 0 && y >= 0 && x < _width && y < _height;
+    public bool InBounds(int x, int y) => x >= 0 && y >= 0 && x < _width && y < _height;
 
     public ref Cell At(int x, int y) => ref _cells[(y * _width) + x];
 
@@ -137,35 +139,37 @@ public sealed class Screen
         // Repair any wide scalar that we are overwriting from the side.
         if (x > 0 && _cells[index].WideContinuation)
         {
-            _cells[index - 1] = new Cell
-            {
-                Ch = ' ',
-                Style = _cells[index - 1].Style
-            };
+            _cells[index - 1] = new Cell { Ch = ' ', Style = _cells[index - 1].Style };
         }
         if (x + 1 < _width && _cells[index + 1].WideContinuation)
         {
-            _cells[index + 1] = new Cell
-            {
-                Ch = ' ',
-                Style = _cells[index + 1].Style
-            };
+            _cells[index + 1] = new Cell { Ch = ' ', Style = _cells[index + 1].Style };
         }
 
-        _cells[index] = new Cell { Ch = codePoint, Style = style, WideContinuation = false };
+        _cells[index] = new Cell
+        {
+            Ch = codePoint,
+            Style = style,
+            WideContinuation = false,
+        };
         for (int offset = 1; offset < width; ++offset)
         {
             _cells[index + offset] = new Cell
             {
                 Ch = ' ',
                 Style = style,
-                WideContinuation = true
+                WideContinuation = true,
             };
         }
     }
 
-    public void PutAscii(int x, int y, ReadOnlySpan<char> text, Style style,
-                         int maxWidth = int.MaxValue)
+    public void PutAscii(
+        int x,
+        int y,
+        ReadOnlySpan<char> text,
+        Style style,
+        int maxWidth = int.MaxValue
+    )
     {
         int column = 0;
         foreach (char c in text)
@@ -179,8 +183,13 @@ public sealed class Screen
         }
     }
 
-    public void PutString(int x, int y, ReadOnlySpan<char> text, Style style,
-                          int maxWidth = int.MaxValue)
+    public void PutString(
+        int x,
+        int y,
+        ReadOnlySpan<char> text,
+        Style style,
+        int maxWidth = int.MaxValue
+    )
     {
         int column = 0;
         int offset = 0;
@@ -205,8 +214,13 @@ public sealed class Screen
         }
     }
 
-    public void PutUtf8(int x, int y, ReadOnlySpan<byte> text, Style style,
-                        int maxWidth = int.MaxValue)
+    public void PutUtf8(
+        int x,
+        int y,
+        ReadOnlySpan<byte> text,
+        Style style,
+        int maxWidth = int.MaxValue
+    )
     {
         int column = 0;
         int offset = 0;
@@ -270,8 +284,13 @@ public sealed class Screen
 
         for (int row = 0; row < height; ++row)
         {
-            Array.Copy(source._cells, row * source._width,
-                _cells, (targetY + row) * _width + targetX, width);
+            Array.Copy(
+                source._cells,
+                row * source._width,
+                _cells,
+                (targetY + row) * _width + targetX,
+                width
+            );
         }
     }
 

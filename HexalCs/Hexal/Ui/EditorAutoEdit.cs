@@ -9,12 +9,23 @@ public sealed partial class Editor
 {
     private static readonly string[] DefaultIndentTriggers = { "{", "[", "(" };
 
-    private static readonly HashSet<string> VoidHtmlElements =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "area", "base", "br", "col", "embed", "hr", "img", "input",
-            "link", "meta", "param", "source", "track", "wbr"
-        };
+    private static readonly HashSet<string> VoidHtmlElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    };
 
     private bool AutoIndentEnabled => _language?.AutoIndent == true;
 
@@ -35,9 +46,11 @@ public sealed partial class Editor
             return false;
         }
 
-        if (_cursor >= _document.Size ||
-            _document.ByteAt(_cursor) != (byte)character ||
-            IsInsertPositionInStringOrComment())
+        if (
+            _cursor >= _document.Size
+            || _document.ByteAt(_cursor) != (byte)character
+            || IsInsertPositionInStringOrComment()
+        )
         {
             return false;
         }
@@ -62,7 +75,7 @@ public sealed partial class Editor
             '(' => ')',
             '[' => ']',
             '{' => '}',
-            _ => '\0'
+            _ => '\0',
         };
         if (close == '\0' || IsInsertPositionInStringOrComment())
         {
@@ -82,8 +95,7 @@ public sealed partial class Editor
 
     private void TryInsertAutoCloseTag()
     {
-        if (!AutoCloseEnabled || !IsTraditionalMarkup ||
-            IsInsertPositionInStringOrComment())
+        if (!AutoCloseEnabled || !IsTraditionalMarkup || IsInsertPositionInStringOrComment())
         {
             return;
         }
@@ -138,8 +150,7 @@ public sealed partial class Editor
 
             // The cursor immediately after a closed string is outside the
             // string. Only unterminated strings extend to the end of the line.
-            if (local == token.End &&
-                !IsClosedStringToken(token, _lineBuffer.AsSpan(0, length)))
+            if (local == token.End && !IsClosedStringToken(token, _lineBuffer.AsSpan(0, length)))
             {
                 return true;
             }
@@ -148,8 +159,7 @@ public sealed partial class Editor
         return false;
     }
 
-    private bool IsClosedStringToken(SyntaxToken token,
-        ReadOnlySpan<byte> lineText)
+    private bool IsClosedStringToken(SyntaxToken token, ReadOnlySpan<byte> lineText)
     {
         if (token.Length == 0 || token.Start < 0 || token.End > lineText.Length)
         {
@@ -158,8 +168,7 @@ public sealed partial class Editor
 
         ReadOnlySpan<byte> text = lineText[token.Start..token.End];
         int quoteLength = 0;
-        foreach (byte[] quote in _language?.QuoteCharacterBytes ??
-                 Array.Empty<byte[]>())
+        foreach (byte[] quote in _language?.QuoteCharacterBytes ?? Array.Empty<byte[]>())
         {
             if (text.EndsWith(quote))
             {
@@ -173,13 +182,14 @@ public sealed partial class Editor
             return false;
         }
 
-        ReadOnlySpan<byte> escape = _language?.EscapeCharacterBytes ??
-                                    ReadOnlySpan<byte>.Empty;
+        ReadOnlySpan<byte> escape = _language?.EscapeCharacterBytes ?? ReadOnlySpan<byte>.Empty;
         int escapes = 0;
         int index = text.Length - quoteLength;
-        while (escape.Length > 0 && index >= escape.Length &&
-               text.Slice(index - escape.Length, escape.Length)
-                   .SequenceEqual(escape))
+        while (
+            escape.Length > 0
+            && index >= escape.Length
+            && text.Slice(index - escape.Length, escape.Length).SequenceEqual(escape)
+        )
         {
             ++escapes;
             index -= escape.Length;
@@ -188,8 +198,7 @@ public sealed partial class Editor
         return escapes % 2 == 0;
     }
 
-    private static bool TryParseOpenTagAtEnd(ReadOnlySpan<byte> text,
-        out string name)
+    private static bool TryParseOpenTagAtEnd(ReadOnlySpan<byte> text, out string name)
     {
         name = string.Empty;
         if (text.Length < 3 || text[^1] != (byte)'>')
@@ -209,16 +218,17 @@ public sealed partial class Editor
 
         ReadOnlySpan<byte> content = text[(start + 1)..^1];
         content = Trim(content);
-        if (content.IsEmpty ||
-            content[0] is (byte)'/' or (byte)'!' or (byte)'?' ||
-            content[^1] == (byte)'/')
+        if (
+            content.IsEmpty
+            || content[0] is (byte)'/' or (byte)'!' or (byte)'?'
+            || content[^1] == (byte)'/'
+        )
         {
             return false;
         }
 
         int nameLength = 0;
-        while (nameLength < content.Length &&
-               !IsTagNameTerminator(content[nameLength]))
+        while (nameLength < content.Length && !IsTagNameTerminator(content[nameLength]))
         {
             ++nameLength;
         }
@@ -230,10 +240,14 @@ public sealed partial class Editor
         for (int index = 0; index < nameLength; ++index)
         {
             byte value = content[index];
-            bool valid = IsAsciiLetter(value) || IsAsciiDigit(value) ||
-                         value is (byte)'_' or (byte)'-' or (byte)':' or (byte)'.';
-            if (!valid || (index == 0 && !IsAsciiLetter(value) &&
-                           value is not ((byte)'_' or (byte)':')))
+            bool valid =
+                IsAsciiLetter(value)
+                || IsAsciiDigit(value)
+                || value is (byte)'_' or (byte)'-' or (byte)':' or (byte)'.';
+            if (
+                !valid
+                || (index == 0 && !IsAsciiLetter(value) && value is not ((byte)'_' or (byte)':'))
+            )
             {
                 return false;
             }
@@ -295,15 +309,13 @@ public sealed partial class Editor
         return !inDouble && !inSingle;
     }
 
-    private static bool IsTagNameTerminator(byte value)
-        => value is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n' or
-           (byte)'/' or (byte)'>';
+    private static bool IsTagNameTerminator(byte value) =>
+        value is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n' or (byte)'/' or (byte)'>';
 
-    private static bool IsAsciiLetter(byte value)
-        => value is >= (byte)'A' and <= (byte)'Z' or >= (byte)'a' and <= (byte)'z';
+    private static bool IsAsciiLetter(byte value) =>
+        value is >= (byte)'A' and <= (byte)'Z' or >= (byte)'a' and <= (byte)'z';
 
-    private static bool IsAsciiDigit(byte value)
-        => value is >= (byte)'0' and <= (byte)'9';
+    private static bool IsAsciiDigit(byte value) => value is >= (byte)'0' and <= (byte)'9';
 
     private void InsertNewlineWithAutoIndent()
     {
@@ -312,8 +324,10 @@ public sealed partial class Editor
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         int local = (int)Math.Clamp(_cursor - lineStart, 0, length);
         int indent = 0;
-        while (indent < length &&
-               (_lineBuffer[indent] == (byte)' ' || _lineBuffer[indent] == (byte)'\t'))
+        while (
+            indent < length
+            && (_lineBuffer[indent] == (byte)' ' || _lineBuffer[indent] == (byte)'\t')
+        )
         {
             ++indent;
         }
@@ -323,10 +337,8 @@ public sealed partial class Editor
         ReadOnlySpan<byte> before = _lineBuffer.AsSpan(0, local);
         ReadOnlySpan<byte> after = _lineBuffer.AsSpan(local, length - local);
         string trigger = string.Empty;
-        bool increase = AutoIndentEnabled &&
-                        TryGetIndentTrigger(before, out trigger);
-        bool addClosingLine = increase &&
-                              StartsWithClosingToken(after, trigger);
+        bool increase = AutoIndentEnabled && TryGetIndentTrigger(before, out trigger);
+        bool addClosingLine = increase && StartsWithClosingToken(after, trigger);
 
         byte[] eol = _document.Eol == "\r\n" ? CrLf : Lf;
         _document.Insert(_cursor, eol);
@@ -388,8 +400,10 @@ public sealed partial class Editor
         string? best = null;
         foreach (string candidate in DefaultIndentTriggers)
         {
-            if (text.EndsWith(candidate, StringComparison.Ordinal) &&
-                (best is null || candidate.Length > best.Length))
+            if (
+                text.EndsWith(candidate, StringComparison.Ordinal)
+                && (best is null || candidate.Length > best.Length)
+            )
             {
                 best = candidate;
             }
@@ -397,8 +411,10 @@ public sealed partial class Editor
 
         foreach (string candidate in _language.IndentAfter)
         {
-            if (text.EndsWith(candidate, StringComparison.Ordinal) &&
-                (best is null || candidate.Length > best.Length))
+            if (
+                text.EndsWith(candidate, StringComparison.Ordinal)
+                && (best is null || candidate.Length > best.Length)
+            )
             {
                 best = candidate;
             }
@@ -415,8 +431,7 @@ public sealed partial class Editor
 
     private bool TryAutoUnindentKeyword()
     {
-        if (!AutoIndentEnabled || _language is null ||
-            _language.UnindentBefore.Count == 0)
+        if (!AutoIndentEnabled || _language is null || _language.UnindentBefore.Count == 0)
         {
             return false;
         }
@@ -426,9 +441,10 @@ public sealed partial class Editor
         int length = _document.CopyLineText(line, ref _lineBuffer, out _);
         int local = (int)Math.Clamp(_cursor - start, 0, length);
         int content = 0;
-        while (content < local &&
-               (_lineBuffer[content] == (byte)' ' ||
-                _lineBuffer[content] == (byte)'\t'))
+        while (
+            content < local
+            && (_lineBuffer[content] == (byte)' ' || _lineBuffer[content] == (byte)'\t')
+        )
         {
             ++content;
         }
@@ -438,15 +454,13 @@ public sealed partial class Editor
             return false;
         }
 
-        string text = Encoding.UTF8.GetString(_lineBuffer, content,
-            local - content);
+        string text = Encoding.UTF8.GetString(_lineBuffer, content, local - content);
         if (!_language.IsUnindentKeyword(text))
         {
             return false;
         }
 
-        int remove = _document.UnindentLength(
-            _lineBuffer.AsSpan(0, content));
+        int remove = _document.UnindentLength(_lineBuffer.AsSpan(0, content));
         if (remove == 0)
         {
             return false;
@@ -478,7 +492,7 @@ public sealed partial class Editor
             "{" => "}",
             "[" => "]",
             "(" => ")",
-            _ => null
+            _ => null,
         };
         if (closing is not null)
         {
@@ -496,8 +510,7 @@ public sealed partial class Editor
         return false;
     }
 
-    private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> value)
-        => TrimEnd(TrimStart(value));
+    private static ReadOnlySpan<byte> Trim(ReadOnlySpan<byte> value) => TrimEnd(TrimStart(value));
 
     private static ReadOnlySpan<byte> TrimStart(ReadOnlySpan<byte> value)
     {
@@ -519,8 +532,8 @@ public sealed partial class Editor
         return value[..end];
     }
 
-    private static bool IsWhitespace(byte value)
-        => value is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n';
+    private static bool IsWhitespace(byte value) =>
+        value is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n';
 
     private void AutoDetectIndentation(bool announce = true)
     {
@@ -530,8 +543,7 @@ public sealed partial class Editor
             _document.SetIndentTabs(width);
             if (announce)
             {
-                SetMessage(
-                    $"Detected tabs; document indentation set to tabs (width {width}).");
+                SetMessage($"Detected tabs; document indentation set to tabs (width {width}).");
             }
         }
         else
@@ -539,8 +551,7 @@ public sealed partial class Editor
             _document.SetIndentSpaces(width);
             if (announce)
             {
-                SetMessage(
-                    $"Detected spaces; document indentation set to {width} spaces.");
+                SetMessage($"Detected spaces; document indentation set to {width} spaces.");
             }
         }
     }
@@ -555,8 +566,7 @@ public sealed partial class Editor
         AutoDetectIndentation(announce: false);
     }
 
-    private static (bool UseTabs, int Width) DetectDocumentIndentation(
-        Document document)
+    private static (bool UseTabs, int Width) DetectDocumentIndentation(Document document)
     {
         const int maxLines = 20_000;
         int lineCount = (int)Math.Min(document.LineCount, maxLines);
@@ -601,16 +611,15 @@ public sealed partial class Editor
             else if (spaces > 0)
             {
                 ++spaceLines;
-                spaceCounts[spaces] = spaceCounts.TryGetValue(spaces,
-                    out int count) ? count + 1 : 1;
+                spaceCounts[spaces] = spaceCounts.TryGetValue(spaces, out int count)
+                    ? count + 1
+                    : 1;
             }
         }
 
         if (tabLines > 0 && tabLines >= spaceLines)
         {
-            int width = document.TabWidth > 0
-                ? document.TabWidth
-                : Document.DefaultTabWidth;
+            int width = document.TabWidth > 0 ? document.TabWidth : Document.DefaultTabWidth;
             return (true, width);
         }
 
@@ -620,12 +629,10 @@ public sealed partial class Editor
             return (false, width);
         }
 
-        return (document.UseTabs,
-            document.UseTabs ? document.TabWidth : document.IndentWidth);
+        return (document.UseTabs, document.UseTabs ? document.TabWidth : document.IndentWidth);
     }
 
-    private static int DetectSpaceWidth(Dictionary<int, int> counts,
-        int fallback)
+    private static int DetectSpaceWidth(Dictionary<int, int> counts, int fallback)
     {
         if (counts.Count == 0)
         {
@@ -647,9 +654,10 @@ public sealed partial class Editor
         int bestFrequency = 0;
         foreach ((int width, int frequency) in counts)
         {
-            if ((width is >= 1 and <= 16) &&
-                (frequency > bestFrequency ||
-                 (frequency == bestFrequency && width < best)))
+            if (
+                (width is >= 1 and <= 16)
+                && (frequency > bestFrequency || (frequency == bestFrequency && width < best))
+            )
             {
                 best = width;
                 bestFrequency = frequency;

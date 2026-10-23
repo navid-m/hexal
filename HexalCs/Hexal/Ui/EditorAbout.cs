@@ -8,10 +8,8 @@ public sealed partial class Editor
     private const int AboutHeaderRows = 3;
     private const int AboutHintRows = 1;
 
-    private static readonly string[] AboutBannerLines =
-        Branding.Banner.Split('\n');
-    private static readonly int AboutBannerWidth =
-        AboutBannerLines.Max(line => line.Length);
+    private static readonly string[] AboutBannerLines = Branding.Banner.Split('\n');
+    private static readonly int AboutBannerWidth = AboutBannerLines.Max(line => line.Length);
 
     private bool _aboutVisible;
     private int _aboutTop;
@@ -49,11 +47,9 @@ public sealed partial class Editor
         return Math.Max(1, available - headerRows);
     }
 
-    private int AboutMaxTop()
-        => Math.Max(0, AboutBannerLines.Length - AboutViewportRows());
+    private int AboutMaxTop() => Math.Max(0, AboutBannerLines.Length - AboutViewportRows());
 
-    private int AboutMaxLeft()
-        => Math.Max(0, AboutBannerWidth - _columns);
+    private int AboutMaxLeft() => Math.Max(0, AboutBannerWidth - _columns);
 
     private void HandleAboutInput(InputEvent inputEvent)
     {
@@ -68,13 +64,17 @@ public sealed partial class Editor
                 return;
             case Key.Up:
             case Key.ScrollUp:
-                _aboutTop = Math.Max(0, _aboutTop -
-                    (inputEvent.Key == Key.ScrollUp ? MouseScrollLines : 1));
+                _aboutTop = Math.Max(
+                    0,
+                    _aboutTop - (inputEvent.Key == Key.ScrollUp ? MouseScrollLines : 1)
+                );
                 return;
             case Key.Down:
             case Key.ScrollDown:
-                _aboutTop = Math.Min(maxTop, _aboutTop +
-                    (inputEvent.Key == Key.ScrollDown ? MouseScrollLines : 1));
+                _aboutTop = Math.Min(
+                    maxTop,
+                    _aboutTop + (inputEvent.Key == Key.ScrollDown ? MouseScrollLines : 1)
+                );
                 return;
             case Key.Left:
                 _aboutLeft = Math.Max(0, _aboutLeft - 1);
@@ -86,8 +86,7 @@ public sealed partial class Editor
                 _aboutTop = Math.Max(0, _aboutTop - AboutViewportRows());
                 return;
             case Key.PageDown:
-                _aboutTop = Math.Min(maxTop,
-                    _aboutTop + AboutViewportRows());
+                _aboutTop = Math.Min(maxTop, _aboutTop + AboutViewportRows());
                 return;
             case Key.Home:
                 _aboutTop = 0;
@@ -99,8 +98,7 @@ public sealed partial class Editor
                 return;
         }
 
-        if (inputEvent.Key == Key.Character &&
-            inputEvent.Character.Value is 'q' or 'Q')
+        if (inputEvent.Key == Key.Character && inputEvent.Character.Value is 'q' or 'Q')
         {
             CloseAbout();
         }
@@ -120,17 +118,13 @@ public sealed partial class Editor
         _aboutTop = Math.Clamp(_aboutTop, 0, AboutMaxTop());
 
         int contentHeight = AboutHeaderRows + AboutBannerLines.Length;
-        int headerY = contentHeight <= available
-            ? Math.Max(0, (available - contentHeight) / 2)
-            : 0;
+        int headerY = contentHeight <= available ? Math.Max(0, (available - contentHeight) / 2) : 0;
 
         DrawCenteredLine(headerY, Branding.Title, _theme.AccentStyle);
         DrawCenteredLine(headerY + 1, Branding.Author, _theme.MutedStyle);
 
         _aboutLeft = Math.Clamp(_aboutLeft, 0, AboutMaxLeft());
-        int artX = AboutBannerWidth <= _columns
-            ? (_columns - AboutBannerWidth) / 2
-            : 0;
+        int artX = AboutBannerWidth <= _columns ? (_columns - AboutBannerWidth) / 2 : 0;
         int artY = headerY + AboutHeaderRows;
 
         for (int row = 0; row < viewportRows; ++row)
@@ -143,8 +137,13 @@ public sealed partial class Editor
 
             string line = AboutBannerLines[index];
             int column = Math.Min(_aboutLeft, line.Length);
-            _screen.PutString(artX, artY + row, line.AsSpan(column),
-                _theme.TextStyle, Math.Max(0, _columns - artX));
+            _screen.PutString(
+                artX,
+                artY + row,
+                line.AsSpan(column),
+                _theme.TextStyle,
+                Math.Max(0, _columns - artX)
+            );
         }
 
         DrawCenteredLine(_rows - 1, AboutHint(), _theme.MutedStyle);

@@ -101,7 +101,11 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
     private static partial int TcGetAttrMac(int fd, out TermiosMac termios);
 
     [LibraryImport("libc", EntryPoint = "tcsetattr", SetLastError = true)]
-    private static partial int TcSetAttrLinux(int fd, int optionalActions, ref TermiosLinux termios);
+    private static partial int TcSetAttrLinux(
+        int fd,
+        int optionalActions,
+        ref TermiosLinux termios
+    );
 
     [LibraryImport("libc", EntryPoint = "tcsetattr", SetLastError = true)]
     private static partial int TcSetAttrMac(int fd, int optionalActions, ref TermiosMac termios);
@@ -109,8 +113,12 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
     [LibraryImport("libc", EntryPoint = "poll", SetLastError = true)]
     private static partial int Poll(ref PollFd fds, nuint nfds, int timeout);
 
-    [LibraryImport("libc", EntryPoint = "open", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(
+        "libc",
+        EntryPoint = "open",
+        SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf8
+    )]
     private static partial int Open(string path, int flags);
 
     [LibraryImport("libc", EntryPoint = "dup2", SetLastError = true)]
@@ -158,8 +166,9 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             }
 
             TermiosMac raw = _originalMac;
-            raw.c_iflag &= ~(MIgnbrk | MBrkint | MParMrk | MIstrip | MInlcr | MIgncr |
-                             MIcrnl | MIxon);
+            raw.c_iflag &= ~(
+                MIgnbrk | MBrkint | MParMrk | MIstrip | MInlcr | MIgncr | MIcrnl | MIxon
+            );
             raw.c_oflag &= ~MOpost;
             raw.c_lflag &= ~(MEcho | MEchonl | MIcanon | MIsig | MIexten);
             raw.c_cflag &= ~(MCsize | MParenb);
@@ -182,8 +191,9 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             }
 
             TermiosLinux raw = _originalLinux;
-            raw.c_iflag &= ~(LIgnbrk | LBrkint | LParMrk | LIstrip | LInlcr | LIgncr |
-                             LIcrnl | LIxon);
+            raw.c_iflag &= ~(
+                LIgnbrk | LBrkint | LParMrk | LIstrip | LInlcr | LIgncr | LIcrnl | LIxon
+            );
             raw.c_oflag &= ~LOpost;
             raw.c_lflag &= ~(LEcho | LEchonl | LIcanon | LIsig | LIexten);
             raw.c_cflag &= ~(LCsize | LParenb);
@@ -202,12 +212,14 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
 
         try
         {
-            _resizeRegistration = PosixSignalRegistration.Create(PosixSignal.SIGWINCH,
+            _resizeRegistration = PosixSignalRegistration.Create(
+                PosixSignal.SIGWINCH,
                 context =>
                 {
                     context.Cancel = true;
                     Volatile.Write(ref _resizeRequested, 1);
-                });
+                }
+            );
         }
         catch (Exception ex) when (ex is PlatformNotSupportedException or IOException)
         {
@@ -363,7 +375,11 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             }
 
             var descriptor = new PollFd { Fd = StdinFd, Events = PollIn };
-            int ready = Poll(ref descriptor, 1, timeoutMilliseconds < 0 ? 100 : timeoutMilliseconds);
+            int ready = Poll(
+                ref descriptor,
+                1,
+                timeoutMilliseconds < 0 ? 100 : timeoutMilliseconds
+            );
 
             if (ready < 0)
             {
@@ -388,8 +404,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
                     do
                     {
                         count = Read(StdinFd, &value, 1);
-                    }
-                    while (count < 0 && Marshal.GetLastPInvokeError() == Eintr);
+                    } while (count < 0 && Marshal.GetLastPInvokeError() == Eintr);
                 }
 
                 return count == 1 ? value : -1;
@@ -475,9 +490,11 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         }
 
         Rune rune;
-        if (Rune.DecodeFromUtf8(bytes[..count], out rune, out int consumed) !=
-                System.Buffers.OperationStatus.Done ||
-            consumed != count)
+        if (
+            Rune.DecodeFromUtf8(bytes[..count], out rune, out int consumed)
+                != System.Buffers.OperationStatus.Done
+            || consumed != count
+        )
         {
             rune = Rune.ReplacementChar;
         }
@@ -562,7 +579,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
                 'Q' => Key.F2,
                 'R' => Key.F3,
                 'S' => Key.F4,
-                _ => Key.Unknown
+                _ => Key.Unknown,
             };
             return true;
         }
@@ -581,7 +598,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             'O' => Key.FocusOut,
             'Z' => Key.BackTab,
             '~' => DecodeTilde(parameters[..parameterLength]),
-            _ => Key.Unknown
+            _ => Key.Unknown,
         };
         return true;
     }
@@ -607,7 +624,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             {
                 0 => Key.ScrollUp,
                 1 => Key.ScrollDown,
-                _ => Key.Unknown
+                _ => Key.Unknown,
             };
             return inputEvent;
         }
@@ -617,7 +634,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             0 => MouseButton.Left,
             1 => MouseButton.Middle,
             2 => MouseButton.Right,
-            _ => MouseButton.None
+            _ => MouseButton.None,
         };
 
         if (final != 'm' && (button & 32) != 0)
@@ -635,8 +652,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         int value = 0;
         bool found = false;
 
-        while (index < parameters.Length && parameters[index] >= '0' &&
-               parameters[index] <= '9')
+        while (index < parameters.Length && parameters[index] >= '0' && parameters[index] <= '9')
         {
             value = (value * 10) + (parameters[index] - '0');
             found = true;
@@ -713,7 +729,7 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             21 => Key.F10,
             23 => Key.F11,
             24 => Key.F12,
-            _ => Key.Unknown
+            _ => Key.Unknown,
         };
     }
 
@@ -724,17 +740,16 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         int ttyFd = Open("/dev/tty", ORdWr);
         if (ttyFd < 0)
         {
-            error = "standard input/output is not an interactive terminal: " +
-                    $"cannot open /dev/tty ({ErrnoMessage()})";
+            error =
+                "standard input/output is not an interactive terminal: "
+                + $"cannot open /dev/tty ({ErrnoMessage()})";
             return false;
         }
 
-        bool redirected = Dup2(ttyFd, StdinFd) >= 0 &&
-                          Dup2(ttyFd, StdoutFd) >= 0;
+        bool redirected = Dup2(ttyFd, StdinFd) >= 0 && Dup2(ttyFd, StdoutFd) >= 0;
         if (!redirected)
         {
-            error = "cannot attach to the controlling terminal: " +
-                    ErrnoMessage();
+            error = "cannot attach to the controlling terminal: " + ErrnoMessage();
         }
 
         if (ttyFd > StdoutFd)
@@ -745,6 +760,6 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         return redirected;
     }
 
-    private static string ErrnoMessage()
-        => new Win32Exception(Marshal.GetLastPInvokeError()).Message;
+    private static string ErrnoMessage() =>
+        new Win32Exception(Marshal.GetLastPInvokeError()).Message;
 }

@@ -55,8 +55,12 @@ public static class ExCommandParser
 
                 while (pos < input.Length && input[pos] != quote)
                 {
-                    if (quote == '"' && input[pos] == '\\' && pos + 1 < input.Length &&
-                        input[pos + 1] == '"')
+                    if (
+                        quote == '"'
+                        && input[pos] == '\\'
+                        && pos + 1 < input.Length
+                        && input[pos + 1] == '"'
+                    )
                     {
                         argument.Append('"');
                         pos += 2;
@@ -70,9 +74,8 @@ public static class ExCommandParser
                 if (pos >= input.Length)
                 {
                     result.Ok = false;
-                    result.Error = quote == '"'
-                        ? "unterminated double quote"
-                        : "unterminated single quote";
+                    result.Error =
+                        quote == '"' ? "unterminated double quote" : "unterminated single quote";
                     result.Command.Arguments.Clear();
                     return result;
                 }
@@ -101,6 +104,5 @@ public static class ExCommandParser
         }
     }
 
-    private static bool IsSpace(char c)
-        => c is ' ' or '\t' or '\n' or '\r' or '\v' or '\f';
+    private static bool IsSpace(char c) => c is ' ' or '\t' or '\n' or '\r' or '\v' or '\f';
 }

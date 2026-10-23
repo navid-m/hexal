@@ -107,8 +107,9 @@ public sealed class LuaPluginManager : IDisposable
     private readonly List<PluginEntry> _entries = new();
     private readonly HashSet<string> _disabledPlugins = new(StringComparer.Ordinal);
     private readonly List<LoadedPlugin> _plugins = new();
-    private readonly Dictionary<string, PluginCommand> _commands =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PluginCommand> _commands = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly List<PluginKeyBinding> _keyBindings = new();
     private readonly Dictionary<long, EventSubscription> _subscriptions = new();
     private readonly List<string> _errors = new();
@@ -121,17 +122,12 @@ public sealed class LuaPluginManager : IDisposable
     private StartupBenchmark? _benchmark;
 
     public LuaPluginManager(IEditorApi host)
-        : this(host, DefaultPluginDirectory, DefaultStatePath)
-    {
-    }
+        : this(host, DefaultPluginDirectory, DefaultStatePath) { }
 
     public LuaPluginManager(IEditorApi host, string pluginDirectory)
-        : this(host, pluginDirectory, string.Empty)
-    {
-    }
+        : this(host, pluginDirectory, string.Empty) { }
 
-    public LuaPluginManager(IEditorApi host, string pluginDirectory,
-        string statePath)
+    public LuaPluginManager(IEditorApi host, string pluginDirectory, string statePath)
     {
         _host = host;
         _pluginsDirectory = pluginDirectory;
@@ -163,7 +159,7 @@ public sealed class LuaPluginManager : IDisposable
                 Id = "warmup",
                 Lua = lua,
                 Hexal = (LuaTable)lua["hexal"],
-                Config = new PluginConfigStore(string.Empty)
+                Config = new PluginConfigStore(string.Empty),
             };
 
             // The first plugin load pays the one-time JIT cost of building the
@@ -187,8 +183,7 @@ public sealed class LuaPluginManager : IDisposable
     /// buffer of their declared language is first opened.
     /// </summary>
     public int DeferredPluginCount =>
-        _entries.Count(entry => entry.Deferred && entry.Enabled &&
-                                entry.Plugin is null);
+        _entries.Count(entry => entry.Deferred && entry.Enabled && entry.Plugin is null);
 
     public void SetBenchmark(StartupBenchmark? benchmark)
     {
@@ -209,24 +204,25 @@ public sealed class LuaPluginManager : IDisposable
             var result = new List<PluginInfo>(_entries.Count);
             foreach (PluginEntry entry in _entries)
             {
-                result.Add(new PluginInfo
-                {
-                    Id = entry.Id,
-                    Name = entry.Name,
-                    Version = entry.Version,
-                    Description = entry.Description,
-                    Author = entry.Author,
-                    License = entry.License,
-                    Directory = entry.Directory,
-                    EntryPath = entry.EntryPath,
-                    ManifestPath = entry.ManifestPath,
-                    Enabled = entry.Enabled,
-                    Running = entry.Plugin?.Running ?? false,
-                    Deferred = entry.Deferred && entry.Enabled &&
-                               entry.Plugin is null,
-                    Error = entry.Error,
-                    Commands = CommandsForPlugin(entry.Id)
-                });
+                result.Add(
+                    new PluginInfo
+                    {
+                        Id = entry.Id,
+                        Name = entry.Name,
+                        Version = entry.Version,
+                        Description = entry.Description,
+                        Author = entry.Author,
+                        License = entry.License,
+                        Directory = entry.Directory,
+                        EntryPath = entry.EntryPath,
+                        ManifestPath = entry.ManifestPath,
+                        Enabled = entry.Enabled,
+                        Running = entry.Plugin?.Running ?? false,
+                        Deferred = entry.Deferred && entry.Enabled && entry.Plugin is null,
+                        Error = entry.Error,
+                        Commands = CommandsForPlugin(entry.Id),
+                    }
+                );
             }
             return result;
         }
@@ -257,9 +253,7 @@ public sealed class LuaPluginManager : IDisposable
             entry.Enabled = entry.Plugin is not null;
             if (!entry.Enabled)
             {
-                error = entry.Error.Length > 0
-                    ? entry.Error
-                    : $"could not enable plugin '{id}'";
+                error = entry.Error.Length > 0 ? entry.Error : $"could not enable plugin '{id}'";
                 return false;
             }
 
@@ -338,8 +332,7 @@ public sealed class LuaPluginManager : IDisposable
 
         StopPlugin(entry);
         _entries.Remove(entry);
-        _errors.RemoveAll(error =>
-            error.StartsWith(oldId + ": ", StringComparison.Ordinal));
+        _errors.RemoveAll(error => error.StartsWith(oldId + ": ", StringComparison.Ordinal));
 
         DiscoverPlugin(directory, _disabledPlugins);
 
@@ -369,9 +362,7 @@ public sealed class LuaPluginManager : IDisposable
     }
 
     public IReadOnlyList<LuaLspCoordinator> Coordinators =>
-        _plugins.Where(plugin => plugin.Lsp is not null)
-            .Select(plugin => plugin.Lsp!)
-            .ToArray();
+        _plugins.Where(plugin => plugin.Lsp is not null).Select(plugin => plugin.Lsp!).ToArray();
 
     public void Tick()
     {
@@ -405,8 +396,13 @@ public sealed class LuaPluginManager : IDisposable
         {
             Directory.CreateDirectory(_pluginsDirectory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _errors.Add($"cannot create plugin directory '{_pluginsDirectory}': {ex.Message}");
             return;
@@ -417,8 +413,13 @@ public sealed class LuaPluginManager : IDisposable
         {
             directories = Directory.GetDirectories(_pluginsDirectory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _errors.Add($"cannot read plugin directory '{_pluginsDirectory}': {ex.Message}");
             return;
@@ -433,7 +434,8 @@ public sealed class LuaPluginManager : IDisposable
         }
 
         HexalPaths.Log(
-            $"Plugins: {_pluginsDirectory} ({_plugins.Count} loaded, {_errors.Count} error(s))");
+            $"Plugins: {_pluginsDirectory} ({_plugins.Count} loaded, {_errors.Count} error(s))"
+        );
     }
 
     public bool HasCommand(string name) => _commands.ContainsKey(name);
@@ -452,8 +454,7 @@ public sealed class LuaPluginManager : IDisposable
         return false;
     }
 
-    public bool TryExecuteCommand(string name, IReadOnlyList<string> args,
-        out string error)
+    public bool TryExecuteCommand(string name, IReadOnlyList<string> args, out string error)
     {
         error = string.Empty;
         if (!_commands.TryGetValue(name, out PluginCommand? command))
@@ -478,8 +479,7 @@ public sealed class LuaPluginManager : IDisposable
     {
         foreach (EventSubscription subscription in _subscriptions.Values)
         {
-            if (string.Equals(subscription.Event, eventName,
-                    StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(subscription.Event, eventName, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -487,19 +487,19 @@ public sealed class LuaPluginManager : IDisposable
         return false;
     }
 
-    public void FireEvent(string eventName,
-        IReadOnlyDictionary<string, object?>? data = null)
+    public void FireEvent(string eventName, IReadOnlyDictionary<string, object?>? data = null)
     {
         if (_inEvent || _disposed)
         {
             return;
         }
 
-        if (string.Equals(eventName, "buffer_opened",
-                StringComparison.OrdinalIgnoreCase) &&
-            data is not null &&
-            data.TryGetValue("language", out object? languageValue) &&
-            languageValue?.ToString() is { Length: > 0 } language)
+        if (
+            string.Equals(eventName, "buffer_opened", StringComparison.OrdinalIgnoreCase)
+            && data is not null
+            && data.TryGetValue("language", out object? languageValue)
+            && languageValue?.ToString() is { Length: > 0 } language
+        )
         {
             LoadDeferredPlugins(language);
         }
@@ -507,8 +507,7 @@ public sealed class LuaPluginManager : IDisposable
         List<EventSubscription>? matching = null;
         foreach (EventSubscription subscription in _subscriptions.Values)
         {
-            if (string.Equals(subscription.Event, eventName,
-                    StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(subscription.Event, eventName, StringComparison.OrdinalIgnoreCase))
             {
                 matching ??= new List<EventSubscription>();
                 matching.Add(subscription);
@@ -540,8 +539,10 @@ public sealed class LuaPluginManager : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _host.ReportPluginError(subscription.PluginId,
-                        $"event '{eventName}' failed: {ex.Message}");
+                    _host.ReportPluginError(
+                        subscription.PluginId,
+                        $"event '{eventName}' failed: {ex.Message}"
+                    );
                 }
             }
         }
@@ -555,9 +556,12 @@ public sealed class LuaPluginManager : IDisposable
     {
         foreach (PluginEntry entry in _entries.ToArray())
         {
-            if (!entry.Deferred || !entry.Enabled || entry.Plugin is not null ||
-                !string.Equals(entry.LazyLanguage, language,
-                    StringComparison.OrdinalIgnoreCase))
+            if (
+                !entry.Deferred
+                || !entry.Enabled
+                || entry.Plugin is not null
+                || !string.Equals(entry.LazyLanguage, language, StringComparison.OrdinalIgnoreCase)
+            )
             {
                 continue;
             }
@@ -578,9 +582,13 @@ public sealed class LuaPluginManager : IDisposable
             return false;
         }
 
-        if (_pendingKeys.Count > 0 &&
-            (Environment.TickCount64 - _pendingSince > PendingKeyTimeoutMs ||
-             !string.Equals(_pendingMode, mode, StringComparison.OrdinalIgnoreCase)))
+        if (
+            _pendingKeys.Count > 0
+            && (
+                Environment.TickCount64 - _pendingSince > PendingKeyTimeoutMs
+                || !string.Equals(_pendingMode, mode, StringComparison.OrdinalIgnoreCase)
+            )
+        )
         {
             _pendingKeys.Clear();
         }
@@ -595,9 +603,11 @@ public sealed class LuaPluginManager : IDisposable
         var candidates = new List<PluginKeyBinding>();
         foreach (PluginKeyBinding binding in _keyBindings)
         {
-            if (!string.Equals(binding.Mode, mode, StringComparison.OrdinalIgnoreCase) ||
-                binding.Keys.Length <= index ||
-                !string.Equals(binding.Keys[index], token, StringComparison.Ordinal))
+            if (
+                !string.Equals(binding.Mode, mode, StringComparison.OrdinalIgnoreCase)
+                || binding.Keys.Length <= index
+                || !string.Equals(binding.Keys[index], token, StringComparison.Ordinal)
+            )
             {
                 continue;
             }
@@ -605,8 +615,7 @@ public sealed class LuaPluginManager : IDisposable
             bool matchesPrefix = true;
             for (int i = 0; i < index; ++i)
             {
-                if (!string.Equals(binding.Keys[i], _pendingKeys[i],
-                        StringComparison.Ordinal))
+                if (!string.Equals(binding.Keys[i], _pendingKeys[i], StringComparison.Ordinal))
                 {
                     matchesPrefix = false;
                     break;
@@ -645,8 +654,10 @@ public sealed class LuaPluginManager : IDisposable
 
             if (binding.Command is not null)
             {
-                if (!TryExecuteCommand(binding.Command, Array.Empty<string>(),
-                        out string error) && error.Length == 0)
+                if (
+                    !TryExecuteCommand(binding.Command, Array.Empty<string>(), out string error)
+                    && error.Length == 0
+                )
                 {
                     _host.ShowMessage($"unknown plugin command '{binding.Command}'", true);
                 }
@@ -663,8 +674,10 @@ public sealed class LuaPluginManager : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _host.ReportPluginError(binding.PluginId,
-                        $"keymap '{string.Join(' ', keys)}' failed: {ex.Message}");
+                    _host.ReportPluginError(
+                        binding.PluginId,
+                        $"keymap '{string.Join(' ', keys)}' failed: {ex.Message}"
+                    );
                 }
             }
 
@@ -729,61 +742,74 @@ public sealed class LuaPluginManager : IDisposable
             Id = fallbackId,
             Name = fallbackId,
             Directory = directory,
-            ManifestPath = manifestPath
+            ManifestPath = manifestPath,
         };
         _entries.Add(entry);
 
-        if (File.Exists(manifestPath) &&
-            !TryParseManifest(manifestPath, manifest, out string manifestError))
+        if (
+            File.Exists(manifestPath)
+            && !TryParseManifest(manifestPath, manifest, out string manifestError)
+        )
         {
             RecordDiscoveryError(entry, manifestError);
             return;
         }
 
-        if (manifest.TryGetValue("id", out string? manifestId) &&
-            !string.IsNullOrWhiteSpace(manifestId))
+        if (
+            manifest.TryGetValue("id", out string? manifestId)
+            && !string.IsNullOrWhiteSpace(manifestId)
+        )
         {
             entry.Id = manifestId.Trim();
         }
 
-        if (entry.Id.Length == 0 || entry.Id.Contains('/') || entry.Id.Contains('\\') ||
-            entry.Id is "." or "..")
+        if (
+            entry.Id.Length == 0
+            || entry.Id.Contains('/')
+            || entry.Id.Contains('\\')
+            || entry.Id is "." or ".."
+        )
         {
             entry.Id = fallbackId;
             RecordDiscoveryError(entry, "invalid plugin id");
             return;
         }
 
-        entry.Name = manifest.TryGetValue("name", out string? manifestName) &&
-                     !string.IsNullOrWhiteSpace(manifestName)
-            ? manifestName.Trim()
-            : entry.Id;
+        entry.Name =
+            manifest.TryGetValue("name", out string? manifestName)
+            && !string.IsNullOrWhiteSpace(manifestName)
+                ? manifestName.Trim()
+                : entry.Id;
         entry.Version = ReadManifestValue(manifest, "version");
         entry.Description = ReadManifestValue(manifest, "description");
         entry.Author = ReadManifestValue(manifest, "author");
         entry.License = ReadManifestValue(manifest, "license");
 
-        string entryFile = manifest.TryGetValue("entry", out string? manifestEntry) &&
-                           !string.IsNullOrWhiteSpace(manifestEntry)
-            ? manifestEntry.Trim()
-            : "init.lua";
+        string entryFile =
+            manifest.TryGetValue("entry", out string? manifestEntry)
+            && !string.IsNullOrWhiteSpace(manifestEntry)
+                ? manifestEntry.Trim()
+                : "init.lua";
 
         string entryPath;
         try
         {
             entryPath = Path.GetFullPath(Path.Combine(directory, entryFile));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             RecordDiscoveryError(entry, $"invalid entry point: {ex.Message}");
             return;
         }
 
         string fullDirectory = Path.GetFullPath(directory);
-        if (!entryPath.StartsWith(fullDirectory + Path.DirectorySeparatorChar,
-                StringComparison.Ordinal) &&
-            !string.Equals(entryPath, fullDirectory, StringComparison.Ordinal))
+        if (
+            !entryPath.StartsWith(
+                fullDirectory + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal
+            ) && !string.Equals(entryPath, fullDirectory, StringComparison.Ordinal)
+        )
         {
             RecordDiscoveryError(entry, "entry point escapes the plugin directory");
             return;
@@ -796,13 +822,14 @@ public sealed class LuaPluginManager : IDisposable
             return;
         }
 
-        bool manifestEnabled = !manifest.TryGetValue("enabled", out string? enabled) ||
-                               !string.Equals(enabled, "false",
-                                   StringComparison.OrdinalIgnoreCase);
+        bool manifestEnabled =
+            !manifest.TryGetValue("enabled", out string? enabled)
+            || !string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase);
         entry.Enabled = manifestEnabled && !disabled.Contains(entry.Id);
 
-        bool lazy = manifest.TryGetValue("lazy", out string? lazyValue) &&
-                    string.Equals(lazyValue, "true", StringComparison.OrdinalIgnoreCase);
+        bool lazy =
+            manifest.TryGetValue("lazy", out string? lazyValue)
+            && string.Equals(lazyValue, "true", StringComparison.OrdinalIgnoreCase);
         entry.LazyLanguage = ReadManifestValue(manifest, "language");
         if (entry.Enabled && lazy && entry.LazyLanguage.Length > 0)
         {
@@ -816,9 +843,8 @@ public sealed class LuaPluginManager : IDisposable
         }
     }
 
-    private static string ReadManifestValue(Dictionary<string, string> manifest,
-        string key)
-        => manifest.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value)
+    private static string ReadManifestValue(Dictionary<string, string> manifest, string key) =>
+        manifest.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value)
             ? value.Trim()
             : string.Empty;
 
@@ -849,9 +875,12 @@ public sealed class LuaPluginManager : IDisposable
         }
         finally
         {
-            _benchmark.Add("Plugins", entry.Id,
+            _benchmark.Add(
+                "Plugins",
+                entry.Id,
                 Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                entry.Enabled ? "started" : entry.Error);
+                entry.Enabled ? "started" : entry.Error
+            );
         }
     }
 
@@ -863,20 +892,18 @@ public sealed class LuaPluginManager : IDisposable
             return;
         }
 
-        _errors.RemoveAll(error =>
-            error.StartsWith(entry.Id + ": ", StringComparison.Ordinal));
+        _errors.RemoveAll(error => error.StartsWith(entry.Id + ": ", StringComparison.Ordinal));
 
         var plugin = new LoadedPlugin
         {
             Id = entry.Id,
             Name = entry.Name,
             Directory = entry.Directory,
-            EntryPath = entry.EntryPath
+            EntryPath = entry.EntryPath,
         };
 
         string configDirectory = DefaultPluginConfigDirectory;
-        string configPath = Path.Combine(configDirectory,
-            SanitizeFileName(entry.Id) + ".json");
+        string configPath = Path.Combine(configDirectory, SanitizeFileName(entry.Id) + ".json");
         plugin.Config = new PluginConfigStore(configPath);
         if (!plugin.Config.TryLoad(out string configError))
         {
@@ -892,8 +919,9 @@ public sealed class LuaPluginManager : IDisposable
 
             plugin.Lua["__hexal_plugin_dir"] = entry.Directory.Replace('\\', '/');
             plugin.Lua.DoString(
-                "package.path = __hexal_plugin_dir .. '/?.lua;' .. " +
-                "__hexal_plugin_dir .. '/?/init.lua;' .. package.path");
+                "package.path = __hexal_plugin_dir .. '/?.lua;' .. "
+                    + "__hexal_plugin_dir .. '/?/init.lua;' .. package.path"
+            );
 
             RegisterModules(plugin);
             plugin.Lua.DoFile(entry.EntryPath);
@@ -906,9 +934,7 @@ public sealed class LuaPluginManager : IDisposable
         }
         catch (Exception ex)
         {
-            string message = ex is LuaScriptException luaError
-                ? luaError.Message
-                : ex.Message;
+            string message = ex is LuaScriptException luaError ? luaError.Message : ex.Message;
             entry.Error = message;
             entry.Enabled = false;
             _errors.Add($"{entry.Id}: {message}");
@@ -950,8 +976,11 @@ public sealed class LuaPluginManager : IDisposable
         }
         finally
         {
-            _benchmark.Add("Plugins (stop)", entry.Id,
-                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            _benchmark.Add(
+                "Plugins (stop)",
+                entry.Id,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds
+            );
         }
     }
 
@@ -1014,15 +1043,17 @@ public sealed class LuaPluginManager : IDisposable
             table["column"] = cursor.Column;
             return table;
         });
-        editor["set_cursor"] = new Func<long, long, bool>((line, column) =>
-        {
-            if (_host.SetCursor(line, column, out string error))
+        editor["set_cursor"] = new Func<long, long, bool>(
+            (line, column) =>
             {
-                return true;
+                if (_host.SetCursor(line, column, out string error))
+                {
+                    return true;
+                }
+                _host.ShowMessage(error, true);
+                return false;
             }
-            _host.ShowMessage(error, true);
-            return false;
-        });
+        );
         editor["get_selection"] = new Func<object?>(() =>
         {
             PluginSelection? selection = _host.GetSelection();
@@ -1057,11 +1088,12 @@ public sealed class LuaPluginManager : IDisposable
                 }
                 _host.ShowMessage(error, true);
                 return false;
-            });
+            }
+        );
 
         LuaTable commands = NewModule(lua, root, "commands");
-        internalApi["commands_register"] =
-            new Func<string, LuaFunction, string, bool>((name, callback, description) =>
+        internalApi["commands_register"] = new Func<string, LuaFunction, string, bool>(
+            (name, callback, description) =>
             {
                 if (string.IsNullOrWhiteSpace(name) || callback is null)
                 {
@@ -1074,22 +1106,25 @@ public sealed class LuaPluginManager : IDisposable
                     Name = name,
                     Description = description ?? string.Empty,
                     PluginId = plugin.Id,
-                    Callback = callback
+                    Callback = callback,
                 };
                 return true;
-            });
+            }
+        );
         internalApi["commands_unregister"] = new Func<string, bool>(name =>
         {
-            if (_commands.TryGetValue(name, out PluginCommand? command) &&
-                string.Equals(command.PluginId, plugin.Id, StringComparison.Ordinal))
+            if (
+                _commands.TryGetValue(name, out PluginCommand? command)
+                && string.Equals(command.PluginId, plugin.Id, StringComparison.Ordinal)
+            )
             {
                 _commands.Remove(name);
                 return true;
             }
             return false;
         });
-        internalApi["commands_execute"] =
-            new Func<string, LuaTable, bool>((name, arguments) =>
+        internalApi["commands_execute"] = new Func<string, LuaTable, bool>(
+            (name, arguments) =>
             {
                 List<string> values = LuaArguments(arguments);
                 if (TryExecuteCommand(name, values, out string error))
@@ -1103,17 +1138,18 @@ public sealed class LuaPluginManager : IDisposable
 
                 _host.ShowMessage($"unknown plugin command '{name}'", true);
                 return false;
-            });
+            }
+        );
 
         LuaTable keymap = NewModule(lua, root, "keymap");
-        internalApi["keymap_map"] =
-            new Func<string, string, string, bool>((keys, command, mode) =>
-                AddBinding(plugin, keys, command, null, mode));
-        internalApi["keymap_map_callback"] =
-            new Func<string, LuaFunction, string, bool>((keys, callback, mode) =>
-                AddBinding(plugin, keys, null, callback, mode));
-        internalApi["keymap_unmap"] =
-            new Func<string, string, bool>((keys, mode) =>
+        internalApi["keymap_map"] = new Func<string, string, string, bool>(
+            (keys, command, mode) => AddBinding(plugin, keys, command, null, mode)
+        );
+        internalApi["keymap_map_callback"] = new Func<string, LuaFunction, string, bool>(
+            (keys, callback, mode) => AddBinding(plugin, keys, null, callback, mode)
+        );
+        internalApi["keymap_unmap"] = new Func<string, string, bool>(
+            (keys, mode) =>
             {
                 string[] normalized = NormalizeKeySequence(keys);
                 if (normalized.Length == 0)
@@ -1122,133 +1158,166 @@ public sealed class LuaPluginManager : IDisposable
                 }
 
                 return _keyBindings.RemoveAll(binding =>
-                    string.Equals(binding.PluginId, plugin.Id, StringComparison.Ordinal) &&
-                    string.Equals(binding.Mode, mode, StringComparison.OrdinalIgnoreCase) &&
-                    binding.Keys.SequenceEqual(normalized)) > 0;
-            });
+                        string.Equals(binding.PluginId, plugin.Id, StringComparison.Ordinal)
+                        && string.Equals(binding.Mode, mode, StringComparison.OrdinalIgnoreCase)
+                        && binding.Keys.SequenceEqual(normalized)
+                    ) > 0;
+            }
+        );
 
         LuaTable ui = NewModule(lua, root, "ui");
         ui["message"] = new Action<string>(text => _host.ShowMessage(text, false));
         ui["warn"] = new Action<string>(text => _host.ShowMessage(text, true));
-        ui["prompt"] = new Action<string, LuaFunction>((label, callback) =>
-        {
-            _host.RequestPrompt(label, value =>
+        ui["prompt"] = new Action<string, LuaFunction>(
+            (label, callback) =>
             {
-                if (value is null)
-                {
-                    InvokeSafely(plugin, callback);
-                }
-                else
-                {
-                    InvokeSafely(plugin, callback, value);
-                }
-            });
-        });
-        ui["select"] = new Action<string, LuaTable, LuaFunction>((title, items, callback) =>
-        {
-            var values = new List<string>();
-            foreach (object? item in LuaArray(items))
-            {
-                values.Add(item?.ToString() ?? string.Empty);
+                _host.RequestPrompt(
+                    label,
+                    value =>
+                    {
+                        if (value is null)
+                        {
+                            InvokeSafely(plugin, callback);
+                        }
+                        else
+                        {
+                            InvokeSafely(plugin, callback, value);
+                        }
+                    }
+                );
             }
-
-            if (values.Count == 0)
+        );
+        ui["select"] = new Action<string, LuaTable, LuaFunction>(
+            (title, items, callback) =>
             {
-                InvokeSafely(plugin, callback, new object?[] { null });
-                return;
-            }
+                var values = new List<string>();
+                foreach (object? item in LuaArray(items))
+                {
+                    values.Add(item?.ToString() ?? string.Empty);
+                }
 
-            _host.RequestSelect(title, values, index =>
-            {
-                if (index is null)
+                if (values.Count == 0)
                 {
                     InvokeSafely(plugin, callback, new object?[] { null });
+                    return;
                 }
-                else
-                {
-                    // Lua convention: selection indexes are one-based.
-                    InvokeSafely(plugin, callback, index.Value + 1);
-                }
-            });
-        });
-        ui["set_status"] = new Func<string, object?, bool>((key, text) =>
-        {
-            if (string.IsNullOrEmpty(key))
-            {
-                return false;
+
+                _host.RequestSelect(
+                    title,
+                    values,
+                    index =>
+                    {
+                        if (index is null)
+                        {
+                            InvokeSafely(plugin, callback, new object?[] { null });
+                        }
+                        else
+                        {
+                            // Lua convention: selection indexes are one-based.
+                            InvokeSafely(plugin, callback, index.Value + 1);
+                        }
+                    }
+                );
             }
-            _host.SetPluginStatus(key, text?.ToString());
-            return true;
-        });
-        ui["panel"] = new Func<LuaTable, LuaFunction?, LuaTable>((options, onKey) =>
-        {
-            PluginPanelOptions parsed = ParsePanelOptions(options);
-            int panelId = _host.OpenPluginPanel(parsed, (key, selected) =>
+        );
+        ui["set_status"] = new Func<string, object?, bool>(
+            (key, text) =>
             {
-                if (onKey is null)
+                if (string.IsNullOrEmpty(key))
                 {
                     return false;
                 }
+                _host.SetPluginStatus(key, text?.ToString());
+                return true;
+            }
+        );
+        ui["panel"] = new Func<LuaTable, LuaFunction?, LuaTable>(
+            (options, onKey) =>
+            {
+                PluginPanelOptions parsed = ParsePanelOptions(options);
+                int panelId = _host.OpenPluginPanel(
+                    parsed,
+                    (key, selected) =>
+                    {
+                        if (onKey is null)
+                        {
+                            return false;
+                        }
 
-                try
-                {
-                    object[] result = onKey.Call(key, selected + 1);
-                    return result.Length > 0 && result[0] is bool handled && handled;
-                }
-                catch (Exception ex)
-                {
-                    _host.ReportPluginError(plugin.Id,
-                        $"panel key handler failed: {ex.Message}");
-                    return false;
-                }
-            }, plugin.Id);
+                        try
+                        {
+                            object[] result = onKey.Call(key, selected + 1);
+                            return result.Length > 0 && result[0] is bool handled && handled;
+                        }
+                        catch (Exception ex)
+                        {
+                            _host.ReportPluginError(
+                                plugin.Id,
+                                $"panel key handler failed: {ex.Message}"
+                            );
+                            return false;
+                        }
+                    },
+                    plugin.Id
+                );
 
-            LuaTable panel = NewTable(lua);
-            panel["id"] = panelId;
-            panel["set_lines"] = new Action<object?, LuaTable>((_, lines) =>
-                _host.SetPluginPanelLines(panelId, ParsePanelLines(lines)));
-            panel["set_title"] = new Action<object?, string>((_, title) =>
-                _host.SetPluginPanelTitle(panelId, title ?? string.Empty));
-            panel["set_footer"] = new Action<object?, string>((_, footer) =>
-                _host.SetPluginPanelFooter(panelId, footer ?? string.Empty));
-            panel["set_selected"] = new Action<object?, object?>((_, selected) =>
-                _host.SetPluginPanelSelected(panelId,
-                    ToLong(selected, 1) - 1));
-            panel["set_selectable"] = new Action<object?, object?>((_, selectable) =>
-                _host.SetPluginPanelSelectable(panelId,
-                    selectable is bool flag ? flag : true));
-            panel["close"] = new Action<object?>(_ =>
-                _host.ClosePluginPanel(panelId));
-            return panel;
-        });
+                LuaTable panel = NewTable(lua);
+                panel["id"] = panelId;
+                panel["set_lines"] = new Action<object?, LuaTable>(
+                    (_, lines) => _host.SetPluginPanelLines(panelId, ParsePanelLines(lines))
+                );
+                panel["set_title"] = new Action<object?, string>(
+                    (_, title) => _host.SetPluginPanelTitle(panelId, title ?? string.Empty)
+                );
+                panel["set_footer"] = new Action<object?, string>(
+                    (_, footer) => _host.SetPluginPanelFooter(panelId, footer ?? string.Empty)
+                );
+                panel["set_selected"] = new Action<object?, object?>(
+                    (_, selected) => _host.SetPluginPanelSelected(panelId, ToLong(selected, 1) - 1)
+                );
+                panel["set_selectable"] = new Action<object?, object?>(
+                    (_, selectable) =>
+                        _host.SetPluginPanelSelectable(
+                            panelId,
+                            selectable is bool flag ? flag : true
+                        )
+                );
+                panel["close"] = new Action<object?>(_ => _host.ClosePluginPanel(panelId));
+                return panel;
+            }
+        );
 
         LuaTable process = NewModule(lua, root, "exec");
-        internalApi["process_run"] =
-            new Func<string, LuaTable?, LuaTable?, LuaTable>((command, args, options) =>
-                RunProcess(plugin, command, args, options));
+        internalApi["process_run"] = new Func<string, LuaTable?, LuaTable?, LuaTable>(
+            (command, args, options) => RunProcess(plugin, command, args, options)
+        );
 
         LuaTable events = NewModule(lua, root, "events");
-        events["on"] = new Func<string, LuaFunction, long>((eventName, callback) =>
-        {
-            if (string.IsNullOrWhiteSpace(eventName) || callback is null)
+        events["on"] = new Func<string, LuaFunction, long>(
+            (eventName, callback) =>
             {
-                return 0;
-            }
+                if (string.IsNullOrWhiteSpace(eventName) || callback is null)
+                {
+                    return 0;
+                }
 
-            long id = _nextSubscriptionId++;
-            _subscriptions[id] = new EventSubscription
-            {
-                Id = id,
-                Event = eventName,
-                PluginId = plugin.Id,
-                Callback = callback
-            };
-            return id;
-        });
+                long id = _nextSubscriptionId++;
+                _subscriptions[id] = new EventSubscription
+                {
+                    Id = id,
+                    Event = eventName,
+                    PluginId = plugin.Id,
+                    Callback = callback,
+                };
+                return id;
+            }
+        );
         events["off"] = new Func<long, bool>(id =>
         {
-            if (_subscriptions.TryGetValue(id, out EventSubscription? subscription) &&
-                string.Equals(subscription.PluginId, plugin.Id, StringComparison.Ordinal))
+            if (
+                _subscriptions.TryGetValue(id, out EventSubscription? subscription)
+                && string.Equals(subscription.PluginId, plugin.Id, StringComparison.Ordinal)
+            )
             {
                 _subscriptions.Remove(id);
                 return true;
@@ -1288,7 +1357,7 @@ public sealed class LuaPluginManager : IDisposable
                 Name = name,
                 Command = command,
                 Arguments = arguments,
-                LanguageId = languageId
+                LanguageId = languageId,
             };
 
             if (_host.StartLsp(serverConfig, out string error))
@@ -1314,12 +1383,18 @@ public sealed class LuaPluginManager : IDisposable
                     InvokeSafely(plugin, callback, new object?[] { null, message });
                 }
                 return false;
-            });
-        lsp["notify"] = new Func<string, object?, bool>((method, parameters) =>
-        {
-            _host.ShowMessage("custom LSP notifications are not supported by this host yet", true);
-            return false;
-        });
+            }
+        );
+        lsp["notify"] = new Func<string, object?, bool>(
+            (method, parameters) =>
+            {
+                _host.ShowMessage(
+                    "custom LSP notifications are not supported by this host yet",
+                    true
+                );
+                return false;
+            }
+        );
         lsp["on_diagnostics"] = new Func<LuaFunction, long>(callback =>
         {
             if (callback is null)
@@ -1332,30 +1407,36 @@ public sealed class LuaPluginManager : IDisposable
                 Id = id,
                 Event = "__lsp_diagnostics",
                 PluginId = plugin.Id,
-                Callback = callback
+                Callback = callback,
             };
             return id;
         });
         lsp["go_to_definition"] = new Action(() =>
-            _host.ShowMessage("go-to-definition is not implemented yet", true));
+            _host.ShowMessage("go-to-definition is not implemented yet", true)
+        );
         lsp["find_references"] = new Action(() =>
-            _host.ShowMessage("find-references is not implemented yet", true));
+            _host.ShowMessage("find-references is not implemented yet", true)
+        );
 
         LuaTable config = NewModule(lua, root, "config");
-        internalApi["config_get"] = new Func<string, object?, object?>((key, fallback) =>
-        {
-            object? value = plugin.Config.Get(key, fallback);
-            return ToLua(plugin, value);
-        });
-        internalApi["config_set"] = new Func<string, object?, bool>((key, value) =>
-        {
-            if (string.IsNullOrEmpty(key))
+        internalApi["config_get"] = new Func<string, object?, object?>(
+            (key, fallback) =>
             {
-                return false;
+                object? value = plugin.Config.Get(key, fallback);
+                return ToLua(plugin, value);
             }
-            plugin.Config.Set(key, FromLua(value));
-            return true;
-        });
+        );
+        internalApi["config_set"] = new Func<string, object?, bool>(
+            (key, value) =>
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    return false;
+                }
+                plugin.Config.Set(key, FromLua(value));
+                return true;
+            }
+        );
         internalApi["config_save"] = new Func<bool>(() =>
         {
             if (plugin.Config.Save(out string error))
@@ -1366,7 +1447,8 @@ public sealed class LuaPluginManager : IDisposable
             return false;
         });
         internalApi["config_get_all"] = new Func<LuaTable>(() =>
-            ToLua(plugin, plugin.Config.Snapshot) as LuaTable ?? NewTable(lua));
+            ToLua(plugin, plugin.Config.Snapshot) as LuaTable ?? NewTable(lua)
+        );
 
         _ = commands;
         _ = keymap;
@@ -1392,11 +1474,10 @@ public sealed class LuaPluginManager : IDisposable
         plugin.LspBinding = true;
         try
         {
-            var coordinator = new LuaLspCoordinator(plugin.Lua, plugin.Id,
-                plugin.Directory)
+            var coordinator = new LuaLspCoordinator(plugin.Lua, plugin.Id, plugin.Directory)
             {
                 ReportError = message => _host.ReportPluginError(plugin.Id, message),
-                Host = _host as ILuaLspHost
+                Host = _host as ILuaLspHost,
             };
             plugin.Lsp = coordinator;
             LuaLspModuleBinder.Bind(plugin.Lua, plugin.Hexal, coordinator);
@@ -1405,8 +1486,7 @@ public sealed class LuaPluginManager : IDisposable
         catch (Exception ex)
         {
             plugin.Lsp = null;
-            _host.ReportPluginError(plugin.Id,
-                $"LSP module initialization failed: {ex.Message}");
+            _host.ReportPluginError(plugin.Id, $"LSP module initialization failed: {ex.Message}");
             return null;
         }
         finally
@@ -1420,11 +1500,19 @@ public sealed class LuaPluginManager : IDisposable
         Lua lua = plugin.Lua;
         LuaTable root = plugin.Hexal;
 
-        foreach (string name in new[]
-                 {
-                     "async", "json", "fs", "log", "index", "process",
-                     "debug", "testing"
-                 })
+        foreach (
+            string name in new[]
+            {
+                "async",
+                "json",
+                "fs",
+                "log",
+                "index",
+                "process",
+                "debug",
+                "testing",
+            }
+        )
         {
             if (root[name] is not LuaTable)
             {
@@ -1433,9 +1521,11 @@ public sealed class LuaPluginManager : IDisposable
             }
         }
 
-        LuaTable meta = (LuaTable)lua.DoString(
-            "return { __index = function(t, k) " +
-            "if __hexal_host_api.lsp_ensure() then return rawget(t, k) end end }")[0]!;
+        LuaTable meta = (LuaTable)
+            lua.DoString(
+                "return { __index = function(t, k) "
+                    + "if __hexal_host_api.lsp_ensure() then return rawget(t, k) end end }"
+            )[0]!;
 
         LuaFunction setMetatable = (LuaFunction)lua["setmetatable"];
         var lazyTables = new List<LuaTable>();
@@ -1443,11 +1533,19 @@ public sealed class LuaPluginManager : IDisposable
         {
             lazyTables.Add(lsp);
         }
-        foreach (string name in new[]
-                 {
-                     "async", "json", "fs", "log", "index", "process",
-                     "debug", "testing"
-                 })
+        foreach (
+            string name in new[]
+            {
+                "async",
+                "json",
+                "fs",
+                "log",
+                "index",
+                "process",
+                "debug",
+                "testing",
+            }
+        )
         {
             if (root[name] is LuaTable module)
             {
@@ -1461,8 +1559,13 @@ public sealed class LuaPluginManager : IDisposable
         }
     }
 
-    private bool AddBinding(LoadedPlugin plugin, string keys, string? command,
-        LuaFunction? callback, string mode)
+    private bool AddBinding(
+        LoadedPlugin plugin,
+        string keys,
+        string? command,
+        LuaFunction? callback,
+        string mode
+    )
     {
         string[] normalized = NormalizeKeySequence(keys);
         if (normalized.Length == 0 || (command is null && callback is null))
@@ -1474,17 +1577,20 @@ public sealed class LuaPluginManager : IDisposable
 
         // User/plugin bindings override earlier bindings with the same keys.
         _keyBindings.RemoveAll(binding =>
-            string.Equals(binding.Mode, mode, StringComparison.OrdinalIgnoreCase) &&
-            binding.Keys.SequenceEqual(normalized));
+            string.Equals(binding.Mode, mode, StringComparison.OrdinalIgnoreCase)
+            && binding.Keys.SequenceEqual(normalized)
+        );
 
-        _keyBindings.Add(new PluginKeyBinding
-        {
-            PluginId = plugin.Id,
-            Mode = mode,
-            Keys = normalized,
-            Command = command,
-            Callback = callback
-        });
+        _keyBindings.Add(
+            new PluginKeyBinding
+            {
+                PluginId = plugin.Id,
+                Mode = mode,
+                Keys = normalized,
+                Command = command,
+                Callback = callback,
+            }
+        );
         return true;
     }
 
@@ -1492,23 +1598,30 @@ public sealed class LuaPluginManager : IDisposable
     {
         _host.ClosePluginPanels(pluginId);
 
-        foreach (string name in _commands
-                     .Where(pair => string.Equals(pair.Value.PluginId, pluginId,
-                         StringComparison.Ordinal))
-                     .Select(pair => pair.Key)
-                     .ToArray())
+        foreach (
+            string name in _commands
+                .Where(pair =>
+                    string.Equals(pair.Value.PluginId, pluginId, StringComparison.Ordinal)
+                )
+                .Select(pair => pair.Key)
+                .ToArray()
+        )
         {
             _commands.Remove(name);
         }
 
         _keyBindings.RemoveAll(binding =>
-            string.Equals(binding.PluginId, pluginId, StringComparison.Ordinal));
+            string.Equals(binding.PluginId, pluginId, StringComparison.Ordinal)
+        );
 
-        foreach (long id in _subscriptions
-                     .Where(pair => string.Equals(pair.Value.PluginId, pluginId,
-                         StringComparison.Ordinal))
-                     .Select(pair => pair.Key)
-                     .ToArray())
+        foreach (
+            long id in _subscriptions
+                .Where(pair =>
+                    string.Equals(pair.Value.PluginId, pluginId, StringComparison.Ordinal)
+                )
+                .Select(pair => pair.Key)
+                .ToArray()
+        )
         {
             _subscriptions.Remove(id);
         }
@@ -1557,8 +1670,13 @@ public sealed class LuaPluginManager : IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _errors.Add($"plugin state: {ex.Message}");
         }
@@ -1586,15 +1704,23 @@ public sealed class LuaPluginManager : IDisposable
                 .ToArray();
             File.WriteAllLines(_statePath, ids);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             _errors.Add($"plugin state: {ex.Message}");
         }
     }
 
-    private static bool TryParseManifest(string path,
-        Dictionary<string, string> values, out string error)
+    private static bool TryParseManifest(
+        string path,
+        Dictionary<string, string> values,
+        out string error
+    )
     {
         error = string.Empty;
 
@@ -1617,9 +1743,13 @@ public sealed class LuaPluginManager : IDisposable
                 string key = line[..separator].Trim();
                 string value = line[(separator + 1)..].Trim();
 
-                if (value.Length >= 2 &&
-                    ((value[0] == '"' && value[^1] == '"') ||
-                     (value[0] == '\'' && value[^1] == '\'')))
+                if (
+                    value.Length >= 2
+                    && (
+                        (value[0] == '"' && value[^1] == '"')
+                        || (value[0] == '\'' && value[^1] == '\'')
+                    )
+                )
                 {
                     value = value[1..^1];
                 }
@@ -1631,8 +1761,13 @@ public sealed class LuaPluginManager : IDisposable
             }
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             error = ex.Message;
             return false;
@@ -1647,8 +1782,11 @@ public sealed class LuaPluginManager : IDisposable
         var builder = new StringBuilder(id.Length);
         foreach (char character in id)
         {
-            builder.Append(character is '/' or '\\' or ':' or '*' or '?' or '"' or '<' or
-                '>' or '|' ? '_' : character);
+            builder.Append(
+                character is '/' or '\\' or ':' or '*' or '?' or '"' or '<' or '>' or '|'
+                    ? '_'
+                    : character
+            );
         }
         return builder.Length == 0 ? "plugin" : builder.ToString();
     }
@@ -1669,7 +1807,7 @@ public sealed class LuaPluginManager : IDisposable
             Footer = footer,
             Selectable = selectable,
             Selected = Math.Max(0, selected),
-            Lines = lines
+            Lines = lines,
         };
     }
 
@@ -1689,7 +1827,7 @@ public sealed class LuaPluginManager : IDisposable
         {
             return new PluginPanelLine
             {
-                Segments = new[] { new PluginPanelSegment(text, "text") }
+                Segments = new[] { new PluginPanelSegment(text, "text") },
             };
         }
 
@@ -1699,8 +1837,8 @@ public sealed class LuaPluginManager : IDisposable
             {
                 Segments = new[]
                 {
-                    new PluginPanelSegment(item?.ToString() ?? string.Empty, "text")
-                }
+                    new PluginPanelSegment(item?.ToString() ?? string.Empty, "text"),
+                },
             };
         }
 
@@ -1719,15 +1857,10 @@ public sealed class LuaPluginManager : IDisposable
             AppendPanelSegments(segments, table);
         }
 
-        return new PluginPanelLine
-        {
-            Segments = segments,
-            Selectable = selectable
-        };
+        return new PluginPanelLine { Segments = segments, Selectable = selectable };
     }
 
-    private static void AppendPanelSegments(List<PluginPanelSegment> segments,
-        LuaTable table)
+    private static void AppendPanelSegments(List<PluginPanelSegment> segments, LuaTable table)
     {
         foreach (object? item in LuaArray(table))
         {
@@ -1735,8 +1868,7 @@ public sealed class LuaPluginManager : IDisposable
         }
     }
 
-    private static void AppendPanelSegment(List<PluginPanelSegment> segments,
-        object? item)
+    private static void AppendPanelSegment(List<PluginPanelSegment> segments, object? item)
     {
         string text;
         string style = "text";
@@ -1756,8 +1888,12 @@ public sealed class LuaPluginManager : IDisposable
         }
     }
 
-    private LuaTable RunProcess(LoadedPlugin plugin, string command,
-        LuaTable? args, LuaTable? options)
+    private LuaTable RunProcess(
+        LoadedPlugin plugin,
+        string command,
+        LuaTable? args,
+        LuaTable? options
+    )
     {
         LuaTable result = NewTable(plugin.Lua);
         result["ok"] = false;
@@ -1778,7 +1914,7 @@ public sealed class LuaPluginManager : IDisposable
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            CreateNoWindow = true
+            CreateNoWindow = true,
         };
 
         if (args is not null)
@@ -1805,8 +1941,7 @@ public sealed class LuaPluginManager : IDisposable
             startInfo.WorkingDirectory = directory;
         }
 
-        int timeoutMs = (int)Math.Clamp(
-            ToLong(options?["timeout"], 15000), 100, 120_000);
+        int timeoutMs = (int)Math.Clamp(ToLong(options?["timeout"], 15000), 100, 120_000);
 
         try
         {
@@ -1823,8 +1958,7 @@ public sealed class LuaPluginManager : IDisposable
             using var cancellation = new CancellationTokenSource(timeoutMs);
             try
             {
-                process.WaitForExitAsync(cancellation.Token)
-                    .GetAwaiter().GetResult();
+                process.WaitForExitAsync(cancellation.Token).GetAwaiter().GetResult();
             }
             catch (OperationCanceledException)
             {
@@ -1853,16 +1987,20 @@ public sealed class LuaPluginManager : IDisposable
             if (process.ExitCode != 0)
             {
                 string detail = stderr.Trim();
-                result["error"] = detail.Length > 0
-                    ? detail
-                    : $"process exited with code {process.ExitCode}";
+                result["error"] =
+                    detail.Length > 0 ? detail : $"process exited with code {process.ExitCode}";
             }
             return result;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
-                                   InvalidOperationException or IOException or
-                                   UnauthorizedAccessException or
-                                   NotSupportedException or ArgumentException)
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or InvalidOperationException
+                        or IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
         {
             result["error"] = ex.Message;
             return result;
@@ -1880,8 +2018,8 @@ public sealed class LuaPluginManager : IDisposable
         {
             return Convert.ToInt64(value, CultureInfo.InvariantCulture);
         }
-        catch (Exception ex) when (ex is FormatException or InvalidCastException or
-                                   OverflowException)
+        catch (Exception ex)
+            when (ex is FormatException or InvalidCastException or OverflowException)
         {
             return fallback;
         }
@@ -1899,8 +2037,7 @@ public sealed class LuaPluginManager : IDisposable
         return module;
     }
 
-    private void InvokeSafely(LoadedPlugin plugin, LuaFunction callback,
-        params object?[] arguments)
+    private void InvokeSafely(LoadedPlugin plugin, LuaFunction callback, params object?[] arguments)
     {
         try
         {
@@ -1913,8 +2050,7 @@ public sealed class LuaPluginManager : IDisposable
         }
         catch (Exception ex)
         {
-            _host.ReportPluginError(plugin.Id,
-                $"callback failed: {ex.Message}");
+            _host.ReportPluginError(plugin.Id, $"callback failed: {ex.Message}");
         }
     }
 
@@ -2006,8 +2142,7 @@ public sealed class LuaPluginManager : IDisposable
                     {
                         continue;
                     }
-                    map[key.ToString() ?? string.Empty] =
-                        FromLua(table[key], depth + 1);
+                    map[key.ToString() ?? string.Empty] = FromLua(table[key], depth + 1);
                 }
                 return map;
             }
@@ -2020,8 +2155,17 @@ public sealed class LuaPluginManager : IDisposable
     {
         switch (key)
         {
-            case byte or sbyte or short or ushort or int or uint or long or ulong or
-                 float or double or decimal:
+            case byte
+            or sbyte
+            or short
+            or ushort
+            or int
+            or uint
+            or long
+            or ulong
+            or float
+            or double
+            or decimal:
                 value = Convert.ToDouble(key, CultureInfo.InvariantCulture);
                 return true;
             default:
@@ -2142,7 +2286,7 @@ public sealed class LuaPluginManager : IDisposable
             Key.F10 => "f10",
             Key.F11 => "f11",
             Key.F12 => "f12",
-            _ => string.Empty
+            _ => string.Empty,
         };
     }
 
@@ -2153,8 +2297,10 @@ public sealed class LuaPluginManager : IDisposable
             return Array.Empty<string>();
         }
 
-        string[] parts = keys.Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string[] parts = keys.Split(
+            (char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+        );
         var result = new string[parts.Length];
 
         for (int i = 0; i < parts.Length; ++i)
@@ -2179,7 +2325,7 @@ public sealed class LuaPluginManager : IDisposable
                     "pageup" => "pageup",
                     "pagedown" => "pagedown",
                     "insert" => "insert",
-                    _ => part
+                    _ => part,
                 };
             }
             else if (part.StartsWith("ctrl+", StringComparison.OrdinalIgnoreCase))

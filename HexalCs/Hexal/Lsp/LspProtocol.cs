@@ -62,8 +62,8 @@ public static class LspJson
         {
             case null:
                 return null;
-            case LuaTable table when nullSentinel is not null &&
-                                      ReferenceEquals(table, nullSentinel):
+            case LuaTable table
+                when nullSentinel is not null && ReferenceEquals(table, nullSentinel):
                 return null;
             case LuaTable table:
                 return FromLuaTable(nullSentinel, table, depth);
@@ -84,8 +84,11 @@ public static class LspJson
                 var result = new JsonObject();
                 foreach (System.Collections.DictionaryEntry entry in dictionary)
                 {
-                    result[entry.Key?.ToString() ?? string.Empty] =
-                        FromLua(nullSentinel, entry.Value, depth + 1);
+                    result[entry.Key?.ToString() ?? string.Empty] = FromLua(
+                        nullSentinel,
+                        entry.Value,
+                        depth + 1
+                    );
                 }
                 return result;
             }
@@ -103,8 +106,7 @@ public static class LspJson
         }
     }
 
-    private static JsonNode FromLuaTable(LuaTable? nullSentinel, LuaTable table,
-        int depth)
+    private static JsonNode FromLuaTable(LuaTable? nullSentinel, LuaTable table, int depth)
     {
         var keys = new List<object?>();
         foreach (object? key in table.Keys)
@@ -144,7 +146,7 @@ public static class LspJson
             {
                 null => string.Empty,
                 string text => text,
-                _ => Convert.ToString(key, CultureInfo.InvariantCulture) ?? string.Empty
+                _ => Convert.ToString(key, CultureInfo.InvariantCulture) ?? string.Empty,
             };
             obj[name] = FromLua(nullSentinel, table[key!], depth + 1);
         }
@@ -156,8 +158,7 @@ public static class LspJson
         return ToLuaValue(lua, nullSentinel, value, 0);
     }
 
-    private static object? ToLuaValue(Lua lua, LuaTable nullSentinel, JsonNode? value,
-        int depth)
+    private static object? ToLuaValue(Lua lua, LuaTable nullSentinel, JsonNode? value, int depth)
     {
         if (depth > 64 || value is null)
         {
@@ -316,9 +317,15 @@ public static class LspJson
         {
             return (long)number;
         }
-        if (value.TryGetValue(out string? text) &&
-            long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture,
-                out long parsed))
+        if (
+            value.TryGetValue(out string? text)
+            && long.TryParse(
+                text,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long parsed
+            )
+        )
         {
             return parsed;
         }
@@ -352,8 +359,17 @@ public static class LspJson
     {
         switch (key)
         {
-            case byte or sbyte or short or ushort or int or uint or long or ulong or
-                 float or double or decimal:
+            case byte
+            or sbyte
+            or short
+            or ushort
+            or int
+            or uint
+            or long
+            or ulong
+            or float
+            or double
+            or decimal:
                 value = Convert.ToDouble(key, CultureInfo.InvariantCulture);
                 return true;
             default:
@@ -376,16 +392,21 @@ public static class LspJson
                 return (long)number;
             case float number when number >= long.MinValue && number <= long.MaxValue:
                 return (long)number;
-            case string text when long.TryParse(text, NumberStyles.Integer,
-                CultureInfo.InvariantCulture, out long parsed):
+            case string text
+                when long.TryParse(
+                    text,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out long parsed
+                ):
                 return parsed;
             default:
                 try
                 {
                     return Convert.ToInt64(value, CultureInfo.InvariantCulture);
                 }
-                catch (Exception ex) when (ex is FormatException or InvalidCastException or
-                                           OverflowException)
+                catch (Exception ex)
+                    when (ex is FormatException or InvalidCastException or OverflowException)
                 {
                     return null;
                 }
@@ -412,7 +433,7 @@ public static class LspJson
             int integer => integer != 0,
             double number => number != 0,
             string text when bool.TryParse(text, out bool parsed) => parsed,
-            _ => fallback
+            _ => fallback,
         };
     }
 

@@ -23,8 +23,9 @@ public sealed class LspManager : IDisposable
     private readonly object _logLock = new();
     private readonly ConcurrentQueue<LspEvent> _events = new();
     private readonly Dictionary<long, string> _pendingRequests = new();
-    private readonly Dictionary<string, List<LspDiagnostic>> _diagnostics =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<LspDiagnostic>> _diagnostics = new(
+        StringComparer.Ordinal
+    );
     private readonly Queue<LspLogEntry> _log = new();
     private long _droppedLogEntries;
 
@@ -44,14 +45,10 @@ public sealed class LspManager : IDisposable
     private long _initializeId;
     private bool _initialized;
     private bool _workspaceDiagnosticsSupported;
-    private readonly HashSet<string> _completionTriggerCharacters =
-        new(StringComparer.Ordinal);
+    private readonly HashSet<string> _completionTriggerCharacters = new(StringComparer.Ordinal);
     private bool _disposed;
 
-    private sealed record LspLogEntry(
-        DateTime Timestamp,
-        string Channel,
-        string Text);
+    private sealed record LspLogEntry(DateTime Timestamp, string Channel, string Text);
 
     public bool IsRunning
     {
@@ -113,12 +110,11 @@ public sealed class LspManager : IDisposable
         {
             serverName = _config?.Name ?? string.Empty;
             command = _config?.Command ?? string.Empty;
-            arguments = _config is null
-                ? string.Empty
-                : string.Join(' ', _config.Arguments);
-            transportKind = _transport is not null
-                ? "in-process"
-                : _process is not null ? "stdio" : "none";
+            arguments = _config is null ? string.Empty : string.Join(' ', _config.Arguments);
+            transportKind =
+                _transport is not null ? "in-process"
+                : _process is not null ? "stdio"
+                : "none";
             rootPath = _rootPath;
             rootUri = _rootUri;
             documentUri = _documentUri;
@@ -127,8 +123,10 @@ public sealed class LspManager : IDisposable
             workspaceDiagnostics = _workspaceDiagnosticsSupported;
             version = _version;
             pendingCount = _pendingRequests.Count;
-            pendingMethods = string.Join(", ", _pendingRequests.Values
-                .Distinct(StringComparer.Ordinal));
+            pendingMethods = string.Join(
+                ", ",
+                _pendingRequests.Values.Distinct(StringComparer.Ordinal)
+            );
             diagnosticDocuments = _diagnostics.Count;
 
             if (_process is not null)
@@ -137,8 +135,7 @@ public sealed class LspManager : IDisposable
                 {
                     processId = _process.Id;
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or
-                                           NotSupportedException)
+                catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
                 {
                     processId = -1;
                 }
@@ -147,31 +144,21 @@ public sealed class LspManager : IDisposable
 
         var builder = new StringBuilder();
         builder.AppendLine("Hexal LSP diagnostics");
-        builder.Append("Generated: ").AppendLine(
-            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-        builder.Append("Server: ").AppendLine(serverName.Length > 0
-            ? serverName
-            : "(none)");
-        builder.Append("Command: ").AppendLine(command.Length > 0
-            ? command
-            : "(none)");
-        builder.Append("Arguments: ").AppendLine(arguments.Length > 0
-            ? arguments
-            : "(none)");
+        builder.Append("Generated: ").AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        builder.Append("Server: ").AppendLine(serverName.Length > 0 ? serverName : "(none)");
+        builder.Append("Command: ").AppendLine(command.Length > 0 ? command : "(none)");
+        builder.Append("Arguments: ").AppendLine(arguments.Length > 0 ? arguments : "(none)");
         builder.Append("Transport: ").AppendLine(transportKind);
-        builder.Append("State: ")
+        builder
+            .Append("State: ")
             .Append(running ? "running" : "stopped")
             .Append(initialized ? ", initialized" : ", not initialized")
             .AppendLine();
-        builder.Append("Process ID: ").AppendLine(processId > 0
-            ? processId.ToString()
-            : "(none)");
-        builder.Append("Document: ").AppendLine(documentUri.Length > 0
-            ? documentUri
-            : "(none)");
-        builder.Append("Root: ").AppendLine(rootPath.Length > 0
-            ? $"{rootPath}  ({rootUri})"
-            : "(none)");
+        builder.Append("Process ID: ").AppendLine(processId > 0 ? processId.ToString() : "(none)");
+        builder.Append("Document: ").AppendLine(documentUri.Length > 0 ? documentUri : "(none)");
+        builder
+            .Append("Root: ")
+            .AppendLine(rootPath.Length > 0 ? $"{rootPath}  ({rootUri})" : "(none)");
         builder.Append("Document version: ").AppendLine(version.ToString());
         builder.Append("Pending requests: ").Append(pendingCount);
         if (pendingMethods.Length > 0)
@@ -179,10 +166,10 @@ public sealed class LspManager : IDisposable
             builder.Append("  ").Append(pendingMethods);
         }
         builder.AppendLine();
-        builder.Append("Diagnostic documents: ").AppendLine(
-            diagnosticDocuments.ToString());
-        builder.Append("Workspace diagnostics: ").AppendLine(
-            workspaceDiagnostics ? "supported" : "not supported");
+        builder.Append("Diagnostic documents: ").AppendLine(diagnosticDocuments.ToString());
+        builder
+            .Append("Workspace diagnostics: ")
+            .AppendLine(workspaceDiagnostics ? "supported" : "not supported");
         builder.Append("File log: ").AppendLine(HexalPaths.LogPath);
         builder.AppendLine();
 
@@ -191,14 +178,14 @@ public sealed class LspManager : IDisposable
             builder.Append("Log entries: ").Append(_log.Count);
             if (_droppedLogEntries > 0)
             {
-                builder.Append(" (").Append(_droppedLogEntries)
-                    .Append(" oldest dropped)");
+                builder.Append(" (").Append(_droppedLogEntries).Append(" oldest dropped)");
             }
             builder.AppendLine();
             builder.AppendLine("----- LSP log (oldest first) -----");
             foreach (LspLogEntry entry in _log)
             {
-                builder.Append(entry.Timestamp.ToString("HH:mm:ss.fff"))
+                builder
+                    .Append(entry.Timestamp.ToString("HH:mm:ss.fff"))
                     .Append(' ')
                     .Append(entry.Channel)
                     .Append(' ')
@@ -228,27 +215,35 @@ public sealed class LspManager : IDisposable
     {
         // Full-document didChange messages are sent on every burst of typing.
         // Logging their payload would bury the protocol traffic being debugged.
-        if (message["method"] is JsonValue methodValue &&
-            methodValue.TryGetValue(out string? method) &&
-            method == "textDocument/didChange")
+        if (
+            message["method"] is JsonValue methodValue
+            && methodValue.TryGetValue(out string? method)
+            && method == "textDocument/didChange"
+        )
         {
             int characters = 0;
-            if (message["params"] is JsonObject parameters &&
-                parameters["contentChanges"] is JsonArray changes)
+            if (
+                message["params"] is JsonObject parameters
+                && parameters["contentChanges"] is JsonArray changes
+            )
             {
                 foreach (JsonNode? change in changes)
                 {
-                    if (change is JsonObject item &&
-                        item["text"] is JsonValue textValue &&
-                        textValue.TryGetValue(out string? text))
+                    if (
+                        change is JsonObject item
+                        && item["text"] is JsonValue textValue
+                        && textValue.TryGetValue(out string? text)
+                    )
                     {
                         characters += text?.Length ?? 0;
                     }
                 }
             }
 
-            LogTraffic("-->", $"textDocument/didChange (full document, " +
-                              $"{characters} characters)");
+            LogTraffic(
+                "-->",
+                $"textDocument/didChange (full document, " + $"{characters} characters)"
+            );
             return;
         }
 
@@ -264,8 +259,7 @@ public sealed class LspManager : IDisposable
 
         if (text.Length > MaxLogEntryLength)
         {
-            text = text[..MaxLogEntryLength] +
-                   $"\n… truncated ({text.Length} chars total)";
+            text = text[..MaxLogEntryLength] + $"\n… truncated ({text.Length} chars total)";
         }
 
         lock (_logLock)
@@ -279,8 +273,13 @@ public sealed class LspManager : IDisposable
         }
     }
 
-    public bool TryStart(LspServerConfig config, string documentPath, string text,
-        string? workspaceRoot, out string error)
+    public bool TryStart(
+        LspServerConfig config,
+        string documentPath,
+        string text,
+        string? workspaceRoot,
+        out string error
+    )
     {
         error = string.Empty;
         if (string.IsNullOrWhiteSpace(config.Command) && config.Transport is null)
@@ -305,11 +304,20 @@ public sealed class LspManager : IDisposable
                 bool sameTransport = config.Transport is null
                     ? _transport is null
                     : ReferenceEquals(_transport, config.Transport);
-                if (_config is not null && sameTransport &&
-                    string.Equals(_config.Command, config.Command,
-                        StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(_documentUri, PathToUri(documentPath),
-                        StringComparison.Ordinal))
+                if (
+                    _config is not null
+                    && sameTransport
+                    && string.Equals(
+                        _config.Command,
+                        config.Command,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    && string.Equals(
+                        _documentUri,
+                        PathToUri(documentPath),
+                        StringComparison.Ordinal
+                    )
+                )
                 {
                     return true;
                 }
@@ -323,17 +331,17 @@ public sealed class LspManager : IDisposable
                 {
                     transportPath = Path.GetFullPath(documentPath);
                 }
-                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                           PathTooLongException)
+                catch (Exception ex)
+                    when (ex is ArgumentException or NotSupportedException or PathTooLongException)
                 {
                     error = ex.Message;
                     return false;
                 }
 
-                string transportRoot = !string.IsNullOrWhiteSpace(workspaceRoot) &&
-                                       Directory.Exists(workspaceRoot)
-                    ? Path.GetFullPath(workspaceRoot)
-                    : Path.GetDirectoryName(transportPath) ?? ".";
+                string transportRoot =
+                    !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
+                        ? Path.GetFullPath(workspaceRoot)
+                        : Path.GetDirectoryName(transportPath) ?? ".";
                 _rootPath = transportRoot;
                 _rootUri = PathToUri(transportRoot, directory: true);
                 _documentUri = PathToUri(transportPath);
@@ -349,20 +357,12 @@ public sealed class LspManager : IDisposable
                 _transport = config.Transport;
                 _transport.Disconnected = () =>
                 {
-                    Enqueue(new LspEvent
-                    {
-                        Kind = LspEventKind.Stopped,
-                        ServerName = config.Name
-                    });
+                    Enqueue(new LspEvent { Kind = LspEventKind.Stopped, ServerName = config.Name });
                 };
 
                 LogInfo($"starting in-process LSP: {config.Name} for {transportPath}");
                 SendInitializeLocked();
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Started,
-                    ServerName = config.Name
-                });
+                Enqueue(new LspEvent { Kind = LspEventKind.Started, ServerName = config.Name });
                 HexalPaths.Log($"Lua LSP started: {config.Name} for {transportPath}");
                 return true;
             }
@@ -379,17 +379,17 @@ public sealed class LspManager : IDisposable
             {
                 fullPath = Path.GetFullPath(documentPath);
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                       PathTooLongException)
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 error = ex.Message;
                 return false;
             }
 
-            string workingDirectory = !string.IsNullOrWhiteSpace(workspaceRoot) &&
-                                      Directory.Exists(workspaceRoot)
-                ? Path.GetFullPath(workspaceRoot)
-                : Path.GetDirectoryName(fullPath) ?? ".";
+            string workingDirectory =
+                !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
+                    ? Path.GetFullPath(workspaceRoot)
+                    : Path.GetDirectoryName(fullPath) ?? ".";
             _rootPath = workingDirectory;
             _rootUri = PathToUri(workingDirectory, directory: true);
             _documentUri = PathToUri(fullPath);
@@ -412,7 +412,7 @@ public sealed class LspManager : IDisposable
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                StandardErrorEncoding = Encoding.UTF8
+                StandardErrorEncoding = Encoding.UTF8,
             };
 
             foreach (string argument in config.Arguments)
@@ -421,9 +421,11 @@ public sealed class LspManager : IDisposable
             }
 
             string arguments = string.Join(' ', config.Arguments);
-            LogInfo($"starting {config.Name}: {executable}" +
-                    (arguments.Length > 0 ? $" {arguments}" : string.Empty) +
-                    $" (cwd {workingDirectory})");
+            LogInfo(
+                $"starting {config.Name}: {executable}"
+                    + (arguments.Length > 0 ? $" {arguments}" : string.Empty)
+                    + $" (cwd {workingDirectory})"
+            );
 
             try
             {
@@ -439,37 +441,32 @@ public sealed class LspManager : IDisposable
                 {
                     processId = _process.Id;
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or
-                                           NotSupportedException)
+                catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
                 {
                     processId = -1;
                 }
 
-                LogInfo(processId > 0
-                    ? $"process started (pid {processId})"
-                    : "process started");
+                LogInfo(processId > 0 ? $"process started (pid {processId})" : "process started");
                 _input = _process.StandardInput.BaseStream;
                 _cancellation = new CancellationTokenSource();
                 CancellationToken token = _cancellation.Token;
 
-                _readerTask = Task.Run(() =>
-                    ReadLoop(_process.StandardOutput.BaseStream, token));
-                _stderrTask = Task.Run(() =>
-                    ReadStandardError(_process.StandardError, token));
+                _readerTask = Task.Run(() => ReadLoop(_process.StandardOutput.BaseStream, token));
+                _stderrTask = Task.Run(() => ReadStandardError(_process.StandardError, token));
 
                 SendInitializeLocked();
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Started,
-                    ServerName = config.Name
-                });
-                HexalPaths.Log(
-                    $"LSP started: {config.Name} ({executable}) for {fullPath}");
+                Enqueue(new LspEvent { Kind = LspEventKind.Started, ServerName = config.Name });
+                HexalPaths.Log($"LSP started: {config.Name} ({executable}) for {fullPath}");
                 return true;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                                       InvalidOperationException or NotSupportedException or
-                                       System.ComponentModel.Win32Exception)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or UnauthorizedAccessException
+                            or InvalidOperationException
+                            or NotSupportedException
+                            or System.ComponentModel.Win32Exception
+                )
             {
                 error = $"cannot start language server '{config.Command}': {ex.Message}";
                 StopLocked();
@@ -499,9 +496,9 @@ public sealed class LspManager : IDisposable
                 ["textDocument"] = new JsonObject
                 {
                     ["uri"] = _documentUri,
-                    ["version"] = _version
+                    ["version"] = _version,
                 },
-                ["contentChanges"] = contentChanges
+                ["contentChanges"] = contentChanges,
             };
 
             SendNotificationLocked("textDocument/didChange", parameters);
@@ -519,11 +516,8 @@ public sealed class LspManager : IDisposable
 
             var parameters = new JsonObject
             {
-                ["textDocument"] = new JsonObject
-                {
-                    ["uri"] = _documentUri
-                },
-                ["text"] = text
+                ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
+                ["text"] = text,
             };
             SendNotificationLocked("textDocument/didSave", parameters);
         }
@@ -544,15 +538,8 @@ public sealed class LspManager : IDisposable
 
             var parameters = new JsonObject
             {
-                ["textDocument"] = new JsonObject
-                {
-                    ["uri"] = _documentUri
-                },
-                ["position"] = new JsonObject
-                {
-                    ["line"] = line,
-                    ["character"] = character
-                }
+                ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
+                ["position"] = new JsonObject { ["line"] = line, ["character"] = character },
             };
 
             SendRequestLocked("textDocument/hover", parameters);
@@ -575,15 +562,8 @@ public sealed class LspManager : IDisposable
 
             var parameters = new JsonObject
             {
-                ["textDocument"] = new JsonObject
-                {
-                    ["uri"] = _documentUri
-                },
-                ["position"] = new JsonObject
-                {
-                    ["line"] = line,
-                    ["character"] = character
-                }
+                ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
+                ["position"] = new JsonObject { ["line"] = line, ["character"] = character },
             };
 
             SendRequestLocked("textDocument/definition", parameters);
@@ -606,10 +586,7 @@ public sealed class LspManager : IDisposable
 
             var parameters = new JsonObject
             {
-                ["textDocument"] = new JsonObject
-                {
-                    ["uri"] = _documentUri
-                }
+                ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
             };
 
             SendRequestLocked("textDocument/documentSymbol", parameters);
@@ -628,8 +605,12 @@ public sealed class LspManager : IDisposable
     /// <summary>
     /// Requests completions at a zero-based line and UTF-16 column.
     /// </summary>
-    public bool RequestCompletion(string documentPath, int line, int character,
-        string? triggerCharacter)
+    public bool RequestCompletion(
+        string documentPath,
+        int line,
+        int character,
+        string? triggerCharacter
+    )
     {
         lock (_stateLock)
         {
@@ -640,7 +621,7 @@ public sealed class LspManager : IDisposable
 
             var context = new JsonObject
             {
-                ["triggerKind"] = string.IsNullOrEmpty(triggerCharacter) ? 1 : 2
+                ["triggerKind"] = string.IsNullOrEmpty(triggerCharacter) ? 1 : 2,
             };
             if (!string.IsNullOrEmpty(triggerCharacter))
             {
@@ -649,16 +630,9 @@ public sealed class LspManager : IDisposable
 
             var parameters = new JsonObject
             {
-                ["textDocument"] = new JsonObject
-                {
-                    ["uri"] = _documentUri
-                },
-                ["position"] = new JsonObject
-                {
-                    ["line"] = line,
-                    ["character"] = character
-                },
-                ["context"] = context
+                ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
+                ["position"] = new JsonObject { ["line"] = line, ["character"] = character },
+                ["context"] = context,
             };
 
             SendRequestLocked("textDocument/completion", parameters);
@@ -670,8 +644,12 @@ public sealed class LspManager : IDisposable
     /// Requests code actions for the cursor position. Diagnostics for the
     /// current line are passed as context, as required by the specification.
     /// </summary>
-    public bool RequestCodeActions(string documentPath, int line, int character,
-        IReadOnlyList<LspDiagnostic> diagnostics)
+    public bool RequestCodeActions(
+        string documentPath,
+        int line,
+        int character,
+        IReadOnlyList<LspDiagnostic> diagnostics
+    )
     {
         lock (_stateLock)
         {
@@ -689,54 +667,42 @@ public sealed class LspManager : IDisposable
                 }
 
                 int endLine = diagnostic.EndLine >= 0 ? diagnostic.EndLine : diagnostic.Line;
-                int endColumn = diagnostic.EndColumn >= 0
-                    ? diagnostic.EndColumn
-                    : diagnostic.Column + 1;
+                int endColumn =
+                    diagnostic.EndColumn >= 0 ? diagnostic.EndColumn : diagnostic.Column + 1;
 
-                contextDiagnostics.Add((JsonNode)new JsonObject
-                {
-                    ["range"] = new JsonObject
-                    {
-                        ["start"] = new JsonObject
+                contextDiagnostics.Add(
+                    (JsonNode)
+                        new JsonObject
                         {
-                            ["line"] = diagnostic.Line,
-                            ["character"] = diagnostic.Column
-                        },
-                        ["end"] = new JsonObject
-                        {
-                            ["line"] = endLine,
-                            ["character"] = endColumn
+                            ["range"] = new JsonObject
+                            {
+                                ["start"] = new JsonObject
+                                {
+                                    ["line"] = diagnostic.Line,
+                                    ["character"] = diagnostic.Column,
+                                },
+                                ["end"] = new JsonObject
+                                {
+                                    ["line"] = endLine,
+                                    ["character"] = endColumn,
+                                },
+                            },
+                            ["severity"] = diagnostic.Severity,
+                            ["source"] = diagnostic.Source,
+                            ["message"] = diagnostic.Message,
                         }
-                    },
-                    ["severity"] = diagnostic.Severity,
-                    ["source"] = diagnostic.Source,
-                    ["message"] = diagnostic.Message
-                });
+                );
             }
 
             var parameters = new JsonObject
             {
-                ["textDocument"] = new JsonObject
-                {
-                    ["uri"] = _documentUri
-                },
+                ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
                 ["range"] = new JsonObject
                 {
-                    ["start"] = new JsonObject
-                    {
-                        ["line"] = line,
-                        ["character"] = character
-                    },
-                    ["end"] = new JsonObject
-                    {
-                        ["line"] = line,
-                        ["character"] = character
-                    }
+                    ["start"] = new JsonObject { ["line"] = line, ["character"] = character },
+                    ["end"] = new JsonObject { ["line"] = line, ["character"] = character },
                 },
-                ["context"] = new JsonObject
-                {
-                    ["diagnostics"] = contextDiagnostics
-                }
+                ["context"] = new JsonObject { ["diagnostics"] = contextDiagnostics },
             };
 
             SendRequestLocked("textDocument/codeAction", parameters);
@@ -781,10 +747,7 @@ public sealed class LspManager : IDisposable
                 return false;
             }
 
-            var parameters = new JsonObject
-            {
-                ["previousResultIds"] = new JsonArray()
-            };
+            var parameters = new JsonObject { ["previousResultIds"] = new JsonArray() };
             SendRequestLocked("workspace/diagnostic", parameters);
             return true;
         }
@@ -804,11 +767,14 @@ public sealed class LspManager : IDisposable
                 return;
             }
 
-            SendRequestLocked("workspace/executeCommand", new JsonObject
-            {
-                ["command"] = command,
-                ["arguments"] = arguments?.DeepClone() ?? new JsonArray()
-            });
+            SendRequestLocked(
+                "workspace/executeCommand",
+                new JsonObject
+                {
+                    ["command"] = command,
+                    ["arguments"] = arguments?.DeepClone() ?? new JsonArray(),
+                }
+            );
         }
     }
 
@@ -835,8 +801,8 @@ public sealed class LspManager : IDisposable
         {
             uri = PathToUri(documentPath);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return new List<LspDiagnostic>();
         }
@@ -865,8 +831,8 @@ public sealed class LspManager : IDisposable
         {
             uri = PathToUri(documentPath);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return 0;
         }
@@ -887,8 +853,7 @@ public sealed class LspManager : IDisposable
         }
     }
 
-    public bool TryDequeueEvent(out LspEvent lspEvent)
-        => _events.TryDequeue(out lspEvent!);
+    public bool TryDequeueEvent(out LspEvent lspEvent) => _events.TryDequeue(out lspEvent!);
 
     /// <summary>
     /// Delivers messages from an in-process Lua server transport on the editor
@@ -913,17 +878,22 @@ public sealed class LspManager : IDisposable
             {
                 HandleMessage(Encoding.UTF8.GetBytes(message));
             }
-            catch (Exception ex) when (ex is System.Text.Json.JsonException or
-                                       InvalidOperationException or
-                                       ArgumentException)
+            catch (Exception ex)
+                when (ex
+                        is System.Text.Json.JsonException
+                            or InvalidOperationException
+                            or ArgumentException
+                )
             {
                 LogInfo($"invalid LSP message: {ex.Message}");
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Error,
-                    ServerName = ServerName,
-                    Message = ex.Message
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Error,
+                        ServerName = ServerName,
+                        Message = ex.Message,
+                    }
+                );
             }
         }
     }
@@ -945,19 +915,14 @@ public sealed class LspManager : IDisposable
     private void SendInitializeLocked()
     {
         var workspaceFolders = new JsonArray();
-        workspaceFolders.Add((JsonNode)new JsonObject
-        {
-            ["uri"] = _rootUri,
-            ["name"] = Path.GetFileName(_rootPath)
-        });
+        workspaceFolders.Add(
+            (JsonNode)new JsonObject { ["uri"] = _rootUri, ["name"] = Path.GetFileName(_rootPath) }
+        );
 
         var parameters = new JsonObject
         {
             ["processId"] = Environment.ProcessId,
-            ["clientInfo"] = new JsonObject
-            {
-                ["name"] = "Hexal"
-            },
+            ["clientInfo"] = new JsonObject { ["name"] = "Hexal" },
             ["rootUri"] = _rootUri,
             ["rootPath"] = _rootPath,
             ["workspaceFolders"] = workspaceFolders,
@@ -966,36 +931,29 @@ public sealed class LspManager : IDisposable
                 ["workspace"] = new JsonObject
                 {
                     ["workspaceFolders"] = true,
-                    ["configuration"] = true
+                    ["configuration"] = true,
                 },
                 ["textDocument"] = new JsonObject
                 {
                     ["synchronization"] = new JsonObject
                     {
                         ["dynamicRegistration"] = false,
-                        ["didSave"] = true
+                        ["didSave"] = true,
                     },
-                    ["publishDiagnostics"] = new JsonObject
-                    {
-                        ["relatedInformation"] = true
-                    },
-                    ["definition"] = new JsonObject
-                    {
-                        ["linkSupport"] = true
-                    },
+                    ["publishDiagnostics"] = new JsonObject { ["relatedInformation"] = true },
+                    ["definition"] = new JsonObject { ["linkSupport"] = true },
                     ["completion"] = new JsonObject
                     {
                         ["completionItem"] = new JsonObject
                         {
                             ["snippetSupport"] = true,
-                            ["documentationFormat"] = new JsonArray(
-                                "markdown", "plaintext"),
-                            ["insertReplaceSupport"] = true
+                            ["documentationFormat"] = new JsonArray("markdown", "plaintext"),
+                            ["insertReplaceSupport"] = true,
                         },
-                        ["contextSupport"] = true
-                    }
-                }
-            }
+                        ["contextSupport"] = true,
+                    },
+                },
+            },
         };
 
         _pendingRequests[_initializeId] = "initialize";
@@ -1005,7 +963,7 @@ public sealed class LspManager : IDisposable
             ["jsonrpc"] = "2.0",
             ["id"] = _initializeId,
             ["method"] = "initialize",
-            ["params"] = parameters
+            ["params"] = parameters,
         };
         SendMessage(message);
     }
@@ -1023,16 +981,18 @@ public sealed class LspManager : IDisposable
                 ["uri"] = _documentUri,
                 ["languageId"] = _config?.LanguageId ?? string.Empty,
                 ["version"] = _version,
-                ["text"] = _currentText
-            }
+                ["text"] = _currentText,
+            },
         };
         SendNotificationLocked("textDocument/didOpen", open);
 
-        Enqueue(new LspEvent
-        {
-            Kind = LspEventKind.Initialized,
-            ServerName = _config?.Name ?? string.Empty
-        });
+        Enqueue(
+            new LspEvent
+            {
+                Kind = LspEventKind.Initialized,
+                ServerName = _config?.Name ?? string.Empty,
+            }
+        );
     }
 
     private void SendNotificationLocked(string method, JsonObject parameters)
@@ -1041,7 +1001,7 @@ public sealed class LspManager : IDisposable
         {
             ["jsonrpc"] = "2.0",
             ["method"] = method,
-            ["params"] = parameters
+            ["params"] = parameters,
         };
         SendMessage(message);
     }
@@ -1055,11 +1015,10 @@ public sealed class LspManager : IDisposable
 
         try
         {
-            return string.Equals(_documentUri, PathToUri(documentPath),
-                StringComparison.Ordinal);
+            return string.Equals(_documentUri, PathToUri(documentPath), StringComparison.Ordinal);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
-                                   PathTooLongException)
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
         }
@@ -1075,7 +1034,7 @@ public sealed class LspManager : IDisposable
             ["jsonrpc"] = "2.0",
             ["id"] = id,
             ["method"] = method,
-            ["params"] = parameters
+            ["params"] = parameters,
         };
         SendMessage(message);
     }
@@ -1086,7 +1045,7 @@ public sealed class LspManager : IDisposable
         {
             ["jsonrpc"] = "2.0",
             ["id"] = CloneId(id),
-            ["result"] = result
+            ["result"] = result,
         };
         SendMessage(message);
     }
@@ -1109,17 +1068,23 @@ public sealed class LspManager : IDisposable
                 LogOutbound(message, json);
                 transport.Send(json);
             }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                       InvalidOperationException or
-                                       System.Text.Json.JsonException)
+            catch (Exception ex)
+                when (ex
+                        is IOException
+                            or ObjectDisposedException
+                            or InvalidOperationException
+                            or System.Text.Json.JsonException
+                )
             {
                 LogInfo($"send failed: {ex.Message}");
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Error,
-                    ServerName = ServerName,
-                    Message = ex.Message
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Error,
+                        ServerName = ServerName,
+                        Message = ex.Message,
+                    }
+                );
             }
             return;
         }
@@ -1134,8 +1099,7 @@ public sealed class LspManager : IDisposable
             string json = message.ToJsonString();
             LogOutbound(message, json);
             byte[] body = Encoding.UTF8.GetBytes(json);
-            byte[] header = Encoding.ASCII.GetBytes(
-                $"Content-Length: {body.Length}\r\n\r\n");
+            byte[] header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
 
             lock (_writeLock)
             {
@@ -1144,16 +1108,18 @@ public sealed class LspManager : IDisposable
                 input.Flush();
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                   InvalidOperationException)
+        catch (Exception ex)
+            when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             LogInfo($"send failed: {ex.Message}");
-            Enqueue(new LspEvent
-            {
-                Kind = LspEventKind.Error,
-                ServerName = ServerName,
-                Message = ex.Message
-            });
+            Enqueue(
+                new LspEvent
+                {
+                    Kind = LspEventKind.Error,
+                    ServerName = ServerName,
+                    Message = ex.Message,
+                }
+            );
         }
     }
 
@@ -1185,26 +1151,27 @@ public sealed class LspManager : IDisposable
                 {
                     HandleMessage(body);
                 }
-                catch (Exception ex) when (ex is JsonException or
-                                           InvalidOperationException or
-                                           ArgumentException)
+                catch (Exception ex)
+                    when (ex is JsonException or InvalidOperationException or ArgumentException)
                 {
                     LogInfo($"invalid LSP message: {ex.Message}");
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                   InvalidOperationException)
+        catch (Exception ex)
+            when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             if (!token.IsCancellationRequested)
             {
                 LogInfo($"read failed: {ex.Message}");
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Error,
-                    ServerName = ServerName,
-                    Message = ex.Message
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Error,
+                        ServerName = ServerName,
+                        Message = ex.Message,
+                    }
+                );
             }
         }
         finally
@@ -1212,11 +1179,7 @@ public sealed class LspManager : IDisposable
             if (!token.IsCancellationRequested)
             {
                 LogInfo("server output closed");
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Stopped,
-                    ServerName = ServerName
-                });
+                Enqueue(new LspEvent { Kind = LspEventKind.Stopped, ServerName = ServerName });
             }
         }
     }
@@ -1240,8 +1203,8 @@ public sealed class LspManager : IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or
-                                   InvalidOperationException)
+        catch (Exception ex)
+            when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
             // Stderr is diagnostic only.
         }
@@ -1252,8 +1215,10 @@ public sealed class LspManager : IDisposable
         using JsonDocument document = JsonDocument.Parse(body);
         JsonElement root = document.RootElement;
 
-        if (root.TryGetProperty("method", out JsonElement methodElement) &&
-            methodElement.ValueKind == JsonValueKind.String)
+        if (
+            root.TryGetProperty("method", out JsonElement methodElement)
+            && methodElement.ValueKind == JsonValueKind.String
+        )
         {
             string method = methodElement.GetString() ?? string.Empty;
 
@@ -1268,9 +1233,11 @@ public sealed class LspManager : IDisposable
             return;
         }
 
-        if (root.TryGetProperty("id", out JsonElement responseId) &&
-            responseId.ValueKind == JsonValueKind.Number &&
-            responseId.TryGetInt64(out long id))
+        if (
+            root.TryGetProperty("id", out JsonElement responseId)
+            && responseId.ValueKind == JsonValueKind.Number
+            && responseId.TryGetInt64(out long id)
+        )
         {
             if (id == _initializeId)
             {
@@ -1307,40 +1274,52 @@ public sealed class LspManager : IDisposable
                 string message = error.TryGetProperty("message", out JsonElement text)
                     ? text.GetString() ?? "initialize failed"
                     : "initialize failed";
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Error,
-                    ServerName = _config?.Name ?? string.Empty,
-                    Method = "initialize",
-                    Message = message
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Error,
+                        ServerName = _config?.Name ?? string.Empty,
+                        Method = "initialize",
+                        Message = message,
+                    }
+                );
                 return;
             }
 
-            if (root.TryGetProperty("result", out JsonElement result) &&
-                result.TryGetProperty("capabilities", out JsonElement capabilities))
+            if (
+                root.TryGetProperty("result", out JsonElement result)
+                && result.TryGetProperty("capabilities", out JsonElement capabilities)
+            )
             {
-                if (capabilities.TryGetProperty("diagnosticProvider",
-                        out JsonElement provider) &&
-                    provider.ValueKind == JsonValueKind.Object &&
-                    provider.TryGetProperty("workspaceDiagnostics",
-                        out JsonElement workspace) &&
-                    workspace.ValueKind == JsonValueKind.True)
+                if (
+                    capabilities.TryGetProperty("diagnosticProvider", out JsonElement provider)
+                    && provider.ValueKind == JsonValueKind.Object
+                    && provider.TryGetProperty("workspaceDiagnostics", out JsonElement workspace)
+                    && workspace.ValueKind == JsonValueKind.True
+                )
                 {
                     _workspaceDiagnosticsSupported = true;
                 }
 
-                if (capabilities.TryGetProperty("completionProvider",
-                        out JsonElement completionProvider) &&
-                    completionProvider.ValueKind == JsonValueKind.Object &&
-                    completionProvider.TryGetProperty("triggerCharacters",
-                        out JsonElement triggerCharacters) &&
-                    triggerCharacters.ValueKind == JsonValueKind.Array)
+                if (
+                    capabilities.TryGetProperty(
+                        "completionProvider",
+                        out JsonElement completionProvider
+                    )
+                    && completionProvider.ValueKind == JsonValueKind.Object
+                    && completionProvider.TryGetProperty(
+                        "triggerCharacters",
+                        out JsonElement triggerCharacters
+                    )
+                    && triggerCharacters.ValueKind == JsonValueKind.Array
+                )
                 {
                     foreach (JsonElement trigger in triggerCharacters.EnumerateArray())
                     {
-                        if (trigger.ValueKind == JsonValueKind.String &&
-                            trigger.GetString() is { Length: > 0 } value)
+                        if (
+                            trigger.ValueKind == JsonValueKind.String
+                            && trigger.GetString() is { Length: > 0 } value
+                        )
                         {
                             _completionTriggerCharacters.Add(value);
                         }
@@ -1367,13 +1346,15 @@ public sealed class LspManager : IDisposable
             // request should not spam the status line.
             if (method != "workspace/diagnostic")
             {
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Error,
-                    ServerName = serverName,
-                    Method = method,
-                    Message = message
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Error,
+                        ServerName = serverName,
+                        Method = method,
+                        Message = message,
+                    }
+                );
             }
             return;
         }
@@ -1384,16 +1365,19 @@ public sealed class LspManager : IDisposable
         {
             case "textDocument/hover":
             {
-                string text = result.ValueKind == JsonValueKind.Object
-                    ? ExtractHoverText(result)
-                    : string.Empty;
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Hover,
-                    ServerName = serverName,
-                    Method = method,
-                    Text = text
-                });
+                string text =
+                    result.ValueKind == JsonValueKind.Object
+                        ? ExtractHoverText(result)
+                        : string.Empty;
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Hover,
+                        ServerName = serverName,
+                        Method = method,
+                        Text = text,
+                    }
+                );
                 return;
             }
 
@@ -1402,40 +1386,45 @@ public sealed class LspManager : IDisposable
             case "textDocument/typeDefinition":
             {
                 List<LspLocation> locations = ParseLocations(result);
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Definition,
-                    ServerName = serverName,
-                    Method = method,
-                    Locations = locations
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Definition,
+                        ServerName = serverName,
+                        Method = method,
+                        Locations = locations,
+                    }
+                );
                 return;
             }
 
             case "textDocument/documentSymbol":
             {
-                List<LspDocumentSymbol> symbols = ParseDocumentSymbols(result,
-                    _documentUri);
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.DocumentSymbols,
-                    ServerName = serverName,
-                    Method = method,
-                    DocumentSymbols = symbols
-                });
+                List<LspDocumentSymbol> symbols = ParseDocumentSymbols(result, _documentUri);
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.DocumentSymbols,
+                        ServerName = serverName,
+                        Method = method,
+                        DocumentSymbols = symbols,
+                    }
+                );
                 return;
             }
 
             case "textDocument/completion":
             {
                 List<LspCompletionItem> items = ParseCompletionItems(result);
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.Completions,
-                    ServerName = serverName,
-                    Method = method,
-                    Completions = items
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Completions,
+                        ServerName = serverName,
+                        Method = method,
+                        Completions = items,
+                    }
+                );
                 return;
             }
 
@@ -1443,15 +1432,18 @@ public sealed class LspManager : IDisposable
             case "codeAction/resolve":
             {
                 List<LspCodeAction> actions = ParseCodeActions(result);
-                Enqueue(new LspEvent
-                {
-                    Kind = method == "codeAction/resolve"
-                        ? LspEventKind.CodeActionResolved
-                        : LspEventKind.CodeActions,
-                    ServerName = serverName,
-                    Method = method,
-                    CodeActions = actions
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind =
+                            method == "codeAction/resolve"
+                                ? LspEventKind.CodeActionResolved
+                                : LspEventKind.CodeActions,
+                        ServerName = serverName,
+                        Method = method,
+                        CodeActions = actions,
+                    }
+                );
                 return;
             }
 
@@ -1466,13 +1458,15 @@ public sealed class LspManager : IDisposable
                     }
                 }
 
-                Enqueue(new LspEvent
-                {
-                    Kind = LspEventKind.WorkspaceDiagnostics,
-                    ServerName = serverName,
-                    Method = method,
-                    DocumentDiagnostics = reports
-                });
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.WorkspaceDiagnostics,
+                        ServerName = serverName,
+                        Method = method,
+                        DocumentDiagnostics = reports,
+                    }
+                );
                 return;
             }
         }
@@ -1496,8 +1490,10 @@ public sealed class LspManager : IDisposable
                     : string.Empty;
 
             var diagnostics = new List<LspDiagnostic>();
-            if (parameters.TryGetProperty("diagnostics", out JsonElement array) &&
-                array.ValueKind == JsonValueKind.Array)
+            if (
+                parameters.TryGetProperty("diagnostics", out JsonElement array)
+                && array.ValueKind == JsonValueKind.Array
+            )
             {
                 foreach (JsonElement item in array.EnumerateArray())
                 {
@@ -1531,20 +1527,23 @@ public sealed class LspManager : IDisposable
                         }
                     }
 
-                    diagnostics.Add(new LspDiagnostic(
-                        line,
-                        column,
-                        item.TryGetProperty("severity", out JsonElement severity)
-                            ? severity.GetInt32()
-                            : 1,
-                        item.TryGetProperty("message", out JsonElement message)
-                            ? message.GetString() ?? string.Empty
-                            : string.Empty,
-                        item.TryGetProperty("source", out JsonElement source)
-                            ? source.GetString() ?? string.Empty
-                            : string.Empty,
-                        endLine,
-                        endColumn));
+                    diagnostics.Add(
+                        new LspDiagnostic(
+                            line,
+                            column,
+                            item.TryGetProperty("severity", out JsonElement severity)
+                                ? severity.GetInt32()
+                                : 1,
+                            item.TryGetProperty("message", out JsonElement message)
+                                ? message.GetString() ?? string.Empty
+                                : string.Empty,
+                            item.TryGetProperty("source", out JsonElement source)
+                                ? source.GetString() ?? string.Empty
+                                : string.Empty,
+                            endLine,
+                            endColumn
+                        )
+                    );
                 }
             }
 
@@ -1553,13 +1552,15 @@ public sealed class LspManager : IDisposable
                 _diagnostics[uri] = new List<LspDiagnostic>(diagnostics);
             }
 
-            Enqueue(new LspEvent
-            {
-                Kind = LspEventKind.Diagnostics,
-                ServerName = _config?.Name ?? string.Empty,
-                Uri = uri,
-                Diagnostics = diagnostics
-            });
+            Enqueue(
+                new LspEvent
+                {
+                    Kind = LspEventKind.Diagnostics,
+                    ServerName = _config?.Name ?? string.Empty,
+                    Uri = uri,
+                    Diagnostics = diagnostics,
+                }
+            );
         }
         else if (method == "window/showMessage")
         {
@@ -1567,12 +1568,14 @@ public sealed class LspManager : IDisposable
                 ? text.GetString() ?? string.Empty
                 : string.Empty;
             LogTraffic("server", message);
-            Enqueue(new LspEvent
-            {
-                Kind = LspEventKind.Error,
-                ServerName = _config?.Name ?? string.Empty,
-                Message = message
-            });
+            Enqueue(
+                new LspEvent
+                {
+                    Kind = LspEventKind.Error,
+                    ServerName = _config?.Name ?? string.Empty,
+                    Message = message,
+                }
+            );
         }
         else if (method == "window/logMessage")
         {
@@ -1618,8 +1621,10 @@ public sealed class LspManager : IDisposable
                 break;
 
             case JsonValueKind.Object:
-                if (contents.TryGetProperty("value", out JsonElement value) &&
-                    value.ValueKind == JsonValueKind.String)
+                if (
+                    contents.TryGetProperty("value", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.String
+                )
                 {
                     string? text = value.GetString();
                     if (!string.IsNullOrEmpty(text))
@@ -1631,8 +1636,7 @@ public sealed class LspManager : IDisposable
         }
     }
 
-    private static List<LspCompletionItem> ParseCompletionItems(
-        JsonElement result)
+    private static List<LspCompletionItem> ParseCompletionItems(JsonElement result)
     {
         var items = new List<LspCompletionItem>();
         JsonElement array;
@@ -1640,9 +1644,11 @@ public sealed class LspManager : IDisposable
         {
             array = result;
         }
-        else if (result.ValueKind == JsonValueKind.Object &&
-                 result.TryGetProperty("items", out JsonElement list) &&
-                 list.ValueKind == JsonValueKind.Array)
+        else if (
+            result.ValueKind == JsonValueKind.Object
+            && result.TryGetProperty("items", out JsonElement list)
+            && list.ValueKind == JsonValueKind.Array
+        )
         {
             array = list;
         }
@@ -1672,23 +1678,27 @@ public sealed class LspManager : IDisposable
             int endLine = 0;
             int endCharacter = 0;
 
-            if (item.TryGetProperty("textEdit", out JsonElement textEdit) &&
-                textEdit.ValueKind == JsonValueKind.Object)
+            if (
+                item.TryGetProperty("textEdit", out JsonElement textEdit)
+                && textEdit.ValueKind == JsonValueKind.Object
+            )
             {
-                if (textEdit.TryGetProperty("newText",
-                        out JsonElement newText) &&
-                    newText.ValueKind == JsonValueKind.String)
+                if (
+                    textEdit.TryGetProperty("newText", out JsonElement newText)
+                    && newText.ValueKind == JsonValueKind.String
+                )
                 {
                     insertText = newText.GetString() ?? string.Empty;
                 }
 
                 JsonElement range;
-                if (textEdit.TryGetProperty("range", out range) ||
-                    textEdit.TryGetProperty("insert", out range) ||
-                    textEdit.TryGetProperty("replace", out range))
+                if (
+                    textEdit.TryGetProperty("range", out range)
+                    || textEdit.TryGetProperty("insert", out range)
+                    || textEdit.TryGetProperty("replace", out range)
+                )
                 {
-                    (startLine, startCharacter, endLine, endCharacter) =
-                        ReadRange(range);
+                    (startLine, startCharacter, endLine, endCharacter) = ReadRange(range);
                     hasEdit = true;
                 }
             }
@@ -1705,30 +1715,34 @@ public sealed class LspManager : IDisposable
                 {
                     documentation = docs.GetString() ?? string.Empty;
                 }
-                else if (docs.ValueKind == JsonValueKind.Object &&
-                         docs.TryGetProperty("value", out JsonElement value) &&
-                         value.ValueKind == JsonValueKind.String)
+                else if (
+                    docs.ValueKind == JsonValueKind.Object
+                    && docs.TryGetProperty("value", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.String
+                )
                 {
                     documentation = value.GetString() ?? string.Empty;
                 }
             }
 
-            items.Add(new LspCompletionItem
-            {
-                Label = label,
-                InsertText = insertText,
-                InsertTextFormat = insertFormat,
-                Kind = ReadInt(item, "kind", 0),
-                Detail = ReadString(item, "detail"),
-                Documentation = documentation,
-                FilterText = ReadString(item, "filterText"),
-                SortText = ReadString(item, "sortText"),
-                HasTextEdit = hasEdit,
-                StartLine = startLine,
-                StartCharacter = startCharacter,
-                EndLine = endLine,
-                EndCharacter = endCharacter
-            });
+            items.Add(
+                new LspCompletionItem
+                {
+                    Label = label,
+                    InsertText = insertText,
+                    InsertTextFormat = insertFormat,
+                    Kind = ReadInt(item, "kind", 0),
+                    Detail = ReadString(item, "detail"),
+                    Documentation = documentation,
+                    FilterText = ReadString(item, "filterText"),
+                    SortText = ReadString(item, "sortText"),
+                    HasTextEdit = hasEdit,
+                    StartLine = startLine,
+                    StartCharacter = startCharacter,
+                    EndLine = endLine,
+                    EndCharacter = endCharacter,
+                }
+            );
         }
 
         return items;
@@ -1736,22 +1750,25 @@ public sealed class LspManager : IDisposable
 
     private static string ReadString(JsonElement element, string property)
     {
-        return element.TryGetProperty(property, out JsonElement value) &&
-               value.ValueKind == JsonValueKind.String
+        return
+            element.TryGetProperty(property, out JsonElement value)
+            && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : string.Empty;
     }
 
     private static int ReadInt(JsonElement element, string property, int fallback)
     {
-        return element.TryGetProperty(property, out JsonElement value) &&
-               value.ValueKind == JsonValueKind.Number
+        return
+            element.TryGetProperty(property, out JsonElement value)
+            && value.ValueKind == JsonValueKind.Number
             ? value.GetInt32()
             : fallback;
     }
 
-    private static (int StartLine, int StartCharacter, int EndLine,
-        int EndCharacter) ReadRange(JsonElement range)
+    private static (int StartLine, int StartCharacter, int EndLine, int EndCharacter) ReadRange(
+        JsonElement range
+    )
     {
         if (range.ValueKind != JsonValueKind.Object)
         {
@@ -1763,14 +1780,18 @@ public sealed class LspManager : IDisposable
         int endLine = 0;
         int endCharacter = 0;
 
-        if (range.TryGetProperty("start", out JsonElement start) &&
-            start.ValueKind == JsonValueKind.Object)
+        if (
+            range.TryGetProperty("start", out JsonElement start)
+            && start.ValueKind == JsonValueKind.Object
+        )
         {
             startLine = ReadInt(start, "line", 0);
             startCharacter = ReadInt(start, "character", 0);
         }
-        if (range.TryGetProperty("end", out JsonElement end) &&
-            end.ValueKind == JsonValueKind.Object)
+        if (
+            range.TryGetProperty("end", out JsonElement end)
+            && end.ValueKind == JsonValueKind.Object
+        )
         {
             endLine = ReadInt(end, "line", startLine);
             endCharacter = ReadInt(end, "character", startCharacter);
@@ -1780,7 +1801,9 @@ public sealed class LspManager : IDisposable
     }
 
     private static List<LspDocumentSymbol> ParseDocumentSymbols(
-        JsonElement result, string documentUri)
+        JsonElement result,
+        string documentUri
+    )
     {
         var symbols = new List<LspDocumentSymbol>();
         if (result.ValueKind == JsonValueKind.Array)
@@ -1790,8 +1813,12 @@ public sealed class LspManager : IDisposable
         return symbols;
     }
 
-    private static void ParseDocumentSymbolArray(JsonElement array,
-        string documentUri, List<LspDocumentSymbol> symbols, int depth)
+    private static void ParseDocumentSymbolArray(
+        JsonElement array,
+        string documentUri,
+        List<LspDocumentSymbol> symbols,
+        int depth
+    )
     {
         foreach (JsonElement item in array.EnumerateArray())
         {
@@ -1800,33 +1827,39 @@ public sealed class LspManager : IDisposable
                 continue;
             }
 
-            string name = item.TryGetProperty("name", out JsonElement nameElement) &&
-                          nameElement.ValueKind == JsonValueKind.String
-                ? nameElement.GetString() ?? string.Empty
-                : string.Empty;
+            string name =
+                item.TryGetProperty("name", out JsonElement nameElement)
+                && nameElement.ValueKind == JsonValueKind.String
+                    ? nameElement.GetString() ?? string.Empty
+                    : string.Empty;
             if (name.Length == 0)
             {
                 continue;
             }
 
             string detail =
-                item.TryGetProperty("detail", out JsonElement detailElement) &&
-                detailElement.ValueKind == JsonValueKind.String
+                item.TryGetProperty("detail", out JsonElement detailElement)
+                && detailElement.ValueKind == JsonValueKind.String
                     ? detailElement.GetString() ?? string.Empty
                     : string.Empty;
-            int kind = item.TryGetProperty("kind", out JsonElement kindElement) &&
-                       kindElement.ValueKind == JsonValueKind.Number
-                ? kindElement.GetInt32()
-                : 0;
+            int kind =
+                item.TryGetProperty("kind", out JsonElement kindElement)
+                && kindElement.ValueKind == JsonValueKind.Number
+                    ? kindElement.GetInt32()
+                    : 0;
 
             string uri = documentUri;
             int line = 0;
             int character = 0;
-            if (item.TryGetProperty("location", out JsonElement location) &&
-                location.ValueKind == JsonValueKind.Object)
+            if (
+                item.TryGetProperty("location", out JsonElement location)
+                && location.ValueKind == JsonValueKind.Object
+            )
             {
-                if (location.TryGetProperty("uri", out JsonElement uriElement) &&
-                    uriElement.ValueKind == JsonValueKind.String)
+                if (
+                    location.TryGetProperty("uri", out JsonElement uriElement)
+                    && uriElement.ValueKind == JsonValueKind.String
+                )
                 {
                     uri = uriElement.GetString() ?? documentUri;
                 }
@@ -1839,8 +1872,10 @@ public sealed class LspManager : IDisposable
             else
             {
                 JsonElement range;
-                if (!item.TryGetProperty("selectionRange", out range) &&
-                    !item.TryGetProperty("range", out range))
+                if (
+                    !item.TryGetProperty("selectionRange", out range)
+                    && !item.TryGetProperty("range", out range)
+                )
                 {
                     continue;
                 }
@@ -1848,11 +1883,12 @@ public sealed class LspManager : IDisposable
                 (line, character) = ParseRangeStart(range);
             }
 
-            symbols.Add(new LspDocumentSymbol(name, detail, kind, uri, line,
-                character, depth));
+            symbols.Add(new LspDocumentSymbol(name, detail, kind, uri, line, character, depth));
 
-            if (item.TryGetProperty("children", out JsonElement children) &&
-                children.ValueKind == JsonValueKind.Array)
+            if (
+                item.TryGetProperty("children", out JsonElement children)
+                && children.ValueKind == JsonValueKind.Array
+            )
             {
                 ParseDocumentSymbolArray(children, uri, symbols, depth + 1);
             }
@@ -1861,20 +1897,23 @@ public sealed class LspManager : IDisposable
 
     private static (int Line, int Character) ParseRangeStart(JsonElement range)
     {
-        if (range.ValueKind != JsonValueKind.Object ||
-            !range.TryGetProperty("start", out JsonElement start) ||
-            start.ValueKind != JsonValueKind.Object)
+        if (
+            range.ValueKind != JsonValueKind.Object
+            || !range.TryGetProperty("start", out JsonElement start)
+            || start.ValueKind != JsonValueKind.Object
+        )
         {
             return (0, 0);
         }
 
-        int line = start.TryGetProperty("line", out JsonElement lineElement) &&
-                   lineElement.ValueKind == JsonValueKind.Number
-            ? lineElement.GetInt32()
-            : 0;
+        int line =
+            start.TryGetProperty("line", out JsonElement lineElement)
+            && lineElement.ValueKind == JsonValueKind.Number
+                ? lineElement.GetInt32()
+                : 0;
         int character =
-            start.TryGetProperty("character", out JsonElement characterElement) &&
-            characterElement.ValueKind == JsonValueKind.Number
+            start.TryGetProperty("character", out JsonElement characterElement)
+            && characterElement.ValueKind == JsonValueKind.Number
                 ? characterElement.GetInt32()
                 : 0;
         return (line, character);
@@ -1906,13 +1945,17 @@ public sealed class LspManager : IDisposable
         // LocationLink uses targetUri/targetRange, while Location uses
         // uri/range. Servers may return either shape (or an array of both).
         string uri = string.Empty;
-        if (result.TryGetProperty("uri", out JsonElement uriElement) &&
-            uriElement.ValueKind == JsonValueKind.String)
+        if (
+            result.TryGetProperty("uri", out JsonElement uriElement)
+            && uriElement.ValueKind == JsonValueKind.String
+        )
         {
             uri = uriElement.GetString() ?? string.Empty;
         }
-        else if (result.TryGetProperty("targetUri", out JsonElement targetUri) &&
-                 targetUri.ValueKind == JsonValueKind.String)
+        else if (
+            result.TryGetProperty("targetUri", out JsonElement targetUri)
+            && targetUri.ValueKind == JsonValueKind.String
+        )
         {
             uri = targetUri.GetString() ?? string.Empty;
         }
@@ -1923,16 +1966,20 @@ public sealed class LspManager : IDisposable
         }
 
         JsonElement range;
-        if (!result.TryGetProperty("range", out range) &&
-            !result.TryGetProperty("targetSelectionRange", out range) &&
-            !result.TryGetProperty("targetRange", out range))
+        if (
+            !result.TryGetProperty("range", out range)
+            && !result.TryGetProperty("targetSelectionRange", out range)
+            && !result.TryGetProperty("targetRange", out range)
+        )
         {
             return;
         }
 
-        if (range.ValueKind != JsonValueKind.Object ||
-            !range.TryGetProperty("start", out JsonElement start) ||
-            start.ValueKind != JsonValueKind.Object)
+        if (
+            range.ValueKind != JsonValueKind.Object
+            || !range.TryGetProperty("start", out JsonElement start)
+            || start.ValueKind != JsonValueKind.Object
+        )
         {
             return;
         }
@@ -1966,43 +2013,52 @@ public sealed class LspManager : IDisposable
 
             string command = string.Empty;
             JsonArray? arguments = null;
-            if (item.TryGetProperty("command", out JsonElement commandElement) &&
-                commandElement.ValueKind == JsonValueKind.Object)
+            if (
+                item.TryGetProperty("command", out JsonElement commandElement)
+                && commandElement.ValueKind == JsonValueKind.Object
+            )
             {
-                if (commandElement.TryGetProperty("command", out JsonElement name) &&
-                    name.ValueKind == JsonValueKind.String)
+                if (
+                    commandElement.TryGetProperty("command", out JsonElement name)
+                    && name.ValueKind == JsonValueKind.String
+                )
                 {
                     command = name.GetString() ?? string.Empty;
                 }
 
-                if (commandElement.TryGetProperty("arguments", out JsonElement args) &&
-                    args.ValueKind == JsonValueKind.Array &&
-                    JsonNode.Parse(args.GetRawText()) is JsonArray array)
+                if (
+                    commandElement.TryGetProperty("arguments", out JsonElement args)
+                    && args.ValueKind == JsonValueKind.Array
+                    && JsonNode.Parse(args.GetRawText()) is JsonArray array
+                )
                 {
                     arguments = array;
                 }
             }
 
-            bool hasData = item.TryGetProperty("data", out JsonElement data) &&
-                           data.ValueKind != JsonValueKind.Null &&
-                           data.ValueKind != JsonValueKind.Undefined;
+            bool hasData =
+                item.TryGetProperty("data", out JsonElement data)
+                && data.ValueKind != JsonValueKind.Null
+                && data.ValueKind != JsonValueKind.Undefined;
 
             JsonObject? raw = JsonNode.Parse(item.GetRawText()) as JsonObject;
 
-            actions.Add(new LspCodeAction
-            {
-                Title = item.TryGetProperty("title", out JsonElement title)
-                    ? title.GetString() ?? string.Empty
-                    : string.Empty,
-                Kind = item.TryGetProperty("kind", out JsonElement kind)
-                    ? kind.GetString() ?? string.Empty
-                    : string.Empty,
-                Edits = edits,
-                Command = command,
-                CommandArguments = arguments,
-                NeedsResolve = edits.Count == 0 && command.Length == 0 && hasData,
-                Raw = raw
-            });
+            actions.Add(
+                new LspCodeAction
+                {
+                    Title = item.TryGetProperty("title", out JsonElement title)
+                        ? title.GetString() ?? string.Empty
+                        : string.Empty,
+                    Kind = item.TryGetProperty("kind", out JsonElement kind)
+                        ? kind.GetString() ?? string.Empty
+                        : string.Empty,
+                    Edits = edits,
+                    Command = command,
+                    CommandArguments = arguments,
+                    NeedsResolve = edits.Count == 0 && command.Length == 0 && hasData,
+                    Raw = raw,
+                }
+            );
         }
 
         return actions;
@@ -2011,14 +2067,18 @@ public sealed class LspManager : IDisposable
     private static List<LspTextEdit> ParseWorkspaceEdit(JsonElement owner, string property)
     {
         var edits = new List<LspTextEdit>();
-        if (!owner.TryGetProperty(property, out JsonElement edit) ||
-            edit.ValueKind != JsonValueKind.Object)
+        if (
+            !owner.TryGetProperty(property, out JsonElement edit)
+            || edit.ValueKind != JsonValueKind.Object
+        )
         {
             return edits;
         }
 
-        if (edit.TryGetProperty("changes", out JsonElement changes) &&
-            changes.ValueKind == JsonValueKind.Object)
+        if (
+            edit.TryGetProperty("changes", out JsonElement changes)
+            && changes.ValueKind == JsonValueKind.Object
+        )
         {
             foreach (JsonProperty file in changes.EnumerateObject())
             {
@@ -2029,21 +2089,27 @@ public sealed class LspManager : IDisposable
             }
         }
 
-        if (edit.TryGetProperty("documentChanges", out JsonElement documentChanges) &&
-            documentChanges.ValueKind == JsonValueKind.Array)
+        if (
+            edit.TryGetProperty("documentChanges", out JsonElement documentChanges)
+            && documentChanges.ValueKind == JsonValueKind.Array
+        )
         {
             foreach (JsonElement change in documentChanges.EnumerateArray())
             {
-                if (change.ValueKind != JsonValueKind.Object ||
-                    !change.TryGetProperty("textDocument", out JsonElement textDocument) ||
-                    !textDocument.TryGetProperty("uri", out JsonElement uriElement))
+                if (
+                    change.ValueKind != JsonValueKind.Object
+                    || !change.TryGetProperty("textDocument", out JsonElement textDocument)
+                    || !textDocument.TryGetProperty("uri", out JsonElement uriElement)
+                )
                 {
                     // Create/rename/delete file operations are not supported.
                     continue;
                 }
 
-                if (change.TryGetProperty("edits", out JsonElement textEdits) &&
-                    textEdits.ValueKind == JsonValueKind.Array)
+                if (
+                    change.TryGetProperty("edits", out JsonElement textEdits)
+                    && textEdits.ValueKind == JsonValueKind.Array
+                )
                 {
                     ParseTextEdits(uriElement.GetString() ?? string.Empty, textEdits, edits);
                 }
@@ -2053,15 +2119,16 @@ public sealed class LspManager : IDisposable
         return edits;
     }
 
-    private static void ParseTextEdits(string uri, JsonElement array,
-        List<LspTextEdit> edits)
+    private static void ParseTextEdits(string uri, JsonElement array, List<LspTextEdit> edits)
     {
         foreach (JsonElement item in array.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Object ||
-                !item.TryGetProperty("range", out JsonElement range) ||
-                !range.TryGetProperty("start", out JsonElement start) ||
-                !range.TryGetProperty("end", out JsonElement end))
+            if (
+                item.ValueKind != JsonValueKind.Object
+                || !item.TryGetProperty("range", out JsonElement range)
+                || !range.TryGetProperty("start", out JsonElement start)
+                || !range.TryGetProperty("end", out JsonElement end)
+            )
             {
                 continue;
             }
@@ -2069,15 +2136,16 @@ public sealed class LspManager : IDisposable
             int startLine = start.TryGetProperty("line", out JsonElement startLineElement)
                 ? startLineElement.GetInt32()
                 : 0;
-            int startCharacter = start.TryGetProperty("character",
-                out JsonElement startCharacterElement)
+            int startCharacter = start.TryGetProperty(
+                "character",
+                out JsonElement startCharacterElement
+            )
                 ? startCharacterElement.GetInt32()
                 : 0;
             int endLine = end.TryGetProperty("line", out JsonElement endLineElement)
                 ? endLineElement.GetInt32()
                 : startLine;
-            int endCharacter = end.TryGetProperty("character",
-                out JsonElement endCharacterElement)
+            int endCharacter = end.TryGetProperty("character", out JsonElement endCharacterElement)
                 ? endCharacterElement.GetInt32()
                 : startCharacter;
 
@@ -2085,33 +2153,40 @@ public sealed class LspManager : IDisposable
                 ? newTextElement.GetString() ?? string.Empty
                 : string.Empty;
 
-            edits.Add(new LspTextEdit(uri, startLine, startCharacter, endLine,
-                endCharacter, newText));
+            edits.Add(
+                new LspTextEdit(uri, startLine, startCharacter, endLine, endCharacter, newText)
+            );
         }
     }
 
     private static List<LspDocumentDiagnostics> ParseWorkspaceDiagnostics(JsonElement result)
     {
         var reports = new List<LspDocumentDiagnostics>();
-        if (result.ValueKind != JsonValueKind.Object ||
-            !result.TryGetProperty("items", out JsonElement items) ||
-            items.ValueKind != JsonValueKind.Array)
+        if (
+            result.ValueKind != JsonValueKind.Object
+            || !result.TryGetProperty("items", out JsonElement items)
+            || items.ValueKind != JsonValueKind.Array
+        )
         {
             return reports;
         }
 
         foreach (JsonElement item in items.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Object ||
-                !item.TryGetProperty("uri", out JsonElement uri) ||
-                uri.ValueKind != JsonValueKind.String)
+            if (
+                item.ValueKind != JsonValueKind.Object
+                || !item.TryGetProperty("uri", out JsonElement uri)
+                || uri.ValueKind != JsonValueKind.String
+            )
             {
                 continue;
             }
 
             var diagnostics = new List<LspDiagnostic>();
-            if (item.TryGetProperty("diagnostics", out JsonElement array) &&
-                array.ValueKind == JsonValueKind.Array)
+            if (
+                item.TryGetProperty("diagnostics", out JsonElement array)
+                && array.ValueKind == JsonValueKind.Array
+            )
             {
                 foreach (JsonElement diagnostic in array.EnumerateArray())
                 {
@@ -2119,8 +2194,7 @@ public sealed class LspManager : IDisposable
                 }
             }
 
-            reports.Add(new LspDocumentDiagnostics(uri.GetString() ?? string.Empty,
-                diagnostics));
+            reports.Add(new LspDocumentDiagnostics(uri.GetString() ?? string.Empty, diagnostics));
         }
 
         return reports;
@@ -2133,8 +2207,10 @@ public sealed class LspManager : IDisposable
         int endLine = -1;
         int endColumn = -1;
 
-        if (item.ValueKind == JsonValueKind.Object &&
-            item.TryGetProperty("range", out JsonElement range))
+        if (
+            item.ValueKind == JsonValueKind.Object
+            && item.TryGetProperty("range", out JsonElement range)
+        )
         {
             if (range.TryGetProperty("start", out JsonElement start))
             {
@@ -2163,20 +2239,21 @@ public sealed class LspManager : IDisposable
         return new LspDiagnostic(
             line,
             column,
-            item.ValueKind == JsonValueKind.Object &&
-            item.TryGetProperty("severity", out JsonElement severity)
+            item.ValueKind == JsonValueKind.Object
+            && item.TryGetProperty("severity", out JsonElement severity)
                 ? severity.GetInt32()
                 : 1,
-            item.ValueKind == JsonValueKind.Object &&
-            item.TryGetProperty("message", out JsonElement message)
+            item.ValueKind == JsonValueKind.Object
+            && item.TryGetProperty("message", out JsonElement message)
                 ? message.GetString() ?? string.Empty
                 : string.Empty,
-            item.ValueKind == JsonValueKind.Object &&
-            item.TryGetProperty("source", out JsonElement source)
+            item.ValueKind == JsonValueKind.Object
+            && item.TryGetProperty("source", out JsonElement source)
                 ? source.GetString() ?? string.Empty
                 : string.Empty,
             endLine,
-            endColumn);
+            endColumn
+        );
     }
 
     private void HandleServerRequest(string method, JsonElement id, JsonElement root)
@@ -2186,9 +2263,11 @@ public sealed class LspManager : IDisposable
         if (method == "workspace/configuration")
         {
             int count = 0;
-            if (root.TryGetProperty("params", out JsonElement parameters) &&
-                parameters.TryGetProperty("items", out JsonElement items) &&
-                items.ValueKind == JsonValueKind.Array)
+            if (
+                root.TryGetProperty("params", out JsonElement parameters)
+                && parameters.TryGetProperty("items", out JsonElement items)
+                && items.ValueKind == JsonValueKind.Array
+            )
             {
                 count = items.GetArrayLength();
             }
@@ -2203,11 +2282,10 @@ public sealed class LspManager : IDisposable
         else if (method == "workspace/workspaceFolders")
         {
             var folders = new JsonArray();
-            folders.Add((JsonNode)new JsonObject
-            {
-                ["uri"] = _rootUri,
-                ["name"] = Path.GetFileName(_rootPath)
-            });
+            folders.Add(
+                (JsonNode)
+                    new JsonObject { ["uri"] = _rootUri, ["name"] = Path.GetFileName(_rootPath) }
+            );
             result = folders;
         }
 
@@ -2218,10 +2296,9 @@ public sealed class LspManager : IDisposable
     {
         return id.ValueKind switch
         {
-            JsonValueKind.Number when id.TryGetInt64(out long number) =>
-                JsonValue.Create(number),
+            JsonValueKind.Number when id.TryGetInt64(out long number) => JsonValue.Create(number),
             JsonValueKind.String => JsonValue.Create(id.GetString()),
-            _ => null
+            _ => null,
         };
     }
 
@@ -2243,8 +2320,7 @@ public sealed class LspManager : IDisposable
 
             int separator = line.IndexOf(':');
             string name = separator > 0 ? line[..separator].Trim() : string.Empty;
-            if (string.Equals(name, "Content-Length",
-                    StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(name, "Content-Length", StringComparison.OrdinalIgnoreCase))
             {
                 if (int.TryParse(line[(separator + 1)..].Trim(), out int length))
                 {
@@ -2342,9 +2418,12 @@ public sealed class LspManager : IDisposable
                     _process.Kill(entireProcessTree: true);
                 }
             }
-            catch (Exception ex) when (ex is InvalidOperationException or
-                                       System.ComponentModel.Win32Exception or
-                                       NotSupportedException)
+            catch (Exception ex)
+                when (ex
+                        is InvalidOperationException
+                            or System.ComponentModel.Win32Exception
+                            or NotSupportedException
+                )
             {
                 // Best effort process cleanup.
             }
@@ -2387,10 +2466,7 @@ public sealed class LspManager : IDisposable
         _pendingRequests.Clear();
         _diagnostics.Clear();
 
-        Enqueue(new LspEvent
-        {
-            Kind = LspEventKind.Stopped
-        });
+        Enqueue(new LspEvent { Kind = LspEventKind.Stopped });
     }
 
     private void Enqueue(LspEvent lspEvent)
@@ -2417,8 +2493,8 @@ public sealed class LspManager : IDisposable
         {
             return new Uri(uri).LocalPath;
         }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException or
-                                   NotSupportedException)
+        catch (Exception ex)
+            when (ex is UriFormatException or ArgumentException or NotSupportedException)
         {
             return uri;
         }

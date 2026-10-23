@@ -10,8 +10,11 @@ namespace Hexal.Lsp;
 /// </summary>
 public static class LspCapabilities
 {
-    public static JsonObject Translate(LuaTable? nullSentinel, LuaTable table,
-        JsonObject? semanticLegend)
+    public static JsonObject Translate(
+        LuaTable? nullSentinel,
+        LuaTable table,
+        JsonObject? semanticLegend
+    )
     {
         JsonObject source = LspJson.ToObject(nullSentinel, table);
         return Translate(source, semanticLegend);
@@ -33,9 +36,14 @@ public static class LspCapabilities
                     result["hoverProvider"] = value?.DeepClone() ?? (JsonNode)true;
                     break;
                 case "completion":
-                    result["completionProvider"] = Provider(value, true,
-                        "triggerCharacters", "allCommitCharacters", "resolveProvider",
-                        "completionItem");
+                    result["completionProvider"] = Provider(
+                        value,
+                        true,
+                        "triggerCharacters",
+                        "allCommitCharacters",
+                        "resolveProvider",
+                        "completionItem"
+                    );
                     break;
                 case "definition":
                     result["definitionProvider"] = value?.DeepClone() ?? (JsonNode)true;
@@ -66,8 +74,12 @@ public static class LspCapabilities
                     break;
                 case "code_actions":
                 case "codeActions":
-                    result["codeActionProvider"] = Provider(value, true,
-                        "codeActionKinds", "resolveProvider");
+                    result["codeActionProvider"] = Provider(
+                        value,
+                        true,
+                        "codeActionKinds",
+                        "resolveProvider"
+                    );
                     break;
                 case "formatting":
                     result["documentFormattingProvider"] = value?.DeepClone() ?? (JsonNode)true;
@@ -79,23 +91,25 @@ public static class LspCapabilities
                     break;
                 case "on_type_formatting":
                 case "onTypeFormatting":
-                    result["documentOnTypeFormattingProvider"] = value?.DeepClone() ??
-                        (JsonNode)true;
+                    result["documentOnTypeFormattingProvider"] =
+                        value?.DeepClone() ?? (JsonNode)true;
                     break;
                 case "signature_help":
                 case "signatureHelp":
-                    result["signatureHelpProvider"] = Provider(value, true,
-                        "triggerCharacters", "retriggerCharacters");
+                    result["signatureHelpProvider"] = Provider(
+                        value,
+                        true,
+                        "triggerCharacters",
+                        "retriggerCharacters"
+                    );
                     break;
                 case "semantic_tokens":
                 case "semanticTokens":
-                    result["semanticTokensProvider"] = SemanticTokens(value,
-                        semanticLegend);
+                    result["semanticTokensProvider"] = SemanticTokens(value, semanticLegend);
                     break;
                 case "inlay_hints":
                 case "inlayHints":
-                    result["inlayHintProvider"] = Provider(value, true,
-                        "resolveProvider");
+                    result["inlayHintProvider"] = Provider(value, true, "resolveProvider");
                     break;
                 case "folding_ranges":
                 case "foldingRanges":
@@ -103,13 +117,11 @@ public static class LspCapabilities
                     break;
                 case "code_lens":
                 case "codeLens":
-                    result["codeLensProvider"] = Provider(value, true,
-                        "resolveProvider");
+                    result["codeLensProvider"] = Provider(value, true, "resolveProvider");
                     break;
                 case "document_links":
                 case "documentLinks":
-                    result["documentLinkProvider"] = Provider(value, true,
-                        "resolveProvider");
+                    result["documentLinkProvider"] = Provider(value, true, "resolveProvider");
                     break;
                 case "selection_ranges":
                 case "selectionRanges":
@@ -117,8 +129,7 @@ public static class LspCapabilities
                     break;
                 case "linked_editing":
                 case "linkedEditing":
-                    result["linkedEditingRangeProvider"] =
-                        value?.DeepClone() ?? (JsonNode)true;
+                    result["linkedEditingRangeProvider"] = value?.DeepClone() ?? (JsonNode)true;
                     break;
                 case "call_hierarchy":
                 case "callHierarchy":
@@ -130,8 +141,7 @@ public static class LspCapabilities
                     break;
                 case "execute_command":
                 case "executeCommand":
-                    result["executeCommandProvider"] = Provider(value, true,
-                        "commands");
+                    result["executeCommandProvider"] = Provider(value, true, "commands");
                     break;
                 case "workspace":
                     result["workspace"] = value?.DeepClone();
@@ -174,7 +184,7 @@ public static class LspCapabilities
                 {
                     "incremental" => 2,
                     "none" => 0,
-                    _ => 1
+                    _ => 1,
                 };
             }
             else if (changeValue.TryGetValue(out int numeric))
@@ -196,18 +206,21 @@ public static class LspCapabilities
         }
         else if (sync["save"] is JsonObject save)
         {
-            bool includeText = LspJson.GetBool(save["include_text"]) ??
-                               LspJson.GetBool(save["includeText"]) ?? false;
+            bool includeText =
+                LspJson.GetBool(save["include_text"])
+                ?? LspJson.GetBool(save["includeText"])
+                ?? false;
             result["save"] = new JsonObject { ["includeText"] = includeText };
         }
 
-        if (LspJson.GetBool(sync["will_save"]) == true ||
-            LspJson.GetBool(sync["willSave"]) == true)
+        if (LspJson.GetBool(sync["will_save"]) == true || LspJson.GetBool(sync["willSave"]) == true)
         {
             result["willSave"] = true;
         }
-        if (LspJson.GetBool(sync["will_save_wait_until"]) == true ||
-            LspJson.GetBool(sync["willSaveWaitUntil"]) == true)
+        if (
+            LspJson.GetBool(sync["will_save_wait_until"]) == true
+            || LspJson.GetBool(sync["willSaveWaitUntil"]) == true
+        )
         {
             result["willSaveWaitUntil"] = true;
         }
@@ -215,8 +228,11 @@ public static class LspCapabilities
         return result;
     }
 
-    private static JsonNode Provider(JsonNode? value, bool resolveDefault,
-        params string[] properties)
+    private static JsonNode Provider(
+        JsonNode? value,
+        bool resolveDefault,
+        params string[] properties
+    )
     {
         if (value is not JsonObject options)
         {
@@ -240,18 +256,48 @@ public static class LspCapabilities
         {
             ["full"] = new JsonObject { ["delta"] = true },
             ["range"] = true,
-            ["legend"] = legend?.DeepClone() ?? new JsonObject
-            {
-                ["tokenTypes"] = LspJson.StringArray(
-                    "namespace", "type", "class", "enum", "interface", "struct",
-                    "typeParameter", "parameter", "variable", "property", "enumMember",
-                    "event", "function", "method", "macro", "keyword", "modifier",
-                    "comment", "string", "number", "regexp", "operator", "decorator"),
-                ["tokenModifiers"] = LspJson.StringArray(
-                    "declaration", "definition", "readonly", "static", "deprecated",
-                    "abstract", "async", "modification", "documentation",
-                    "defaultLibrary")
-            }
+            ["legend"] =
+                legend?.DeepClone()
+                ?? new JsonObject
+                {
+                    ["tokenTypes"] = LspJson.StringArray(
+                        "namespace",
+                        "type",
+                        "class",
+                        "enum",
+                        "interface",
+                        "struct",
+                        "typeParameter",
+                        "parameter",
+                        "variable",
+                        "property",
+                        "enumMember",
+                        "event",
+                        "function",
+                        "method",
+                        "macro",
+                        "keyword",
+                        "modifier",
+                        "comment",
+                        "string",
+                        "number",
+                        "regexp",
+                        "operator",
+                        "decorator"
+                    ),
+                    ["tokenModifiers"] = LspJson.StringArray(
+                        "declaration",
+                        "definition",
+                        "readonly",
+                        "static",
+                        "deprecated",
+                        "abstract",
+                        "async",
+                        "modification",
+                        "documentation",
+                        "defaultLibrary"
+                    ),
+                },
         };
 
         if (value is JsonObject options)

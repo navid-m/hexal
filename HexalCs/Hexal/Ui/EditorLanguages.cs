@@ -69,7 +69,7 @@ public sealed partial class Editor
             SyntaxTokenKind.Number => _theme.SyntaxStyle(_theme.Number),
             SyntaxTokenKind.Added => _theme.SyntaxStyle(_theme.DiffAdded),
             SyntaxTokenKind.Deleted => _theme.SyntaxStyle(_theme.DiffDeleted),
-            _ => _theme.TextStyle
+            _ => _theme.TextStyle,
         };
     }
 }

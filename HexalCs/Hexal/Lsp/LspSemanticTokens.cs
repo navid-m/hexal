@@ -4,16 +4,19 @@ namespace Hexal.Lsp;
 
 public static class LspSemanticTokens
 {
-    public static bool Encode(JsonArray items, JsonObject legend, out JsonArray data,
-        out string error)
+    public static bool Encode(
+        JsonArray items,
+        JsonObject legend,
+        out JsonArray data,
+        out string error
+    )
     {
         error = string.Empty;
         data = new JsonArray();
         var tokenTypes = legend["tokenTypes"] as JsonArray ?? new JsonArray();
         var tokenModifiers = legend["tokenModifiers"] as JsonArray ?? new JsonArray();
 
-        var parsed = new List<(int Line, int Character, int Length, int Type,
-            int Modifiers)>();
+        var parsed = new List<(int Line, int Character, int Length, int Type, int Modifiers)>();
         foreach (JsonNode? node in items)
         {
             if (node is not JsonObject item)
@@ -22,20 +25,23 @@ public static class LspSemanticTokens
                 return false;
             }
 
-            int line = LspJson.GetInt32(item["line"]) ??
-                       LspJson.GetInt32(item["startLine"]) ?? 0;
-            int character = LspJson.GetInt32(item["character"]) ??
-                            LspJson.GetInt32(item["startCharacter"]) ??
-                            LspJson.GetInt32(item["start"]?["character"]) ?? 0;
+            int line = LspJson.GetInt32(item["line"]) ?? LspJson.GetInt32(item["startLine"]) ?? 0;
+            int character =
+                LspJson.GetInt32(item["character"])
+                ?? LspJson.GetInt32(item["startCharacter"])
+                ?? LspJson.GetInt32(item["start"]?["character"])
+                ?? 0;
             int length = LspJson.GetInt32(item["length"]) ?? 0;
             if (length <= 0)
             {
                 continue;
             }
 
-            string type = LspJson.GetString(item["type"]) ??
-                          LspJson.GetString(item["tokenType"]) ??
-                          LspJson.GetString(item["token_type"]) ?? "variable";
+            string type =
+                LspJson.GetString(item["type"])
+                ?? LspJson.GetString(item["tokenType"])
+                ?? LspJson.GetString(item["token_type"])
+                ?? "variable";
             int typeIndex = IndexOf(tokenTypes, type, StringComparison.Ordinal);
             if (typeIndex < 0)
             {
@@ -49,8 +55,7 @@ public static class LspSemanticTokens
                 foreach (JsonNode? modifierNode in modifierArray)
                 {
                     string modifier = LspJson.GetString(modifierNode) ?? string.Empty;
-                    int modifierIndex = IndexOf(tokenModifiers, modifier,
-                        StringComparison.Ordinal);
+                    int modifierIndex = IndexOf(tokenModifiers, modifier, StringComparison.Ordinal);
                     if (modifierIndex < 0)
                     {
                         error = $"unknown semantic token modifier '{modifier}'";
@@ -60,13 +65,15 @@ public static class LspSemanticTokens
                 }
             }
 
-            parsed.Add((Math.Max(0, line), Math.Max(0, character), length, typeIndex,
-                modifiers));
+            parsed.Add((Math.Max(0, line), Math.Max(0, character), length, typeIndex, modifiers));
         }
 
-        parsed.Sort((left, right) => left.Line == right.Line
-            ? left.Character.CompareTo(right.Character)
-            : left.Line.CompareTo(right.Line));
+        parsed.Sort(
+            (left, right) =>
+                left.Line == right.Line
+                    ? left.Character.CompareTo(right.Character)
+                    : left.Line.CompareTo(right.Line)
+        );
 
         int previousLine = 0;
         int previousCharacter = 0;
@@ -85,8 +92,7 @@ public static class LspSemanticTokens
         return true;
     }
 
-    private static int IndexOf(JsonArray array, string value,
-        StringComparison comparison)
+    private static int IndexOf(JsonArray array, string value, StringComparison comparison)
     {
         for (int index = 0; index < array.Count; ++index)
         {
