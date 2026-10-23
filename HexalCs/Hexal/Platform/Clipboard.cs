@@ -36,6 +36,12 @@ public static class Clipboard
             return false;
         }
 
+        if (OperatingSystem.IsWindows() &&
+            WindowsClipboard.TrySetText(text, out _))
+        {
+            return true;
+        }
+
         foreach ((string program, string[] arguments) in CopyCommands())
         {
             if (TryRunWriter(program, arguments, text, out _))
@@ -60,6 +66,20 @@ public static class Clipboard
         text = Array.Empty<byte>();
 
         string lastError = string.Empty;
+        if (OperatingSystem.IsWindows())
+        {
+            if (WindowsClipboard.TryGetText(out text, out string nativeError))
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            if (nativeError.Length > 0)
+            {
+                lastError = nativeError;
+            }
+        }
+
         foreach ((string program, string[] arguments) in PasteCommands())
         {
             if (TryRunReader(program, arguments, out text, out string candidateError))

@@ -32,6 +32,7 @@ public sealed partial class Editor
     private bool _sidebarVisible;
     private bool _sidebarFocused;
     private bool _sidebarMenuVisible;
+    private bool _showGitIgnored;
     private int _sidebarSelected;
     private int _sidebarTop;
     private int _sidebarMenuSelected;
@@ -803,7 +804,8 @@ public sealed partial class Editor
     {
         string? selectedPath = selectPath ?? SelectedSidebarNode?.Path;
         _sidebarNodes.Clear();
-        AddSidebarDirectory(ProjectRoot(), 0, root: true);
+        GitIgnore? gitIgnore = _showGitIgnored ? null : new GitIgnore(ProjectRoot());
+        AddSidebarDirectory(ProjectRoot(), 0, root: true, gitIgnore);
 
         if (_sidebarNodes.Count == 0)
         {
@@ -820,7 +822,8 @@ public sealed partial class Editor
         EnsureSidebarSelectionVisible();
     }
 
-    private void AddSidebarDirectory(string directory, int depth, bool root)
+    private void AddSidebarDirectory(string directory, int depth, bool root,
+        GitIgnore? gitIgnore)
     {
         string[] directories;
         string[] files;
@@ -860,6 +863,13 @@ public sealed partial class Editor
                 continue;
             }
 
+            if (gitIgnore is not null &&
+                (GitIgnore.IsBuiltInIgnoredDirectory(name) ||
+                 gitIgnore.IsIgnored(child, isDirectory: true)))
+            {
+                continue;
+            }
+
             bool expanded = _sidebarExpanded.Contains(child);
             _sidebarNodes.Add(new SidebarNode
             {
@@ -872,7 +882,7 @@ public sealed partial class Editor
 
             if (expanded)
             {
-                AddSidebarDirectory(child, depth + 1, root: false);
+                AddSidebarDirectory(child, depth + 1, root: false, gitIgnore);
             }
         }
 
@@ -880,6 +890,12 @@ public sealed partial class Editor
         {
             string name = Path.GetFileName(child);
             if (name.Length == 0)
+            {
+                continue;
+            }
+
+            if (gitIgnore is not null &&
+                gitIgnore.IsIgnored(child, isDirectory: false))
             {
                 continue;
             }

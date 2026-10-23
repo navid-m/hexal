@@ -41,23 +41,6 @@ public static class FileSearch
     private const long MaxSearchFileBytes = 4L * 1024 * 1024;
     private const int MaxPreviewLength = 200;
 
-    private static readonly HashSet<string> IgnoredDirectories = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".git",
-        ".hg",
-        ".svn",
-        ".idea",
-        ".vs",
-        ".vscode",
-        "bin",
-        "obj",
-        "build",
-        "dist",
-        "target",
-        "node_modules",
-        "vendor"
-    };
-
     /// <summary>
     /// Enumerates regular files below <paramref name="root"/>, returning paths
     /// relative to the root. Ignored directories and directory symlinks are
@@ -65,6 +48,14 @@ public static class FileSearch
     /// </summary>
     public static List<string> EnumerateFiles(string root, int maxFiles,
         CancellationToken cancellationToken)
+        => EnumerateFiles(root, maxFiles, showIgnored: false, cancellationToken);
+
+    /// <summary>
+    /// Enumerates regular files, optionally including paths excluded by
+    /// <c>.gitignore</c> and the built-in build/VCS directory list.
+    /// </summary>
+    public static List<string> EnumerateFiles(string root, int maxFiles,
+        bool showIgnored, CancellationToken cancellationToken)
     {
         var result = new List<string>();
         if (maxFiles <= 0 || string.IsNullOrEmpty(root) || !Directory.Exists(root))
@@ -82,6 +73,7 @@ public static class FileSearch
             return result;
         }
 
+        var gitIgnore = new GitIgnore(fullRoot);
         var pending = new Stack<string>();
         pending.Push(fullRoot);
 
@@ -106,6 +98,11 @@ public static class FileSearch
             foreach (string file in files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!showIgnored && gitIgnore.IsIgnored(file, isDirectory: false))
+                {
+                    continue;
+                }
+
                 result.Add(Path.GetRelativePath(fullRoot, file));
                 if (result.Count >= maxFiles)
                 {
@@ -117,7 +114,9 @@ public static class FileSearch
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string name = Path.GetFileName(child);
-                if (IgnoredDirectories.Contains(name))
+                if (!showIgnored &&
+                    (GitIgnore.IsBuiltInIgnoredDirectory(name) ||
+                     gitIgnore.IsIgnored(child, isDirectory: true)))
                 {
                     continue;
                 }

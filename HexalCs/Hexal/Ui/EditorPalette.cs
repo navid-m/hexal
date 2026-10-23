@@ -42,6 +42,9 @@ public sealed partial class Editor
         AddPaletteCommand("Toggle sidebar",
             "Show or hide the file sidebar.",
             ToggleSidebar);
+        AddPaletteCommand("Toggle git-ignored files",
+            "Show or hide files matched by .gitignore in the sidebar and pickers.",
+            ToggleShowGitIgnored);
         AddPaletteCommand("Open theme selector",
             "Search and preview installed themes.",
             () => OpenPicker(PickerKind.Themes));

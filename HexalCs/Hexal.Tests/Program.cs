@@ -705,8 +705,10 @@ internal static class Program
         using var directory = new TempDir();
         string source = directory.Path("src");
         string ignored = directory.Path("build");
+        string generated = directory.Path("generated");
         Directory.CreateDirectory(source);
         Directory.CreateDirectory(ignored);
+        Directory.CreateDirectory(generated);
 
         Check(WriteBytes(directory.Path("root.txt"), "first line\nsecond line\n"u8),
             "write search root file");
@@ -714,6 +716,17 @@ internal static class Program
             "alpha\n  beta needle gamma\n"u8), "write search nested file");
         Check(WriteBytes(System.IO.Path.Combine(ignored, "skip.cs"),
             "needle in ignored directory\n"u8), "write ignored file");
+        Check(WriteBytes(directory.Path(".gitignore"),
+            "ignored.txt\n*.log\n!keep.log\ngenerated/\n"u8),
+            "write gitignore file");
+        Check(WriteBytes(directory.Path("ignored.txt"), "needle in ignored file\n"u8),
+            "write gitignored file");
+        Check(WriteBytes(directory.Path("drop.log"), "needle in ignored log\n"u8),
+            "write ignored log file");
+        Check(WriteBytes(directory.Path("keep.log"), "kept log\n"u8),
+            "write negated log file");
+        Check(WriteBytes(System.IO.Path.Combine(generated, "skip.cs"),
+            "needle in generated directory\n"u8), "write generated file");
 
         List<string> files = FileSearch.EnumerateFiles(directory.Path("."),
             FileSearch.DefaultMaxFiles, CancellationToken.None);
@@ -723,6 +736,19 @@ internal static class Program
         Check(files.Contains("root.txt"), "root file is enumerated");
         Check(!files.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
             "ignored directory is skipped");
+        Check(!files.Contains("ignored.txt"), "gitignored file is skipped");
+        Check(!files.Contains("drop.log"), "gitignore wildcard is applied");
+        Check(files.Contains("keep.log"), "gitignore negation is applied");
+        Check(!files.Any(path => path.StartsWith("generated", StringComparison.Ordinal)),
+            "gitignored directory is skipped");
+
+        List<string> allFiles = FileSearch.EnumerateFiles(directory.Path("."),
+            FileSearch.DefaultMaxFiles, showIgnored: true, CancellationToken.None);
+        Check(allFiles.Contains("ignored.txt"), "showIgnored includes gitignored file");
+        Check(allFiles.Any(path => path.StartsWith("generated", StringComparison.Ordinal)),
+            "showIgnored includes gitignored directory");
+        Check(allFiles.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
+            "showIgnored includes built-in ignored directory");
 
         List<FileSearchMatch> matches = FileSearch.Search(directory.Path("."), files,
             "needle", FileSearch.DefaultMaxResults, CancellationToken.None);

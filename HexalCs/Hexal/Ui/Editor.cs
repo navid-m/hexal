@@ -71,7 +71,7 @@ public sealed partial class Editor
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "debug-lsp", "dl", "s", "t"
+        "debug-lsp", "dl", "s", "t", "gi"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -91,7 +91,8 @@ public sealed partial class Editor
             ["debug-lsp"] = "Show live language-server traffic and diagnostics.",
             ["dl"] = "Alias for :debug-lsp.",
             ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
-            ["t"] = "Indent with tabs and set the visual tab width (:t <width>)."
+            ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
+            ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers."
         };
 
     private readonly ITerminal _terminal;
@@ -1885,7 +1886,7 @@ public sealed partial class Editor
         }
 
         _completionFiles = FileSearch.EnumerateFiles(root,
-            FileSearch.DefaultMaxFiles, CancellationToken.None);
+            FileSearch.DefaultMaxFiles, _showGitIgnored, CancellationToken.None);
         _completionFilesRoot = root;
         return _completionFiles;
     }
@@ -2704,6 +2705,7 @@ public sealed partial class Editor
         var cancellation = new CancellationTokenSource();
         _pickerCancellation = cancellation;
         string root = _pickerRoot;
+        bool showGitIgnored = _showGitIgnored;
 
         _pickerTask = Task.Run(() =>
         {
@@ -2717,7 +2719,7 @@ public sealed partial class Editor
             try
             {
                 result.Files = FileSearch.EnumerateFiles(root, FileSearch.DefaultMaxFiles,
-                    cancellation.Token);
+                    showGitIgnored, cancellation.Token);
             }
             catch (OperationCanceledException)
             {
@@ -3766,6 +3768,15 @@ public sealed partial class Editor
                 SetIndentStyle(useTabs: true, arguments);
                 return;
 
+            case "gi":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :gi");
+                    return;
+                }
+                ToggleShowGitIgnored();
+                return;
+
             case "help":
                 ShowHelpReminder();
                 return;
@@ -3811,6 +3822,32 @@ public sealed partial class Editor
         }
 
         SetError($"unknown command ':{command.Name}' (try :help)");
+    }
+
+    private void ToggleShowGitIgnored()
+    {
+        _showGitIgnored = !_showGitIgnored;
+        _completionFiles = null;
+        _completionFilesRoot = string.Empty;
+        _pickerFilesLoaded = false;
+        _pickerFilesRoot = string.Empty;
+        _pickerFiles.Clear();
+
+        if (_sidebarVisible)
+        {
+            RefreshSidebar(SelectedSidebarNode?.Path);
+        }
+
+        if (_pickerKind is PickerKind.Files or PickerKind.Search)
+        {
+            _pickerLoading = true;
+            _pickerStatus = "Loading files...";
+            StartPickerFileScan();
+        }
+
+        SetMessage(_showGitIgnored
+            ? "Showing git-ignored files."
+            : "Hiding git-ignored files.");
     }
 
     /// <summary>
