@@ -36,6 +36,7 @@ internal static class Program
         TestFileSearch();
         TestGitDiff();
         TestGitDiffCompute();
+        TestUnifiedDiff();
         TestFilePreview();
         TestHexalConfig();
         TestFormatterRunner();
@@ -1052,6 +1053,31 @@ internal static class Program
                 && kind == GitDiffLineKind.Added,
             "live diff marks inserted lines"
         );
+    }
+
+    private static void TestUnifiedDiff()
+    {
+        string modified = UnifiedDiff.Create("old.txt", "a\nb\nc\n", "new.txt",
+            "a\nB\nc\n");
+        Check(modified.Contains("--- old.txt", StringComparison.Ordinal),
+            "unified diff old header");
+        Check(modified.Contains("+++ new.txt", StringComparison.Ordinal),
+            "unified diff new header");
+        Check(modified.Contains("@@ -1,3 +1,3 @@", StringComparison.Ordinal),
+            "unified diff hunk header");
+        Check(modified.Contains("\n-b\n", StringComparison.Ordinal) &&
+              modified.Contains("\n+B\n", StringComparison.Ordinal),
+            "unified diff changed lines");
+
+        string inserted = UnifiedDiff.Create("old.txt", "a\nc\n", "new.txt",
+            "a\nb\nc\n");
+        Check(inserted.Contains("@@ -1,2 +1,3 @@", StringComparison.Ordinal) &&
+              inserted.Contains("\n+b\n", StringComparison.Ordinal),
+            "unified diff inserted line");
+
+        string equal = UnifiedDiff.Create("old.txt", "a\n", "new.txt", "a\n");
+        Check(!equal.Contains("@@", StringComparison.Ordinal),
+            "unified diff omits identical hunk");
     }
 
     private static ulong[] LineHashes(params string[] lines)

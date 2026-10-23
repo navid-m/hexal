@@ -35,6 +35,7 @@ public sealed partial class Editor
         Quit,
         Open,
         SidebarDelete,
+        SidebarDiff,
     }
 
     private enum PickerKind
@@ -2333,6 +2334,7 @@ public sealed partial class Editor
             _prompt = PromptKind.None;
             ClearPendingOpen();
             ClearPendingSidebarDelete();
+            ClearPendingSidebarDiff();
             SetMessage("Cancelled.");
             return;
         }
@@ -2364,6 +2366,13 @@ public sealed partial class Editor
             {
                 DeleteSidebarPaths();
             }
+            else if (kind == PromptKind.SidebarDiff)
+            {
+                string diff = _pendingSidebarDiff;
+                string summary = _pendingSidebarDiffLabel;
+                ClearPendingSidebarDiff();
+                ShowSidebarDiff(diff, summary);
+            }
             return;
         }
 
@@ -2372,6 +2381,7 @@ public sealed partial class Editor
             _prompt = PromptKind.None;
             ClearPendingOpen();
             ClearPendingSidebarDelete();
+            ClearPendingSidebarDiff();
             SetMessage("Cancelled.");
         }
     }
@@ -7464,6 +7474,7 @@ public sealed partial class Editor
                 PromptKind.SidebarDelete => _pendingSidebarDeletes.Count == 1
                     ? $"Delete '{Path.GetFileName(_pendingSidebarDeletes[0].Path)}'? (y/N)"
                     : $"Delete {_pendingSidebarDeletes.Count} selected items? (y/N)",
+                PromptKind.SidebarDiff => "Unsaved changes. Discard and show diff? (y/N)",
                 _ => string.Empty,
             };
 

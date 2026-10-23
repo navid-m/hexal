@@ -1,3 +1,4 @@
+using System.Text;
 using Hexal.Core;
 using Hexal.Languages;
 using Hexal.Platform;
@@ -19,6 +20,7 @@ public sealed partial class Editor
         Rename,
         Duplicate,
         Format,
+        Diff,
         Copy,
         Move,
         Delete,
@@ -65,6 +67,16 @@ public sealed partial class Editor
         new("Delete", 'd', SidebarMenuAction.Delete),
     };
 
+    private static readonly SidebarMenuItem[] SidebarTwoFileMenuItems =
+    {
+        new("Duplicate", 'D', SidebarMenuAction.Duplicate),
+        new("Format", 'F', SidebarMenuAction.Format),
+        new("Diff", 'I', SidebarMenuAction.Diff),
+        new("Copy to...", 'T', SidebarMenuAction.Copy),
+        new("Move to...", 'M', SidebarMenuAction.Move),
+        new("Delete", 'd', SidebarMenuAction.Delete),
+    };
+
     private sealed class SidebarNode
     {
         public string Path = string.Empty;
@@ -86,6 +98,8 @@ public sealed partial class Editor
     private readonly List<SidebarNode> _sidebarNodes = new();
     private readonly HashSet<string> _sidebarExpanded = new(SidebarPathComparison);
     private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes = new();
+    private string _pendingSidebarDiff = string.Empty;
+    private string _pendingSidebarDiffLabel = string.Empty;
     private SidebarFormatOperation? _sidebarFormatOperation;
     private int _sidebarFormatLastTotal = -1;
     private int _sidebarFormatLastCompleted = -1;
@@ -454,6 +468,16 @@ public sealed partial class Editor
     {
         if (SidebarSelectionCount > 1)
         {
+            if (SidebarSelectionCount == 2)
+            {
+                List<SidebarNode> selected = SelectedSidebarNodes();
+                if (selected.Count == 2 && !selected[0].IsDirectory &&
+                    !selected[1].IsDirectory)
+                {
+                    return SidebarTwoFileMenuItems;
+                }
+            }
+
             return SidebarMultiMenuItems;
         }
 
@@ -655,6 +679,9 @@ public sealed partial class Editor
                 return;
             case SidebarMenuAction.Format:
                 BeginSidebarFormat(nodes);
+                return;
+            case SidebarMenuAction.Diff:
+                BeginSidebarDiff(nodes);
                 return;
             case SidebarMenuAction.Copy:
                 BeginSidebarCopy(nodes);
@@ -1692,6 +1719,104 @@ public sealed partial class Editor
         }
         SetMessage(summary);
         return true;
+    }
+
+    private void BeginSidebarDiff(IReadOnlyList<SidebarNode> nodes)
+    {
+        if (nodes.Count != 2 || nodes[0].IsDirectory || nodes[1].IsDirectory)
+        {
+            SetError("Diff requires exactly two files.");
+            return;
+        }
+
+        string first = SidebarFullPath(nodes[0].Path);
+        string second = SidebarFullPath(nodes[1].Path);
+
+        string oldText;
+        string newText;
+        try
+        {
+            oldText = File.ReadAllText(first);
+            newText = File.ReadAllText(second);
+        }
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
+        {
+            SetError($"Cannot read file for diff: {ex.Message}");
+            return;
+        }
+
+        string root = SidebarFullPath(ProjectRoot());
+        string oldLabel;
+        string newLabel;
+        try
+        {
+            oldLabel = Path.GetRelativePath(root, first);
+            newLabel = Path.GetRelativePath(root, second);
+        }
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            oldLabel = nodes[0].Name;
+            newLabel = nodes[1].Name;
+        }
+
+        string diff = UnifiedDiff.Create(oldLabel, oldText, newLabel, newText);
+        string summary = $"{oldLabel} vs {newLabel}";
+        if (_document.IsDirty)
+        {
+            _pendingSidebarDiff = diff;
+            _pendingSidebarDiffLabel = summary;
+            _prompt = PromptKind.SidebarDiff;
+            ClearMessage();
+            return;
+        }
+
+        ShowSidebarDiff(diff, summary);
+    }
+
+    private void ShowSidebarDiff(string diff, string summary)
+    {
+        _sidebarMenuVisible = false;
+        _sidebarFocused = false;
+        ResetLsp();
+
+        var document = new Document();
+        byte[] content = Encoding.UTF8.GetBytes(diff);
+        document.BeginCompositeEdit();
+        document.Replace(0, 0, content);
+        document.EndCompositeEdit();
+        document.BreakUndoGroup();
+        _document = document;
+        SetLanguage(_languages.Find("diff"));
+
+        _cursor = 0;
+        _topLine = 0;
+        _leftColumn = 0;
+        _preferredColumnValid = false;
+        _selectionLinewise = false;
+        _extraSelections.Clear();
+        _pendingG = false;
+        _mode = Mode.Normal;
+        _commandLine.Clear();
+        _commandCursor = 0;
+        SnapCursor();
+        _selectionAnchor = _cursor;
+        RefreshFileStamp();
+        RefreshDiffLines();
+        SetMessage($"Diff: {summary}");
+        FirePluginEvent("buffer_opened", CurrentBufferData());
+    }
+
+    private void ClearPendingSidebarDiff()
+    {
+        _pendingSidebarDiff = string.Empty;
+        _pendingSidebarDiffLabel = string.Empty;
     }
 
     private static string UniqueSidebarCopyPath(string source, bool isDirectory)
