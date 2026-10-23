@@ -211,10 +211,10 @@ leaves the rest of the buffer untouched. With multiple selections, the search
 is limited to the union of their selected ranges.
 
 Clipboard access uses native helpers when available (`xclip`, `xsel`, or
-`wl-copy` on Linux, `pbcopy`/`pbpaste` on macOS, and PowerShell on Windows).
-When no copy helper is present, Hexal falls back to the terminal's OSC 52
-clipboard sequence, which also works over SSH with terminals that support it.
-Pasting without a clipboard helper reports an error.
+`wl-copy` on Linux, `pbcopy`/`pbpaste` on macOS, and the Win32 clipboard API on
+Windows). When no copy helper is present, Hexal falls back to the terminal's
+OSC 52 clipboard sequence, which also works over SSH with terminals that
+support it. Pasting without a clipboard helper reports an error.
 
 ### Commands
 
@@ -230,6 +230,8 @@ Pasting without a clipboard helper reports an error.
 | `:fmt` | Format the current buffer with its language formatter |
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
+| `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
+| `:gdl` | Toggle added/deleted/modified markers in the line-number gutter |
 | `:help` | Show a short key reminder |
 | `:debug-lsp`, `:dl` | Inspect live language-server traffic and client diagnostics |
 
@@ -353,9 +355,18 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
 ```json
 {
     "version": 1,
-    "formatOnSave": false
+    "formatOnSave": false,
+    "showDiffLines": true,
+    "showGitIgnored": false
 }
 ```
+
+`showDiffLines` controls the Git diff markers in the line-number gutter. They
+are enabled by default and use green for added lines, red for deleted lines and
+blue for modified lines. `showGitIgnored` controls whether files excluded by
+`.gitignore` appear in the sidebar, file picker and cross-file search. Both
+settings are toggled with `:gdl` and `:gi` and written back to the active
+configuration file.
 
 The active configuration is `~/.hexal/.hexcfg` on every platform; a plain
 `~/.hexal/hexcfg` file is also accepted. `:cfg` opens the configuration file

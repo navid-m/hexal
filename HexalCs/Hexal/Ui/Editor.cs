@@ -71,7 +71,7 @@ public sealed partial class Editor
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "debug-lsp", "dl", "s", "t", "gi"
+        "debug-lsp", "dl", "s", "t", "gi", "gdl"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -92,7 +92,8 @@ public sealed partial class Editor
             ["dl"] = "Alias for :debug-lsp.",
             ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
             ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
-            ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers."
+            ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
+            ["gdl"] = "Toggle git diff markers in the line-number gutter."
         };
 
     private readonly ITerminal _terminal;
@@ -349,10 +350,13 @@ public sealed partial class Editor
         _openFilePickerOnStart = openFilePicker;
         _languages = LanguageRegistry.LoadUserGrammars();
         _config = HexalConfig.LoadDefault(out string configError);
+        _showDiffLines = _config.ShowDiffLines;
+        _showGitIgnored = _config.ShowGitIgnored;
         _themes = ThemeRegistry.LoadDefault(out string themeError);
         _theme = _themes.ActiveTheme;
         RefreshLanguage();
         RefreshFileStamp();
+        RefreshDiffLines();
         SnapCursor();
 
         if (_languages.Errors.Count > 0)
@@ -671,7 +675,10 @@ public sealed partial class Editor
             return;
         }
 
-        CheckExternalFile();
+        if (!CheckExternalFile())
+        {
+            RefreshDiffLines();
+        }
     }
 
     /// <summary>
@@ -747,6 +754,7 @@ public sealed partial class Editor
         _topLine = Math.Max(0, line - Math.Max(0, oldTopOffset));
         SnapCursor();
         _fileStamp = stamp;
+        RefreshDiffLines();
 
         if (_findActive)
         {
@@ -3777,6 +3785,15 @@ public sealed partial class Editor
                 ToggleShowGitIgnored();
                 return;
 
+            case "gdl":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :gdl");
+                    return;
+                }
+                ToggleDiffLines();
+                return;
+
             case "help":
                 ShowHelpReminder();
                 return;
@@ -3845,6 +3862,7 @@ public sealed partial class Editor
             StartPickerFileScan();
         }
 
+        PersistDisplaySettings();
         SetMessage(_showGitIgnored
             ? "Showing git-ignored files."
             : "Hiding git-ignored files.");
@@ -4127,6 +4145,8 @@ public sealed partial class Editor
         }
 
         _config = config;
+        _showDiffLines = config.ShowDiffLines;
+        _showGitIgnored = config.ShowGitIgnored;
         _languages = LanguageRegistry.LoadUserGrammars();
 
         string activeThemeId = _theme.Id;
@@ -4135,6 +4155,16 @@ public sealed partial class Editor
         _theme = activeTheme ?? _themes.ActiveTheme;
         _themes.SetActiveTheme(_theme);
         _forceFullRedraw = true;
+
+        RefreshDiffLines();
+        _completionFiles = null;
+        _completionFilesRoot = string.Empty;
+        _pickerFilesLoaded = false;
+        _pickerFilesRoot = string.Empty;
+        if (_sidebarVisible)
+        {
+            RefreshSidebar(SelectedSidebarNode?.Path);
+        }
 
         ResetLsp();
         RefreshLanguage();
@@ -4311,6 +4341,7 @@ public sealed partial class Editor
                 }
 
                 RefreshFileStamp();
+                RefreshDiffLines();
                 SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
                 FirePluginEvent("buffer_saved", new Dictionary<string, object?>
                 {
@@ -4475,6 +4506,7 @@ public sealed partial class Editor
         SnapCursor();
         _selectionAnchor = _cursor;
         RefreshFileStamp();
+        RefreshDiffLines();
         SetMessage(line >= 0
             ? $"Opened {path}:{line + 1}"
             : $"Opened {path}");
@@ -6022,10 +6054,13 @@ public sealed partial class Editor
     // RENDERING
     // -----------------------------------------------------------------------
 
+    private int DiffMarkerWidth() => _showDiffLines ? 1 : 0;
+
     private int GutterWidth()
     {
         int digits = DigitCount(_document.LineCount);
-        int gutter = digits + 1;
+        int marker = DiffMarkerWidth();
+        int gutter = digits + 1 + marker;
         int available = _columns - _editorLeft;
         if (available < gutter + 10)
         {
@@ -6124,7 +6159,8 @@ public sealed partial class Editor
             return;
         }
 
-        int digits = gutter - 1;
+        int markerWidth = DiffMarkerWidth();
+        int digits = gutter - 1 - markerWidth;
         long current = CursorLine();
         long total = _document.LineCount;
 
@@ -6143,11 +6179,17 @@ public sealed partial class Editor
                 x = 0;
             }
 
+            if (markerWidth > 0 &&
+                TryGetDiffMarker(line, out char marker, out Style markerStyle))
+            {
+                _screen.Put(_editorLeft, row, marker, markerStyle);
+            }
+
             Style style = line == current
                 ? _theme.CurrentLineNumberStyle
                 : _theme.MutedStyle;
 
-            _screen.PutInt(_editorLeft + x, row, number, style, digits);
+            _screen.PutInt(_editorLeft + markerWidth + x, row, number, style, digits);
         }
     }
 
@@ -7257,6 +7299,7 @@ public sealed partial class Editor
         _screen.Clear(_theme.BaseStyle);
 
         UpdateEditorLeft();
+        UpdateDiffLinesForBufferChange();
         if (!_freeScroll)
         {
             EnsureCursorVisible();

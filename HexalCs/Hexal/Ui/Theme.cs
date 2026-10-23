@@ -33,6 +33,10 @@ public sealed class Theme
     public uint Warning { get; set; } = 11;
     public uint Success { get; set; } = 10;
 
+    public uint DiffAdded { get; set; } = 2;
+    public uint DiffDeleted { get; set; } = 1;
+    public uint DiffModified { get; set; } = 4;
+
     public uint AlertForeground { get; set; } = 15;
     public uint AlertBackground { get; set; } = 5;
 
@@ -142,6 +146,27 @@ public sealed class Theme
     public Style CurrentLineNumberStyle => new()
     {
         Fg = Foreground,
+        Bg = Background,
+        Bold = true
+    };
+
+    public Style DiffAddedStyle => new()
+    {
+        Fg = DiffAdded,
+        Bg = Background,
+        Bold = true
+    };
+
+    public Style DiffDeletedStyle => new()
+    {
+        Fg = DiffDeleted,
+        Bg = Background,
+        Bold = true
+    };
+
+    public Style DiffModifiedStyle => new()
+    {
+        Fg = DiffModified,
         Bg = Background,
         Bold = true
     };

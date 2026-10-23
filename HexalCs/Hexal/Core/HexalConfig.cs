@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hexal.Util;
 
 namespace Hexal.Core;
@@ -11,7 +12,9 @@ public sealed class HexalConfig
     private const string DefaultContents = """
         {
             "version": 1,
-            "formatOnSave": false
+            "formatOnSave": false,
+            "showDiffLines": true,
+            "showGitIgnored": false
         }
 
         """;
@@ -19,6 +22,10 @@ public sealed class HexalConfig
     public string SourcePath { get; init; } = string.Empty;
 
     public bool FormatOnSave { get; init; }
+
+    public bool ShowDiffLines { get; init; } = true;
+
+    public bool ShowGitIgnored { get; init; }
 
     public static string DefaultPath =>
         Path.Combine(HexalPaths.HexalHomeDirectory, DefaultFileName);
@@ -96,19 +103,28 @@ public sealed class HexalConfig
 
             bool? formatOnSave = ReadBool(root, "formatOnSave") ??
                                  ReadBool(root, "format_on_save");
+            bool? showDiffLines = ReadBool(root, "showDiffLines") ??
+                                  ReadBool(root, "show_diff_lines");
+            bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
+                                   ReadBool(root, "show_git_ignored");
 
-            if (formatOnSave is null &&
-                root.TryGetProperty("editor", out JsonElement editor) &&
+            if (root.TryGetProperty("editor", out JsonElement editor) &&
                 editor.ValueKind == JsonValueKind.Object)
             {
-                formatOnSave = ReadBool(editor, "formatOnSave") ??
-                               ReadBool(editor, "format_on_save");
+                formatOnSave ??= ReadBool(editor, "formatOnSave") ??
+                                 ReadBool(editor, "format_on_save");
+                showDiffLines ??= ReadBool(editor, "showDiffLines") ??
+                                  ReadBool(editor, "show_diff_lines");
+                showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
+                                   ReadBool(editor, "show_git_ignored");
             }
 
             config = new HexalConfig
             {
                 SourcePath = sourcePath,
-                FormatOnSave = formatOnSave ?? false
+                FormatOnSave = formatOnSave ?? false,
+                ShowDiffLines = showDiffLines ?? true,
+                ShowGitIgnored = showGitIgnored ?? false
             };
             return true;
         }
@@ -135,6 +151,70 @@ public sealed class HexalConfig
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                    NotSupportedException or ArgumentException)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Writes the persisted display toggles into the configuration file while
+    /// leaving unrelated properties untouched.
+    /// </summary>
+    public static bool UpdateDisplaySettings(string path, bool showDiffLines,
+        bool showGitIgnored, out string error)
+    {
+        error = string.Empty;
+
+        try
+        {
+            string? directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            JsonObject root;
+            if (File.Exists(path))
+            {
+                string json = File.ReadAllText(path);
+                JsonNode? node = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip
+                });
+
+                if (node is not JsonObject parsed)
+                {
+                    error = "root must be a JSON object";
+                    return false;
+                }
+
+                root = parsed;
+            }
+            else
+            {
+                root = new JsonObject
+                {
+                    ["version"] = 1,
+                    ["formatOnSave"] = false
+                };
+            }
+
+            root["showDiffLines"] = showDiffLines;
+            root["showGitIgnored"] = showGitIgnored;
+
+            string output = root.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            File.WriteAllText(path, output + Environment.NewLine,
+                new UTF8Encoding(false));
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException or
+                                   JsonException)
         {
             error = ex.Message;
             return false;

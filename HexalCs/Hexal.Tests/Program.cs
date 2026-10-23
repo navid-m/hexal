@@ -31,6 +31,8 @@ internal static class Program
         TestSaveFailureLeavesOriginal();
         TestFilesystemReadWrite();
         TestFileSearch();
+        TestGitDiff();
+        TestGitDiffCompute();
         TestFilePreview();
         TestHexalConfig();
         TestFormatterRunner();
@@ -762,6 +764,120 @@ internal static class Program
             "match preview");
     }
 
+    private static void TestGitDiff()
+    {
+        using var directory = new TempDir();
+        string repo = directory.Path("repo");
+        Directory.CreateDirectory(repo);
+        if (!RunGit(repo, "init", "-q"))
+        {
+            return;
+        }
+
+        RunGit(repo, "config", "user.email", "test@example.com");
+        RunGit(repo, "config", "user.name", "Hexal Test");
+
+        string changed = System.IO.Path.Combine(repo, "changed.txt");
+        Check(WriteBytes(changed, "one\ntwo\nthree\n"u8),
+            "write git diff file");
+        Check(RunGit(repo, "add", "changed.txt"), "stage git diff file");
+        Check(RunGit(repo, "commit", "-q", "-m", "initial"),
+            "commit git diff file");
+
+        Check(WriteBytes(changed, "one\nTWO\nthree\nfour\n"u8),
+            "modify git diff file");
+        Dictionary<long, GitDiffLineKind> diff = GitDiff.Load(changed, 4);
+        Check(diff.TryGetValue(1, out GitDiffLineKind kind) &&
+              kind == GitDiffLineKind.Modified,
+            "changed line is marked modified");
+        Check(diff.TryGetValue(3, out kind) && kind == GitDiffLineKind.Added,
+            "appended line is marked added");
+
+        string deleted = System.IO.Path.Combine(repo, "deleted.txt");
+        Check(WriteBytes(deleted, "a\nb\nc\n"u8), "write deletion file");
+        Check(RunGit(repo, "add", "deleted.txt"), "stage deletion file");
+        Check(RunGit(repo, "commit", "-q", "-m", "deletion baseline"),
+            "commit deletion file");
+
+        Check(WriteBytes(deleted, "a\nc\n"u8), "delete middle line");
+        diff = GitDiff.Load(deleted, 2);
+        Check(diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
+            "deleted line is marked");
+    }
+
+    private static void TestGitDiffCompute()
+    {
+        ulong[] oldLines = LineHashes("a", "b", "c");
+        ulong[] newLines = LineHashes("a", "B", "c", "d");
+        Dictionary<long, GitDiffLineKind> diff =
+            GitDiff.Compute(oldLines, newLines);
+        Check(diff.TryGetValue(1, out GitDiffLineKind kind) &&
+              kind == GitDiffLineKind.Modified,
+            "live diff marks a changed line");
+        Check(diff.TryGetValue(3, out kind) && kind == GitDiffLineKind.Added,
+            "live diff marks an appended line");
+
+        diff = GitDiff.Compute(LineHashes("a", "b", "c"),
+            LineHashes("a", "c"));
+        Check(diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
+            "live diff marks a deleted line");
+
+        diff = GitDiff.Compute(LineHashes("a"), LineHashes("a", "b", "c"));
+        Check(diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Added &&
+              diff.TryGetValue(2, out kind) && kind == GitDiffLineKind.Added,
+            "live diff marks inserted lines");
+    }
+
+    private static ulong[] LineHashes(params string[] lines)
+    {
+        var hashes = new ulong[lines.Length];
+        for (int index = 0; index < lines.Length; ++index)
+        {
+            hashes[index] = GitDiff.HashLine(Encoding.UTF8.GetBytes(lines[index]));
+        }
+        return hashes;
+    }
+
+    private static bool RunGit(string directory, params string[] arguments)
+    {
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = directory,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            foreach (string argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using System.Diagnostics.Process? process =
+                System.Diagnostics.Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+
+            process.StandardInput.Close();
+            _ = process.StandardOutput.ReadToEnd();
+            _ = process.StandardError.ReadToEnd();
+            return process.WaitForExit(10_000) && process.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
+                                   IOException or InvalidOperationException or
+                                   NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private static void TestFilePreview()
     {
         using var directory = new TempDir();
@@ -822,9 +938,39 @@ internal static class Program
         Check(config is not null && !config.FormatOnSave,
             "root formatOnSave takes precedence");
 
+        Check(HexalConfig.TryParse("{}", "test.hexcfg", out config, out error),
+            "parse empty config");
+        Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored,
+            "display settings have defaults");
+
+        Check(HexalConfig.TryParse(
+                "{\"showDiffLines\": false, \"showGitIgnored\": true}",
+                "test.hexcfg", out config, out error),
+            "parse display settings");
+        Check(config is not null && !config.ShowDiffLines && config.ShowGitIgnored,
+            "display settings are read");
+
         Check(!HexalConfig.TryParse("[]", "test.hexcfg", out config, out error),
             "reject non-object config");
         Check(error.Length > 0, "config root error reported");
+
+        using var directory = new TempDir();
+        string configPath = directory.Path("test.hexcfg");
+        Check(WriteBytes(configPath,
+            "{\"formatOnSave\": true, \"custom\": \"kept\"}"u8),
+            "write config for update");
+        Check(HexalConfig.UpdateDisplaySettings(configPath,
+                showDiffLines: false, showGitIgnored: true, out error),
+            "update display settings");
+        CheckEqual(error, string.Empty, "update error", "empty");
+
+        HexalConfig updated = HexalConfig.Load(configPath, out error);
+        CheckEqual(error, string.Empty, "updated config error", "empty");
+        Check(updated.FormatOnSave, "update preserves formatOnSave");
+        Check(!updated.ShowDiffLines, "update writes showDiffLines");
+        Check(updated.ShowGitIgnored, "update writes showGitIgnored");
+        Check(File.ReadAllText(configPath).Contains("\"custom\": \"kept\"",
+                StringComparison.Ordinal), "update preserves unknown settings");
     }
 
     private static void TestFormatterRunner()

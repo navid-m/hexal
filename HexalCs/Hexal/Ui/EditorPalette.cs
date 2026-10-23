@@ -45,6 +45,9 @@ public sealed partial class Editor
         AddPaletteCommand("Toggle git-ignored files",
             "Show or hide files matched by .gitignore in the sidebar and pickers.",
             ToggleShowGitIgnored);
+        AddPaletteCommand("Toggle git diff lines",
+            "Show or hide added, deleted and modified line markers in the gutter.",
+            ToggleDiffLines);
         AddPaletteCommand("Open theme selector",
             "Search and preview installed themes.",
             () => OpenPicker(PickerKind.Themes));
@@ -341,6 +344,6 @@ public sealed partial class Editor
         SetMessage(
             "Ctrl+P palette | i insert | Esc normal | / find | . find all | Ctrl+B sidebar | " +
             "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
-            ":w :wq :q :e :fmt :cfg :s :t | u/Ctrl+R undo");
+            ":w :wq :q :e :fmt :cfg :s :t :gi :gdl | u/Ctrl+R undo");
     }
 }
