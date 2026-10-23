@@ -111,6 +111,9 @@ public sealed partial class Editor
         AddPaletteCommand("Show LSP debug log",
             "Inspect recent language-server traffic and client state.",
             OpenLspDebug);
+        AddPaletteCommand("Show debug variables",
+            "Show scopes, local/global variables and watch expressions while stopped.",
+            ToggleDebugVariables);
         AddPaletteCommand("Quit",
             "Quit Hexal; unsaved changes are confirmed first.",
             () => RequestQuit(force: false));

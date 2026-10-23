@@ -16,6 +16,15 @@ public sealed partial class Editor
     private string _debugPathSource = string.Empty;
     private string _debugPath = string.Empty;
 
+    private bool _debugVariablesVisible;
+    private int _debugVariablesTop;
+    private readonly List<(string Text, Style Style)> _debugVariableLines = new();
+    private readonly List<DapScope> _debugScopes = new();
+    private readonly List<DapScopeVariables> _debugScopedVariables = new();
+    private readonly List<string> _debugWatches = new();
+    private readonly Dictionary<string, DapWatchValue> _debugWatchValues =
+        new(StringComparer.Ordinal);
+
     private readonly record struct DapLaunchContext(
         string Workspace,
         string File,
@@ -208,6 +217,207 @@ public sealed partial class Editor
         _forceFullRedraw = true;
     }
 
+    private void ToggleDebugVariables()
+    {
+        if (!EnsureDebugAdapterEnabled())
+        {
+            return;
+        }
+
+        _debugVariablesVisible = !_debugVariablesVisible;
+        _debugVariablesTop = 0;
+        if (_debugVariablesVisible)
+        {
+            RequestDebugState();
+            SetMessage("Debug variables shown.");
+        }
+        else
+        {
+            SetMessage("Debug variables hidden.");
+        }
+        _forceFullRedraw = true;
+    }
+
+    private void AddDebugWatch(string expression)
+    {
+        expression = expression.Trim();
+        if (expression.Length == 0)
+        {
+            SetError("usage: :dbg-watch <expression>");
+            return;
+        }
+
+        if (!_debugWatches.Contains(expression, StringComparer.Ordinal))
+        {
+            _debugWatches.Add(expression);
+        }
+        _debugWatchValues.Remove(expression);
+        _debugVariablesVisible = true;
+        _debugVariablesTop = 0;
+        RebuildDebugVariableLines();
+        if (_dap.IsStopped)
+        {
+            _dap.RequestEvaluate(expression);
+        }
+        SetMessage($"Watching '{expression}'.");
+        _forceFullRedraw = true;
+    }
+
+    private void RemoveDebugWatch(string expression)
+    {
+        string value = expression.Trim();
+        if (_debugWatches.RemoveAll(watch =>
+                string.Equals(watch, value, StringComparison.Ordinal)) == 0)
+        {
+            SetError($"not watching '{value}'");
+            return;
+        }
+
+        _debugWatchValues.Remove(value);
+        RebuildDebugVariableLines();
+        SetMessage($"Stopped watching '{value}'.");
+        _forceFullRedraw = true;
+    }
+
+    private void ClearDebugWatches()
+    {
+        _debugWatches.Clear();
+        _debugWatchValues.Clear();
+        RebuildDebugVariableLines();
+        SetMessage("Debug watches cleared.");
+        _forceFullRedraw = true;
+    }
+
+    private void RequestDebugState()
+    {
+        if (!_debugVariablesVisible && _debugWatches.Count == 0)
+        {
+            return;
+        }
+
+        _debugScopes.Clear();
+        _debugScopedVariables.Clear();
+        _debugWatchValues.Clear();
+        RebuildDebugVariableLines();
+
+        if (!_dap.IsStopped)
+        {
+            return;
+        }
+
+        _dap.RequestDebugVariables();
+        foreach (string watch in _debugWatches)
+        {
+            _dap.RequestEvaluate(watch);
+        }
+    }
+
+    private void ClearDebugVariableValues()
+    {
+        _debugScopes.Clear();
+        _debugScopedVariables.Clear();
+        _debugWatchValues.Clear();
+        RebuildDebugVariableLines();
+    }
+
+    private void RebuildDebugVariableLines()
+    {
+        _debugVariableLines.Clear();
+
+        if (!_dap.IsRunning)
+        {
+            _debugVariableLines.Add(("No debug session.", _theme.MutedStyle));
+            return;
+        }
+
+        if (!_dap.IsStopped)
+        {
+            _debugVariableLines.Add(("Program is running.", _theme.MutedStyle));
+            if (_debugWatches.Count > 0)
+            {
+                _debugVariableLines.Add((string.Empty, _theme.TextStyle));
+            }
+        }
+
+        if (_debugWatches.Count > 0)
+        {
+            _debugVariableLines.Add(("Watches", _theme.AccentStyle));
+            foreach (string expression in _debugWatches)
+            {
+                if (_debugWatchValues.TryGetValue(expression,
+                        out DapWatchValue? watch))
+                {
+                    if (watch.Error.Length > 0)
+                    {
+                        _debugVariableLines.Add(
+                            ($"  {expression} = <{watch.Error}>",
+                                _theme.ErrorStyle));
+                    }
+                    else
+                    {
+                        string type = watch.Type.Length > 0
+                            ? $" ({watch.Type})"
+                            : string.Empty;
+                        _debugVariableLines.Add(
+                            ($"  {expression} = {SanitizeDebugValue(watch.Value)}{type}",
+                                _theme.TextStyle));
+                    }
+                }
+                else
+                {
+                    _debugVariableLines.Add(
+                        ($"  {expression} = …", _theme.MutedStyle));
+                }
+            }
+            _debugVariableLines.Add((string.Empty, _theme.TextStyle));
+        }
+
+        if (_debugScopes.Count == 0)
+        {
+            _debugVariableLines.Add((
+                _dap.IsStopped ? "Waiting for scopes…" : "Not stopped.",
+                _theme.MutedStyle));
+            return;
+        }
+
+        foreach (DapScope scope in _debugScopes)
+        {
+            _debugVariableLines.Add(($"[{scope.Name}]", _theme.AccentStyle));
+            DapScopeVariables? values = _debugScopedVariables.FirstOrDefault(
+                item => string.Equals(item.Name, scope.Name,
+                    StringComparison.Ordinal));
+            if (values is null || values.Variables.Count == 0)
+            {
+                _debugVariableLines.Add(("  (no variables)",
+                    _theme.MutedStyle));
+                continue;
+            }
+
+            foreach (DapVariable variable in values.Variables)
+            {
+                string type = variable.Type.Length > 0
+                    ? $" ({variable.Type})"
+                    : string.Empty;
+                _debugVariableLines.Add(
+                    ($"  {variable.Name} = {SanitizeDebugValue(variable.Value)}{type}",
+                        _theme.TextStyle));
+            }
+        }
+    }
+
+    private static string SanitizeDebugValue(string value)
+    {
+        if (value.Length == 0)
+        {
+            return "…";
+        }
+
+        return value
+            .Replace("\r\n", " ", StringComparison.Ordinal)
+            .Replace('\n', ' ')
+            .Replace('\r', ' ');
+    }
+
     private void StartDebugSession(List<string> arguments)
     {
         if (!EnsureDebugAdapterEnabled())
@@ -300,6 +510,7 @@ public sealed partial class Editor
         _dapStopped = false;
         _dapStoppedPath = string.Empty;
         _dapStoppedLine = -1;
+        ClearDebugVariableValues();
         SetMessage("Debug: continued.");
     }
 
@@ -316,6 +527,7 @@ public sealed partial class Editor
         }
         _dapStatus = "DBG: stepping";
         _dapStopped = false;
+        ClearDebugVariableValues();
         SetMessage("Debug: step over.");
     }
 
@@ -332,6 +544,7 @@ public sealed partial class Editor
         }
         _dapStatus = "DBG: stepping";
         _dapStopped = false;
+        ClearDebugVariableValues();
         SetMessage("Debug: step in.");
     }
 
@@ -348,6 +561,7 @@ public sealed partial class Editor
         }
         _dapStatus = "DBG: stepping";
         _dapStopped = false;
+        ClearDebugVariableValues();
         SetMessage("Debug: step out.");
     }
 
@@ -377,6 +591,7 @@ public sealed partial class Editor
         _dapStopped = false;
         _dapStoppedPath = string.Empty;
         _dapStoppedLine = -1;
+        ClearDebugVariableValues();
         SetMessage("Debug session stopped.");
         _forceFullRedraw = true;
     }
@@ -475,6 +690,7 @@ public sealed partial class Editor
                     }
                 }
 
+                RequestDebugState();
                 _forceFullRedraw = true;
                 break;
             }
@@ -484,6 +700,7 @@ public sealed partial class Editor
                 _dapStoppedPath = string.Empty;
                 _dapStoppedLine = -1;
                 _dapStatus = "DBG: running";
+                ClearDebugVariableValues();
                 SetMessage("Debug: running.");
                 _forceFullRedraw = true;
                 break;
@@ -493,6 +710,7 @@ public sealed partial class Editor
                 _dapStoppedPath = string.Empty;
                 _dapStoppedLine = -1;
                 _dapStatus = $"DBG: exited ({dapEvent.ExitCode})";
+                ClearDebugVariableValues();
                 SetMessage($"Debug: program exited ({dapEvent.ExitCode}).");
                 _forceFullRedraw = true;
                 break;
@@ -502,8 +720,32 @@ public sealed partial class Editor
                 _dapStoppedPath = string.Empty;
                 _dapStoppedLine = -1;
                 _dapStatus = string.Empty;
+                ClearDebugVariableValues();
                 SetMessage("Debug session terminated.");
                 _forceFullRedraw = true;
+                break;
+
+            case DapEventKind.Scopes:
+                _debugScopes.Clear();
+                _debugScopes.AddRange(dapEvent.Scopes);
+                RebuildDebugVariableLines();
+                _forceFullRedraw = true;
+                break;
+
+            case DapEventKind.Variables:
+                _debugScopedVariables.Clear();
+                _debugScopedVariables.AddRange(dapEvent.ScopedVariables);
+                RebuildDebugVariableLines();
+                _forceFullRedraw = true;
+                break;
+
+            case DapEventKind.WatchValue:
+                if (dapEvent.Watch is { } watch)
+                {
+                    _debugWatchValues[watch.Expression] = watch;
+                    RebuildDebugVariableLines();
+                    _forceFullRedraw = true;
+                }
                 break;
 
             case DapEventKind.Breakpoints:

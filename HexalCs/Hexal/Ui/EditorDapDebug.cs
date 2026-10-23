@@ -160,6 +160,49 @@ public sealed partial class Editor
         _dapDebugStatus = $"Copied {report.Length} characters to the clipboard.";
     }
 
+    private void RenderDebugVariables()
+    {
+        if (!_debugVariablesVisible)
+        {
+            return;
+        }
+
+        int height = (int)Math.Max(0, StatusRow());
+        if (height < 4 || _columns < 20)
+        {
+            return;
+        }
+
+        int width = Math.Clamp(_columns / 3, 24, 56);
+        if (width > _columns - 4)
+        {
+            width = Math.Max(20, _columns - 4);
+        }
+        int x = _columns - width;
+        DrawBox(x, 0, width, height, " Debug variables ");
+
+        int contentRows = Math.Max(1, height - 3);
+        int contentWidth = Math.Max(0, width - 4);
+        int maxTop = Math.Max(0, _debugVariableLines.Count - contentRows);
+        _debugVariablesTop = Math.Clamp(_debugVariablesTop, 0, maxTop);
+
+        for (int row = 0; row < contentRows; ++row)
+        {
+            int index = _debugVariablesTop + row;
+            if (index >= _debugVariableLines.Count)
+            {
+                break;
+            }
+
+            (string text, Style style) = _debugVariableLines[index];
+            _screen.PutString(x + 2, 1 + row, text, style, contentWidth);
+        }
+
+        _screen.PutString(x + 2, height - 2,
+            ":dbg-sv close  :dbg-watch <expr>", _theme.MutedStyle,
+            Math.Max(0, width - 4));
+    }
+
     private void RenderDapDebug()
     {
         if (!_dapDebugVisible)

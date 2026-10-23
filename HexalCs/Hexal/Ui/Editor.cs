@@ -78,8 +78,9 @@ public sealed partial class Editor
         "e", "w", "wq", "q", "fmt", "cw", "cfg", "rcfg", "lang", "help",
         "about", "a", "debug-lsp", "dl", "debug", "dbg", "dbg-break",
         "dbg-cont", "dbg-next", "dbg-step", "dbg-out", "dbg-pause",
-        "dbg-stop", "debug-dap", "dd", "s", "t", "gi", "gdl", "smc", "vs",
-        "hs", "cb", "adi"
+        "dbg-stop", "dbg-sv", "dbg-vars", "dbg-watch", "dbg-unwatch",
+        "dbg-clear-watches", "debug-dap", "dd", "s", "t", "gi", "gdl",
+        "smc", "vs", "hs", "cb", "adi"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -108,6 +109,11 @@ public sealed partial class Editor
             ["dbg-out"] = "Step out of the current function.",
             ["dbg-pause"] = "Pause the running debuggee.",
             ["dbg-stop"] = "Stop the debug session.",
+            ["dbg-sv"] = "Show or hide scopes, variables and watches.",
+            ["dbg-vars"] = "Alias for :dbg-sv.",
+            ["dbg-watch"] = "Watch a variable or expression while debugging.",
+            ["dbg-unwatch"] = "Remove a debug watch expression.",
+            ["dbg-clear-watches"] = "Remove all debug watch expressions.",
             ["debug-dap"] = "Show live debug-adapter traffic and state.",
             ["dd"] = "Alias for :debug-dap.",
             ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
@@ -4316,6 +4322,43 @@ public sealed partial class Editor
                 StopDebugSession();
                 return;
 
+            case "dbg-sv":
+            case "dbg-vars":
+                if (arguments.Count != 0)
+                {
+                    SetError($"usage: :{name}");
+                    return;
+                }
+                ToggleDebugVariables();
+                return;
+
+            case "dbg-watch":
+                if (arguments.Count == 0)
+                {
+                    SetError("usage: :dbg-watch <expression>");
+                    return;
+                }
+                AddDebugWatch(string.Join(' ', arguments));
+                return;
+
+            case "dbg-unwatch":
+                if (arguments.Count == 0)
+                {
+                    SetError("usage: :dbg-unwatch <expression>");
+                    return;
+                }
+                RemoveDebugWatch(string.Join(' ', arguments));
+                return;
+
+            case "dbg-clear-watches":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-clear-watches");
+                    return;
+                }
+                ClearDebugWatches();
+                return;
+
             case "debug-dap":
             case "dd":
                 if (arguments.Count != 0)
@@ -8093,6 +8136,7 @@ public sealed partial class Editor
         RenderPicker();
         RenderFind();
         RenderHover();
+        RenderDebugVariables();
         RenderAbout();
         RenderPluginManager();
         RenderLspDebug();

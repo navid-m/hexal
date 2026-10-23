@@ -263,6 +263,8 @@ internal static class Program
               :dbg-step        Step in
               :dbg-out         Step out
               :dbg-stop        Stop the debug session
+              :dbg-sv          Show scopes, variables and watches
+              :dbg-watch <expr> Watch an expression
               :debug-dap, :dd  Inspect DAP traffic and state
 
             Modes and keys:

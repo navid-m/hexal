@@ -19,6 +19,9 @@ public enum DapEventKind
     Terminated,
     Output,
     Breakpoints,
+    Scopes,
+    Variables,
+    WatchValue,
     Error
 }
 
@@ -36,6 +39,11 @@ public sealed class DapEvent
     public string Reason { get; init; } = string.Empty;
     public IReadOnlyList<DapBreakpoint> Breakpoints { get; init; } =
         Array.Empty<DapBreakpoint>();
+    public IReadOnlyList<DapScope> Scopes { get; init; } =
+        Array.Empty<DapScope>();
+    public IReadOnlyList<DapScopeVariables> ScopedVariables { get; init; } =
+        Array.Empty<DapScopeVariables>();
+    public DapWatchValue? Watch { get; init; }
 }
 
 public sealed record DapBreakpoint(int Line, bool Verified, string Message);
@@ -56,9 +64,11 @@ public sealed class DapManager : IDisposable
     private readonly object _writeLock = new();
     private readonly object _logLock = new();
     private readonly ConcurrentQueue<DapEvent> _events = new();
-    private readonly Dictionary<long, string> _pendingRequests = new();
+    private readonly Dictionary<long, PendingRequest> _pendingRequests = new();
     private readonly Dictionary<string, SortedSet<int>> _breakpoints =
         new(StringComparer.Ordinal);
+    private readonly List<DapScope> _currentScopes = new();
+    private readonly Dictionary<int, List<DapVariable>> _variablesByReference = new();
     private readonly Queue<string> _log = new();
 
     private Process? _process;
@@ -76,14 +86,24 @@ public sealed class DapManager : IDisposable
     private string _stoppedPath = string.Empty;
     private string _stopReason = string.Empty;
     private long _nextSequence;
+    private long _stoppedFrameId;
     private int _stoppedThreadId;
     private int _stoppedLine = -1;
+    private int _variablesGeneration;
+    private int _pendingVariablesResponses;
     private bool _initialized;
     private bool _adapterInitialized;
     private bool _launchSent;
     private bool _configurationDone;
     private bool _stopped;
     private bool _disposed;
+
+    private sealed record PendingRequest(
+        string Command,
+        int Generation = 0,
+        int VariablesReference = 0,
+        string ScopeName = "",
+        string Expression = "");
 
     public bool IsRunning
     {
@@ -194,6 +214,7 @@ public sealed class DapManager : IDisposable
             _stoppedPath = string.Empty;
             _stoppedLine = -1;
             _stopReason = string.Empty;
+            ClearDebugStateLocked();
 
             var startInfo = new ProcessStartInfo
             {
@@ -310,6 +331,60 @@ public sealed class DapManager : IDisposable
 
     public bool Pause() => SendThreadRequest("pause", clearStopped: false);
 
+    /// <summary>
+    /// Requests the scopes and variables for the current stopped frame. The
+    /// manager follows up with one variables request per scope and emits a
+    /// combined Variables event when every response has arrived.
+    /// </summary>
+    public bool RequestDebugVariables()
+    {
+        lock (_stateLock)
+        {
+            if (_process is null || !_initialized || !_stopped ||
+                _stoppedFrameId <= 0)
+            {
+                return false;
+            }
+
+            int generation = ++_variablesGeneration;
+            _currentScopes.Clear();
+            _variablesByReference.Clear();
+            _pendingVariablesResponses = 0;
+            SendRequestLocked(new PendingRequest("scopes", generation),
+                new JsonObject
+                {
+                    ["frameId"] = _stoppedFrameId
+                });
+            return true;
+        }
+    }
+
+    public bool RequestEvaluate(string expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            return false;
+        }
+
+        lock (_stateLock)
+        {
+            if (_process is null || !_initialized || !_stopped ||
+                _stoppedFrameId <= 0)
+            {
+                return false;
+            }
+
+            SendRequestLocked(new PendingRequest("evaluate", _variablesGeneration,
+                Expression: expression), new JsonObject
+                {
+                    ["expression"] = expression,
+                    ["frameId"] = _stoppedFrameId,
+                    ["context"] = "watch"
+                });
+            return true;
+        }
+    }
+
     public void Stop()
     {
         lock (_stateLock)
@@ -364,6 +439,7 @@ public sealed class DapManager : IDisposable
             stoppedLine = _stoppedLine;
             pendingCount = _pendingRequests.Count;
             pendingMethods = string.Join(", ", _pendingRequests.Values
+                .Select(request => request.Command)
                 .Distinct(StringComparer.Ordinal));
 
             if (_process is not null)
@@ -610,21 +686,25 @@ public sealed class DapManager : IDisposable
                 _stopped = false;
                 _stoppedPath = string.Empty;
                 _stoppedLine = -1;
+                ClearDebugStateLocked();
             }
             return true;
         }
     }
 
     private long SendRequestLocked(string command, JsonObject arguments)
+        => SendRequestLocked(new PendingRequest(command), arguments);
+
+    private long SendRequestLocked(PendingRequest request, JsonObject arguments)
     {
         long sequence = Interlocked.Increment(ref _nextSequence);
-        _pendingRequests[sequence] = command;
+        _pendingRequests[sequence] = request;
 
         SendMessage(new JsonObject
         {
             ["seq"] = sequence,
             ["type"] = "request",
-            ["command"] = command,
+            ["command"] = request.Command,
             ["arguments"] = arguments
         });
         return sequence;
@@ -773,18 +853,16 @@ public sealed class DapManager : IDisposable
             bool success = root.TryGetProperty("success", out JsonElement successValue) &&
                            successValue.ValueKind == JsonValueKind.True;
 
-            string pendingCommand;
+            PendingRequest pending;
             lock (_stateLock)
             {
-                _pendingRequests.Remove(requestSequence, out pendingCommand!);
+                if (!_pendingRequests.Remove(requestSequence, out pending!))
+                {
+                    pending = new PendingRequest(command);
+                }
             }
 
-            if (string.IsNullOrEmpty(pendingCommand))
-            {
-                pendingCommand = command;
-            }
-
-            HandleResponse(pendingCommand, root, success);
+            HandleResponse(pending, root, success);
             return;
         }
 
@@ -831,6 +909,7 @@ public sealed class DapManager : IDisposable
                     _stopped = true;
                     _stoppedThreadId = threadId;
                     _stopReason = reason;
+                    ClearDebugStateLocked();
                     Enqueue(new DapEvent
                     {
                         Kind = DapEventKind.Stopped,
@@ -859,6 +938,7 @@ public sealed class DapManager : IDisposable
                     _stoppedThreadId = 0;
                     _stoppedPath = string.Empty;
                     _stoppedLine = -1;
+                    ClearDebugStateLocked();
                 }
                 Enqueue(new DapEvent
                 {
@@ -920,8 +1000,10 @@ public sealed class DapManager : IDisposable
         }
     }
 
-    private void HandleResponse(string command, JsonElement root, bool success)
+    private void HandleResponse(PendingRequest request, JsonElement root,
+        bool success)
     {
+        string command = request.Command;
         if (!success)
         {
             string message = ReadString(root, "message");
@@ -930,11 +1012,40 @@ public sealed class DapManager : IDisposable
             {
                 message = ReadString(errorBody, "error");
             }
+            if (message.Length == 0)
+            {
+                message = $"{command} failed";
+            }
+
+            if (command == "variables")
+            {
+                CompleteVariablesRequest(request, new List<DapVariable>());
+                return;
+            }
+            if (command == "evaluate")
+            {
+                lock (_stateLock)
+                {
+                    if (request.Generation != _variablesGeneration)
+                    {
+                        return;
+                    }
+                }
+                Enqueue(new DapEvent
+                {
+                    Kind = DapEventKind.WatchValue,
+                    AdapterName = _adapterName,
+                    Watch = new DapWatchValue(request.Expression, string.Empty,
+                        string.Empty, message)
+                });
+                return;
+            }
+
             Enqueue(new DapEvent
             {
                 Kind = DapEventKind.Error,
                 AdapterName = _adapterName,
-                Message = message.Length > 0 ? message : $"{command} failed"
+                Message = message
             });
             return;
         }
@@ -971,12 +1082,14 @@ public sealed class DapManager : IDisposable
             {
                 string path = string.Empty;
                 int line = -1;
+                int frameId = 0;
                 if (result.ValueKind == JsonValueKind.Object &&
                     result.TryGetProperty("stackFrames", out JsonElement frames) &&
                     frames.ValueKind == JsonValueKind.Array &&
                     frames.GetArrayLength() > 0)
                 {
                     JsonElement frame = frames[0];
+                    frameId = ReadInt(frame, "id");
                     if (frame.TryGetProperty("source", out JsonElement source) &&
                         source.ValueKind == JsonValueKind.Object)
                     {
@@ -996,6 +1109,7 @@ public sealed class DapManager : IDisposable
 
                 lock (_stateLock)
                 {
+                    _stoppedFrameId = frameId;
                     _stoppedPath = path;
                     _stoppedLine = line;
                 }
@@ -1010,7 +1124,188 @@ public sealed class DapManager : IDisposable
                 });
                 return;
             }
+
+            case "scopes":
+            {
+                lock (_stateLock)
+                {
+                    if (request.Generation != _variablesGeneration)
+                    {
+                        return;
+                    }
+
+                    List<DapScope> scopes = ParseScopes(result);
+                    _currentScopes.Clear();
+                    _currentScopes.AddRange(scopes);
+                    _variablesByReference.Clear();
+                    _pendingVariablesResponses = 0;
+
+                    foreach (DapScope scope in scopes)
+                    {
+                        if (scope.VariablesReference > 0)
+                        {
+                            ++_pendingVariablesResponses;
+                        }
+                    }
+
+                    Enqueue(new DapEvent
+                    {
+                        Kind = DapEventKind.Scopes,
+                        AdapterName = _adapterName,
+                        Scopes = scopes
+                    });
+
+                    if (_pendingVariablesResponses == 0)
+                    {
+                        EmitVariablesLocked();
+                        return;
+                    }
+
+                    foreach (DapScope scope in scopes)
+                    {
+                        if (scope.VariablesReference <= 0)
+                        {
+                            continue;
+                        }
+
+                        SendRequestLocked(new PendingRequest("variables",
+                                request.Generation, scope.VariablesReference,
+                                scope.Name),
+                            new JsonObject
+                            {
+                                ["variablesReference"] = scope.VariablesReference
+                            });
+                    }
+                }
+                return;
+            }
+
+            case "variables":
+            {
+                CompleteVariablesRequest(request, ParseVariables(result));
+                return;
+            }
+
+            case "evaluate":
+            {
+                lock (_stateLock)
+                {
+                    if (request.Generation != _variablesGeneration)
+                    {
+                        return;
+                    }
+                }
+                Enqueue(new DapEvent
+                {
+                    Kind = DapEventKind.WatchValue,
+                    AdapterName = _adapterName,
+                    Watch = new DapWatchValue(request.Expression,
+                        ReadString(result, "result"),
+                        ReadString(result, "type"),
+                        string.Empty)
+                });
+                return;
+            }
         }
+    }
+
+    private void CompleteVariablesRequest(PendingRequest request,
+        List<DapVariable> variables)
+    {
+        lock (_stateLock)
+        {
+            if (request.Generation != _variablesGeneration)
+            {
+                return;
+            }
+
+            _variablesByReference[request.VariablesReference] = variables;
+            if (_pendingVariablesResponses > 0)
+            {
+                --_pendingVariablesResponses;
+            }
+
+            if (_pendingVariablesResponses == 0)
+            {
+                EmitVariablesLocked();
+            }
+        }
+    }
+
+    private void EmitVariablesLocked()
+    {
+        var scoped = new List<DapScopeVariables>(_currentScopes.Count);
+        foreach (DapScope scope in _currentScopes)
+        {
+            List<DapVariable> variables = scope.VariablesReference > 0 &&
+                                          _variablesByReference.TryGetValue(
+                                              scope.VariablesReference,
+                                              out List<DapVariable>? found)
+                ? found
+                : new List<DapVariable>();
+            scoped.Add(new DapScopeVariables(scope.Name, variables));
+        }
+
+        Enqueue(new DapEvent
+        {
+            Kind = DapEventKind.Variables,
+            AdapterName = _adapterName,
+            ScopedVariables = scoped
+        });
+    }
+
+    private static List<DapScope> ParseScopes(JsonElement result)
+    {
+        var scopes = new List<DapScope>();
+        if (result.ValueKind != JsonValueKind.Object ||
+            !result.TryGetProperty("scopes", out JsonElement array) ||
+            array.ValueKind != JsonValueKind.Array)
+        {
+            return scopes;
+        }
+
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            scopes.Add(new DapScope(
+                ReadString(item, "name"),
+                ReadInt(item, "variablesReference"),
+                item.TryGetProperty("expensive", out JsonElement expensive) &&
+                expensive.ValueKind == JsonValueKind.True));
+        }
+        return scopes;
+    }
+
+    private static List<DapVariable> ParseVariables(JsonElement result)
+    {
+        var variables = new List<DapVariable>();
+        if (result.ValueKind != JsonValueKind.Object ||
+            !result.TryGetProperty("variables", out JsonElement array) ||
+            array.ValueKind != JsonValueKind.Array)
+        {
+            return variables;
+        }
+
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            int reference = ReadInt(item, "variablesReference");
+            variables.Add(new DapVariable(
+                ReadString(item, "name"),
+                ReadString(item, "value"),
+                ReadString(item, "type"),
+                reference,
+                ReadString(item, "evaluateName")));
+        }
+        return variables;
     }
 
     private static List<DapBreakpoint> ParseBreakpoints(JsonElement result)
@@ -1217,6 +1512,16 @@ public sealed class DapManager : IDisposable
         _stoppedLine = -1;
         _stopReason = string.Empty;
         _pendingRequests.Clear();
+        ClearDebugStateLocked();
+    }
+
+    private void ClearDebugStateLocked()
+    {
+        _stoppedFrameId = 0;
+        ++_variablesGeneration;
+        _currentScopes.Clear();
+        _variablesByReference.Clear();
+        _pendingVariablesResponses = 0;
     }
 
     private void Enqueue(DapEvent dapEvent) => _events.Enqueue(dapEvent);

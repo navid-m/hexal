@@ -1484,7 +1484,7 @@ internal static class Program
         string fullSource = System.IO.Path.GetFullPath(source);
         var breakpoints = new Dictionary<string, SortedSet<int>>
         {
-            [fullSource] = new SortedSet<int> { 1 }
+            [fullSource] = new SortedSet<int> { 2 }
         };
         var launch = new JsonObject
         {
@@ -1548,11 +1548,65 @@ internal static class Program
         }
         Check(sawStopped, "DAP stopped at breakpoint");
         Check(sawLocation, $"DAP reported a stop location ({dapError})");
-        CheckEqual(stoppedLine, 1, "DAP stopped line", "1");
+        CheckEqual(stoppedLine, 2, "DAP stopped line", "2");
         CheckEqual(stoppedPath.Length > 0
                 ? System.IO.Path.GetFullPath(stoppedPath)
                 : string.Empty,
             fullSource, "DAP stopped path", fullSource);
+
+        if (sawLocation)
+        {
+            Check(manager.RequestDebugVariables(), "DAP request variables");
+            Check(manager.RequestEvaluate("value"), "DAP evaluate watch");
+
+            bool sawScopes = false;
+            bool sawVariables = false;
+            bool sawWatch = false;
+            string watchedValue = string.Empty;
+            deadline = Environment.TickCount64 + 5000;
+            while (Environment.TickCount64 < deadline &&
+                   (!sawVariables || !sawWatch))
+            {
+                while (manager.TryDequeueEvent(out DapEvent dapEvent))
+                {
+                    switch (dapEvent.Kind)
+                    {
+                        case DapEventKind.Scopes:
+                            sawScopes = dapEvent.Scopes.Count > 0;
+                            break;
+                        case DapEventKind.Variables:
+                            sawVariables = dapEvent.ScopedVariables.Any(scope =>
+                                scope.Variables.Any(variable =>
+                                    string.Equals(variable.Name, "value",
+                                        StringComparison.Ordinal) &&
+                                    variable.Value.Contains("42",
+                                        StringComparison.Ordinal)));
+                            break;
+                        case DapEventKind.WatchValue when dapEvent.Watch is { } watch:
+                            sawWatch = string.Equals(watch.Expression, "value",
+                                StringComparison.Ordinal);
+                            watchedValue = watch.Value;
+                            break;
+                        case DapEventKind.Error:
+                            dapError = dapEvent.Message;
+                            break;
+                    }
+                }
+
+                if (!manager.IsRunning || (!sawVariables && !sawWatch &&
+                                            Environment.TickCount64 >= deadline))
+                {
+                    break;
+                }
+                Thread.Sleep(25);
+            }
+
+            Check(sawScopes, "DAP returned scopes");
+            Check(sawVariables, $"DAP returned local variables ({dapError})");
+            Check(sawWatch, "DAP returned watch value");
+            Check(watchedValue.Contains("42", StringComparison.Ordinal),
+                "DAP watch value contains 42");
+        }
 
         if (sawStopped)
         {

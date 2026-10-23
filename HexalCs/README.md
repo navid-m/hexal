@@ -272,6 +272,10 @@ support it. Pasting without a clipboard helper reports an error.
 | `:dbg-break` | Toggle a breakpoint on the current line |
 | `:dbg-cont`, `:dbg-next`, `:dbg-step`, `:dbg-out` | Continue or step the stopped debuggee |
 | `:dbg-pause`, `:dbg-stop` | Pause or stop the debug session |
+| `:dbg-sv`, `:dbg-vars` | Show or hide scopes, variables and watches |
+| `:dbg-watch <expression>` | Watch a variable or expression across stops |
+| `:dbg-unwatch <expression>` | Remove one debug watch |
+| `:dbg-clear-watches` | Remove every debug watch |
 | `:debug-dap`, `:dd` | Inspect live debug-adapter traffic and state |
 
 Panes can be split repeatedly into a nested layout. Each pane keeps its own
@@ -621,13 +625,19 @@ amber tint. `:debug [executable]` starts the configured adapter, `:dbg-cont` con
 ends the session. When execution stops, Hexal moves to the reported source
 location and marks it in the gutter.
 
+`:dbg-sv` opens a side panel with scopes, local/global variables and watches.
+The panel refreshes whenever execution stops or steps. `:dbg-watch x` adds an
+expression (for example `x`, `self.count` or `items[0]`); `:dbg-unwatch x`
+removes it and `:dbg-clear-watches` removes all watches.
+
 The bundled C, C++, Rust, Zig, D, Hare, Swift, Vala, NASM and Crystal grammars
 use `lldb-dap`; Python uses `debugpy.adapter`, C# uses `netcoredbg`, and Dart
-uses `dart debug_adapter`. The client supports launch,
-attach, breakpoints, continue, pause and the three stepping requests. It does
-not yet implement `runInTerminal`, variable/scopes inspection or a dedicated
-call-stack panel. `:debug-dap` (or `:dd`) shows the protocol log and current
-state.
+uses `dart debug_adapter`. The client supports launch, attach, breakpoints,
+continue, pause, stepping, stack frames, scopes, variables and watch
+expressions. Variable display depends on the adapter supporting the DWARF
+language in use; LLVM 18's `lldb-dap` does not provide a Zig type system, so
+Zig locals may be unavailable even though breakpoints and stepping work.
+`:debug-dap` (or `:dd`) shows the protocol log and current state.
 
 ### Language servers
 
