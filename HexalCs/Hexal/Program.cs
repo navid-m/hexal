@@ -169,6 +169,7 @@ internal static class Program
               :                Enter command mode
               Ctrl+P           Open the command palette
               /                Search inside the current file
+              .                Select all matches for multi-cursor editing
               Space            Open the space menu
               Space /          Search across files
               Space f          Open the file picker

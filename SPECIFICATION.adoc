@@ -393,6 +393,16 @@ X
     Select the entire current line.
     Enter SELECT MODE with the full line selected.
 
+.
+    Open the find dialog in multi-cursor mode.
+    Typing highlights every case-insensitive match.
+    Pressing Enter closes the dialog and creates one character-wise
+    selection per match, entering SELECT MODE so edit commands apply to
+    all matches simultaneously. For example, Delete followed by I
+    replaces every selected match.
+    Pressing Escape cancels the dialog and discards the search.
+    The match nearest the original cursor becomes the primary selection.
+
 GG
     Move the cursor to the first line of the document.
 
@@ -443,6 +453,9 @@ SELECT MODE
     - Arrow keys extend or adjust selection.
     - Selected text MUST be visually distinguishable.
     - Editing operations MUST act on the selection where appropriate.
+    - . MUST open the multi-cursor find dialog scoped to the selection:
+      only matches fully contained in the selected range are considered,
+      and only those matches are replaced.
     - Escape cancels selection and returns to NORMAL MODE.
 
 
@@ -1822,6 +1835,7 @@ Example:
       I                   Enter Insert Mode
       V                   Enter Select Mode
       X                   Select the current line
+      .                   Select all matches for multi-cursor editing
       Ctrl+C              Toggle comments on selected lines
       Shift+C             Add a cursor on the next line
       GG                  Go to the first line

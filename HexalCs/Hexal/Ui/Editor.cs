@@ -213,8 +213,11 @@ public sealed partial class Editor
     private readonly List<Selection> _extraSelections = new();
     private bool _findActive;
     private bool _findEditing;
+    private bool _findMultiCursor;
+    private List<Selection>? _findSavedSelections;
     private readonly StringBuilder _findQuery = new();
     private int _findQueryCursor;
+    private readonly List<(long Start, long End)> _findScope = new();
     private readonly List<FindMatch> _findMatches = new();
     private int _findMatchIndex = -1;
     private long _topLine;
@@ -935,6 +938,9 @@ public sealed partial class Editor
             case '/':
                 OpenFind();
                 return;
+            case '.':
+                OpenFind(multiCursor: true);
+                return;
             case 'i':
             case 'I':
                 EnterInsert();
@@ -1133,6 +1139,9 @@ public sealed partial class Editor
                 return;
             case '%':
                 SelectAll();
+                return;
+            case '.':
+                OpenFind(multiCursor: true);
                 return;
             case 'x':
             case 'X':
@@ -2160,14 +2169,28 @@ public sealed partial class Editor
         }
     }
 
-    private void OpenFind()
+    private void OpenFind(bool multiCursor = false)
     {
         _findActive = true;
         _findEditing = true;
+        _findMultiCursor = multiCursor;
         _findQuery.Clear();
         _findQueryCursor = 0;
         _findMatches.Clear();
         _findMatchIndex = -1;
+        _findScope.Clear();
+        _findSavedSelections = null;
+
+        // A multi-cursor search started from SELECT mode only considers
+        // matches fully contained in the active selection, so replacing with
+        // Delete/I cannot affect text outside it. Keep the original selection
+        // so cancelling the dialog can restore it.
+        if (multiCursor && _mode == Mode.Select)
+        {
+            _findSavedSelections = CaptureAllSelections();
+            CaptureFindScope(_findSavedSelections);
+        }
+
         _pendingG = false;
         _document.BreakUndoGroup();
         ClearMessage();
@@ -2175,13 +2198,90 @@ public sealed partial class Editor
 
     private void CloseFind()
     {
+        List<Selection>? savedSelections = _findSavedSelections;
+
         _findActive = false;
         _findEditing = false;
+        _findMultiCursor = false;
+        _findSavedSelections = null;
         _findQuery.Clear();
         _findQueryCursor = 0;
+        _findScope.Clear();
         _findMatches.Clear();
         _findMatchIndex = -1;
+
+        if (savedSelections is not null)
+        {
+            SetSelections(savedSelections);
+            _mode = Mode.Select;
+        }
+
         _document.BreakUndoGroup();
+    }
+
+    private void CaptureFindScope(IReadOnlyList<Selection> selections)
+    {
+        var ranges = new List<(long Start, long End)>();
+        foreach (Selection selection in selections)
+        {
+            (long start, long end) = SelectionRange(
+                selection.Anchor, selection.Cursor, selection.Linewise);
+            if (end > start)
+            {
+                ranges.Add((start, end));
+            }
+        }
+
+        if (ranges.Count == 0)
+        {
+            return;
+        }
+
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        long mergedStart = ranges[0].Start;
+        long mergedEnd = ranges[0].End;
+        for (int i = 1; i < ranges.Count; ++i)
+        {
+            (long start, long end) = ranges[i];
+            if (start <= mergedEnd)
+            {
+                mergedEnd = Math.Max(mergedEnd, end);
+                continue;
+            }
+
+            _findScope.Add((mergedStart, mergedEnd));
+            mergedStart = start;
+            mergedEnd = end;
+        }
+
+        _findScope.Add((mergedStart, mergedEnd));
+    }
+
+    private bool IsInFindScope(long start, long end)
+    {
+        if (_findScope.Count == 0)
+        {
+            return true;
+        }
+
+        int low = 0;
+        int high = _findScope.Count - 1;
+        int candidate = -1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            if (_findScope[middle].Start <= start)
+            {
+                candidate = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return candidate >= 0 && end <= _findScope[candidate].End;
     }
 
     private void HandleFind(InputEvent inputEvent)
@@ -2230,6 +2330,11 @@ public sealed partial class Editor
         switch (inputEvent.Key)
         {
             case Key.Enter:
+                if (_findMultiCursor)
+                {
+                    ApplyMultiCursorFind();
+                    return;
+                }
                 _findEditing = false;
                 return;
             case Key.Up:
@@ -2341,10 +2446,13 @@ public sealed partial class Editor
                 long end = start +
                     Encoding.UTF8.GetByteCount(text.AsSpan(index, matchLength));
 
-                _findMatches.Add(new FindMatch(start, end, line));
-                if (_findMatches.Count >= MaxFindMatches)
+                if (IsInFindScope(start, end))
                 {
-                    break;
+                    _findMatches.Add(new FindMatch(start, end, line));
+                    if (_findMatches.Count >= MaxFindMatches)
+                    {
+                        break;
+                    }
                 }
 
                 searchStart = index + Math.Max(1, matchLength);
@@ -2372,6 +2480,82 @@ public sealed partial class Editor
         }
 
         SelectFindMatch(selected);
+    }
+
+    /// <summary>
+    /// Turns every current find match into a selection and leaves FIND mode.
+    /// The match nearest the cursor becomes the primary selection so the
+    /// viewport stays where the user was searching. Leaving SELECT mode active
+    /// lets the normal selection commands (Delete/d, I, indent, ...) operate on
+    /// every match at once.
+    /// </summary>
+    private void ApplyMultiCursorFind()
+    {
+        if (_findMatches.Count == 0)
+        {
+            string query = _findQuery.ToString();
+            CloseFind();
+            SetMessage(query.Length == 0
+                ? "No search query."
+                : $"No matches for '{query}'.");
+            return;
+        }
+
+        int primaryIndex = _findMatchIndex >= 0 && _findMatchIndex < _findMatches.Count
+            ? _findMatchIndex
+            : 0;
+
+        var selections = new List<Selection>(_findMatches.Count);
+        selections.Add(CreateFindSelection(_findMatches[primaryIndex]));
+        for (int i = 0; i < _findMatches.Count; ++i)
+        {
+            if (i != primaryIndex)
+            {
+                selections.Add(CreateFindSelection(_findMatches[i]));
+            }
+        }
+
+        int count = selections.Count;
+        CloseFind();
+        SetSelections(selections);
+        _mode = Mode.Select;
+        _selectionLinewise = false;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SetMessage($"{count} matching selections.");
+    }
+
+    /// <summary>
+    /// Builds a character-wise selection covering exactly the match. A
+    /// selection includes the scalar under its cursor, so the cursor is placed
+    /// at the start of the match's final scalar rather than at its end.
+    /// </summary>
+    private Selection CreateFindSelection(FindMatch match)
+    {
+        long cursor = PreviousScalarOffset(match.End);
+        return new Selection
+        {
+            Cursor = cursor,
+            Anchor = match.Start,
+            Linewise = false,
+            PreferredColumn = 0,
+            PreferredColumnValid = false
+        };
+    }
+
+    private long PreviousScalarOffset(long offset)
+    {
+        if (offset <= 0)
+        {
+            return 0;
+        }
+
+        long line = _document.LineOfOffset(offset);
+        long lineStart = _document.LineStart(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        int local = (int)Math.Clamp(offset - lineStart, 0, length);
+        return lineStart +
+               UnicodeUtil.PreviousBoundary(_lineBuffer.AsSpan(0, length), local);
     }
 
     private void SelectFindMatch(int index)
@@ -6646,7 +6830,12 @@ public sealed partial class Editor
 
         int x = (_columns - width) / 2;
         int y = Math.Max(0, available - height);
-        DrawBox(x, y, width, height, "Find");
+        string title = !_findMultiCursor
+            ? "Find"
+            : _findScope.Count > 0
+                ? "Find in selection (multi-cursor)"
+                : "Find (multi-cursor)";
+        DrawBox(x, y, width, height, title);
 
         var promptStyle = _theme.AccentStyle;
         var queryStyle = _theme.TextStyle;
@@ -6685,8 +6874,11 @@ public sealed partial class Editor
         else
         {
             int position = Math.Max(0, _findMatchIndex) + 1;
+            string enterHint = _findMultiCursor
+                ? "Enter: select all"
+                : "Enter: navigate";
             status = _findEditing
-                ? $"{position}/{_findMatches.Count} matches  Enter: navigate  Esc: cancel"
+                ? $"{position}/{_findMatches.Count} matches  {enterHint}  Esc: cancel"
                 : $"{position}/{_findMatches.Count} matches  n: next  p: previous  Esc: exit";
         }
 

@@ -33,6 +33,9 @@ public sealed partial class Editor
         AddPaletteCommand("Open ~/.hexal directory",
             "Browse the Hexal home directory in the file picker.",
             OpenHexalDirectory);
+        AddPaletteCommand("Open installation directory",
+            "Browse the directory containing the Hexal executable.",
+            OpenInstallationDirectory);
         AddPaletteCommand("Open themes directory",
             "Browse the active theme directory.",
             OpenThemesDirectory);
@@ -280,6 +283,18 @@ public sealed partial class Editor
         }
     }
 
+    private void OpenInstallationDirectory()
+    {
+        string directory = HexalPaths.BinaryDirectory;
+        if (!Directory.Exists(directory))
+        {
+            SetError($"installation directory not found: {directory}");
+            return;
+        }
+
+        OpenPicker(PickerKind.Files, directory, "Open installation directory");
+    }
+
     private void OpenHexalDirectory()
     {
         try
@@ -318,7 +333,7 @@ public sealed partial class Editor
     {
         ClearMessage();
         SetMessage(
-            "Ctrl+P palette | i insert | Esc normal | / find | Ctrl+B sidebar | " +
+            "Ctrl+P palette | i insert | Esc normal | / find | . find all | Ctrl+B sidebar | " +
             "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
             ":w :wq :q :e :fmt :cfg :s :t | u/Ctrl+R undo");
     }

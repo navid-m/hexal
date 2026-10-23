@@ -145,6 +145,7 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 | `:` | Open the Ex command line |
 | `Ctrl+P` | Open the command palette |
 | `/` | Search inside the current file (case insensitive) |
+| `.` | Select every match of a search term, then edit them together (NORMAL or SELECT) |
 | `Space` | Open the space menu (bottom-right) |
 | `Space` `/` | Search across project files |
 | `Space` `f` | Open the file picker |
@@ -191,6 +192,18 @@ as you type and the first match at or after the cursor is selected. Press
 `n` for the next match and `p` for the previous match (wrapping at the ends).
 `Esc` closes find mode. `Up`/`Down` and `Ctrl+N`/`Ctrl+P` also move between
 matches while the query is being edited.
+
+Press `.` in NORMAL mode to open the same find box in multi-cursor mode.
+Typing highlights every match as usual. Press `Enter` to close the box and turn
+all matches into selections with one cursor per match. The normal selection
+commands then apply to every match at once: for example, press `Delete` (or
+`d`) and then `I` to type a replacement at every location. Press `,` to keep
+only the primary cursor.
+
+Pressing `.` with an active SELECT-mode selection searches only inside that
+selection. Matches outside it are ignored, so a subsequent delete/replace
+leaves the rest of the buffer untouched. With multiple selections, the search
+is limited to the union of their selected ranges.
 
 Clipboard access uses native helpers when available (`xclip`, `xsel`, or
 `wl-copy` on Linux, `pbcopy`/`pbpaste` on macOS, and PowerShell on Windows).
