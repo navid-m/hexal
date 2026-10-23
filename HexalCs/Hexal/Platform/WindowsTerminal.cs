@@ -434,9 +434,25 @@ internal sealed partial class WindowsTerminal : ITerminal
 
     public void GetSize(out int columns, out int rows)
     {
-        if (!IsInvalidHandle(_outputHandle) &&
-            GetConsoleScreenBufferInfo(_outputHandle,
-                out ConsoleScreenBufferInfo info) != 0)
+        if (!_ownsOutputHandle)
+        {
+            try
+            {
+                columns = Console.WindowWidth;
+                rows = Console.WindowHeight;
+                if (columns > 0 && rows > 0)
+                {
+                    return;
+                }
+            }
+            catch (IOException)
+            {
+                // Fall through to the conventional default.
+            }
+        }
+        else if (!IsInvalidHandle(_outputHandle) &&
+                 GetConsoleScreenBufferInfo(_outputHandle,
+                     out ConsoleScreenBufferInfo info) != 0)
         {
             columns = info.Window.Right - info.Window.Left + 1;
             rows = info.Window.Bottom - info.Window.Top + 1;
