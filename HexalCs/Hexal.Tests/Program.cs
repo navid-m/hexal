@@ -67,8 +67,12 @@ internal static class Program
         return 0;
     }
 
-    private static void Check(bool condition, string expression,
-        [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
+    private static void Check(
+        bool condition,
+        string expression,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0
+    )
     {
         ++s_checks;
         if (!condition)
@@ -78,16 +82,23 @@ internal static class Program
         }
     }
 
-    private static void CheckEqual<T>(T actual, T expected, string actualText,
-        string expectedText, [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
+    private static void CheckEqual<T>(
+        T actual,
+        T expected,
+        string actualText,
+        string expectedText,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0
+    )
     {
         ++s_checks;
         if (!EqualityComparer<T>.Default.Equals(actual, expected))
         {
             ++s_failures;
             Console.Error.WriteLine(
-                $"{file}:{line}: CHECK_EQ failed: {actualText} == {expectedText}\n" +
-                $"  actual:   {actual}\n  expected: {expected}\n");
+                $"{file}:{line}: CHECK_EQ failed: {actualText} == {expectedText}\n"
+                    + $"  actual:   {actual}\n  expected: {expected}\n"
+            );
         }
     }
 
@@ -140,7 +151,18 @@ internal static class Program
         var table = new PieceTable();
         table.SetOriginal(reference.ToArray());
 
-        string[] insertions = { "x", "YZ", "\n", "alpha\n", "\t", " ", "\r\n", "123", "longer text here" };
+        string[] insertions =
+        {
+            "x",
+            "YZ",
+            "\n",
+            "alpha\n",
+            "\t",
+            " ",
+            "\r\n",
+            "123",
+            "longer text here",
+        };
         var insertionBytes = insertions.Select(text => Encoding.UTF8.GetBytes(text)).ToArray();
 
         var random = new Random(0xC0FFEE);
@@ -165,30 +187,48 @@ internal static class Program
 
             if (step % 89 == 0)
             {
-                Check(table.ToArray().AsSpan().SequenceEqual(reference.ToArray()),
-                    "randomized table == reference");
+                Check(
+                    table.ToArray().AsSpan().SequenceEqual(reference.ToArray()),
+                    "randomized table == reference"
+                );
             }
         }
 
         byte[] final = reference.ToArray();
         Check(table.ToArray().AsSpan().SequenceEqual(final), "final table == reference");
-        CheckEqual(table.NewlineCount, (long)final.Count(b => b == '\n'),
-            "newline count", "reference newline count");
+        CheckEqual(
+            table.NewlineCount,
+            (long)final.Count(b => b == '\n'),
+            "newline count",
+            "reference newline count"
+        );
 
         long lineCount = table.NewlineCount + 1;
         for (long line = 0; line < lineCount; line += 17)
         {
-            CheckEqual(table.LineStart(line), ExpectedLineStart(final, line),
-                $"lineStart({line})", "expectedLineStart");
+            CheckEqual(
+                table.LineStart(line),
+                ExpectedLineStart(final, line),
+                $"lineStart({line})",
+                "expectedLineStart"
+            );
         }
-        CheckEqual(table.LineStart(lineCount), (long)final.Length,
-            "lineStart(lineCount)", "reference length");
+        CheckEqual(
+            table.LineStart(lineCount),
+            (long)final.Length,
+            "lineStart(lineCount)",
+            "reference length"
+        );
 
         for (int i = 0; i < 200; ++i)
         {
             long offset = random.Next(final.Length + 1);
-            CheckEqual(table.LineOfOffset(offset), ExpectedLineOfOffset(final, offset),
-                $"lineOfOffset({offset})", "expectedLineOfOffset");
+            CheckEqual(
+                table.LineOfOffset(offset),
+                ExpectedLineOfOffset(final, offset),
+                $"lineOfOffset({offset})",
+                "expectedLineOfOffset"
+            );
         }
     }
 
@@ -206,15 +246,23 @@ internal static class Program
 
         table.Insert(table.Size, payload);
         CheckEqual(table.Size, 6L + payload.Length, "size after large insert", "expected");
-        Check(table.Range(6, payload.Length).AsSpan().SequenceEqual(payload),
-            "large inserted range matches payload");
-        CheckEqual(table.NewlineCount, 1L + payload.Count(b => b == '\n'),
-            "large insert newline count", "expected");
+        Check(
+            table.Range(6, payload.Length).AsSpan().SequenceEqual(payload),
+            "large inserted range matches payload"
+        );
+        CheckEqual(
+            table.NewlineCount,
+            1L + payload.Count(b => b == '\n'),
+            "large insert newline count",
+            "expected"
+        );
 
         long middleLine = table.LineOfOffset(1_000_000);
         long start = table.LineStart(middleLine);
-        Check(start <= 1_000_000 && (start == 1_000_000 || table.ByteAt(start - 1) == '\n'),
-            "offset maps to a valid line start");
+        Check(
+            start <= 1_000_000 && (start == 1_000_000 || table.ByteAt(start - 1) == '\n'),
+            "offset maps to a valid line start"
+        );
     }
 
     private static void TestSnapshotIsolation()
@@ -229,10 +277,18 @@ internal static class Program
 
         using var stream = new MemoryStream();
         snapshot.WriteTo(stream);
-        CheckEqual(Encoding.UTF8.GetString(stream.ToArray()), "Ahello\n",
-            "snapshot text", "Ahello");
-        CheckEqual(Text(table.ToArray()), "BAhello\ntail",
-            "live text after snapshot", "BAhello\ntail");
+        CheckEqual(
+            Encoding.UTF8.GetString(stream.ToArray()),
+            "Ahello\n",
+            "snapshot text",
+            "Ahello"
+        );
+        CheckEqual(
+            Text(table.ToArray()),
+            "BAhello\ntail",
+            "live text after snapshot",
+            "BAhello\ntail"
+        );
 
         // Appending to the add buffer after a snapshot must not change the
         // snapshot, even when the append crosses a storage chunk boundary.
@@ -244,8 +300,12 @@ internal static class Program
         using var largeStream = new MemoryStream();
         beforeLargeAppend.WriteTo(largeStream);
         CheckEqual(largeStream.Length, 12L, "snapshot length after large append", "12");
-        CheckEqual(Encoding.UTF8.GetString(largeStream.ToArray()), "BAhello\ntail",
-            "snapshot unaffected by later append", "BAhello\ntail");
+        CheckEqual(
+            Encoding.UTF8.GetString(largeStream.ToArray()),
+            "BAhello\ntail",
+            "snapshot unaffected by later append",
+            "BAhello\ntail"
+        );
 
         using var directory = new TempDir();
         string path = directory.Path("snapshot-doc.txt");
@@ -259,7 +319,9 @@ internal static class Program
 
         document.Insert(0, "x"u8);
         Document.SaveSnapshot? docSnapshot = document.CreateSaveSnapshot(
-            directory.Path("saved-snapshot.txt"), out error);
+            directory.Path("saved-snapshot.txt"),
+            out error
+        );
         Check(docSnapshot is not null, "create document save snapshot");
         if (docSnapshot is null)
         {
@@ -268,14 +330,25 @@ internal static class Program
 
         document.Insert(0, "y"u8);
         Check(docSnapshot.WriteTo(out error), "write document snapshot");
-        CheckEqual(Text(ReadBytes(directory.Path("saved-snapshot.txt"))), "xbase\n",
-            "document snapshot contents", "xbase");
+        CheckEqual(
+            Text(ReadBytes(directory.Path("saved-snapshot.txt"))),
+            "xbase\n",
+            "document snapshot contents",
+            "xbase"
+        );
 
-        document.MarkSaved(directory.Path("saved-snapshot.txt"), docSnapshot.Pose,
-            docSnapshot.Revision);
+        document.MarkSaved(
+            directory.Path("saved-snapshot.txt"),
+            docSnapshot.Pose,
+            docSnapshot.Revision
+        );
         Check(document.IsDirty, "edits after snapshot keep document dirty");
-        CheckEqual(document.Path ?? "", directory.Path("saved-snapshot.txt"),
-            "mark saved updates path", "snapshot path");
+        CheckEqual(
+            document.Path ?? "",
+            directory.Path("saved-snapshot.txt"),
+            "mark saved updates path",
+            "snapshot path"
+        );
 
         // Undo plus a new edit can return the undo stack to the same depth with
         // different contents. The revision check must keep the document dirty.
@@ -291,7 +364,9 @@ internal static class Program
 
         branch.Insert(0, "x"u8);
         Document.SaveSnapshot? branchSnapshot = branch.CreateSaveSnapshot(
-            branchDirectory.Path("branch-saved.txt"), out error);
+            branchDirectory.Path("branch-saved.txt"),
+            out error
+        );
         Check(branchSnapshot is not null, "create branch snapshot");
         if (branchSnapshot is null)
         {
@@ -300,8 +375,11 @@ internal static class Program
 
         Check(branch.Undo() is not null, "undo branch snapshot edit");
         branch.Insert(0, "y"u8);
-        branch.MarkSaved(branchDirectory.Path("branch-saved.txt"),
-            branchSnapshot.Pose, branchSnapshot.Revision);
+        branch.MarkSaved(
+            branchDirectory.Path("branch-saved.txt"),
+            branchSnapshot.Pose,
+            branchSnapshot.Revision
+        );
         Check(branch.IsDirty, "same-depth redo branch stays dirty");
     }
 
@@ -351,12 +429,24 @@ internal static class Program
 
         byte[] line = Encoding.UTF8.GetBytes("a\t界");
         CheckEqual(UnicodeUtil.VisualColumn(line, line.Length, 4), 6L, "visual column", "6");
-        CheckEqual(UnicodeUtil.ByteOffsetForVisualColumn(line, 4, 4), 2,
-            "byte offset for column 4", "2");
-        CheckEqual(UnicodeUtil.ByteOffsetForVisualColumn(line, 5, 4), 2,
-            "byte offset for column 5", "2");
-        CheckEqual(UnicodeUtil.ByteOffsetForVisualColumn(line, 6, 4), line.Length,
-            "byte offset for column 6", "length");
+        CheckEqual(
+            UnicodeUtil.ByteOffsetForVisualColumn(line, 4, 4),
+            2,
+            "byte offset for column 4",
+            "2"
+        );
+        CheckEqual(
+            UnicodeUtil.ByteOffsetForVisualColumn(line, 5, 4),
+            2,
+            "byte offset for column 5",
+            "2"
+        );
+        CheckEqual(
+            UnicodeUtil.ByteOffsetForVisualColumn(line, 6, 4),
+            line.Length,
+            "byte offset for column 6",
+            "length"
+        );
 
         Span<byte> encoded = stackalloc byte[4];
         CheckEqual(UnicodeUtil.Encode('A', encoded), 1, "encode A", "1");
@@ -437,7 +527,12 @@ internal static class Program
         CheckEqual(Text(document.LineText(2)), "beta", "shifted line", "beta");
 
         Check(document.Save(out error), "save CRLF document");
-        CheckEqual(Text(ReadBytes(crlfPath)), "alpha\r\n\r\nbeta\r\ngamma", "saved CRLF", "expected");
+        CheckEqual(
+            Text(ReadBytes(crlfPath)),
+            "alpha\r\n\r\nbeta\r\ngamma",
+            "saved CRLF",
+            "expected"
+        );
         Check(!document.IsDirty, "document is clean after save");
 
         string lfPath = directory.Path("lf.txt");
@@ -494,8 +589,10 @@ internal static class Program
         Check(error.Contains("parent directory"), "missing parent error");
 
         string bomPath = directory.Path("bom.txt");
-        Check(WriteBytes(bomPath, new byte[] { 0xEF, 0xBB, 0xBF, (byte)'h', (byte)'i', (byte)'\n' }),
-            "write BOM file");
+        Check(
+            WriteBytes(bomPath, new byte[] { 0xEF, 0xBB, 0xBF, (byte)'h', (byte)'i', (byte)'\n' }),
+            "write BOM file"
+        );
         Document? bom = Document.Open(bomPath, out error);
         Check(bom is not null, "open BOM document");
         if (bom is not null)
@@ -503,9 +600,14 @@ internal static class Program
             Check(bom.HasBom, "BOM detected");
             CheckEqual(Text(bom.Text()), "hi\n", "BOM stripped in memory", "hi");
             Check(bom.Save(out error), "save BOM document");
-            Check(ReadBytes(bomPath).AsSpan().SequenceEqual(
-                    new byte[] { 0xEF, 0xBB, 0xBF, (byte)'h', (byte)'i', (byte)'\n' }),
-                "BOM preserved on save");
+            Check(
+                ReadBytes(bomPath)
+                    .AsSpan()
+                    .SequenceEqual(
+                        new byte[] { 0xEF, 0xBB, 0xBF, (byte)'h', (byte)'i', (byte)'\n' }
+                    ),
+                "BOM preserved on save"
+            );
         }
     }
 
@@ -513,9 +615,10 @@ internal static class Program
     {
         using var directory = new TempDir();
         string path = directory.Path("trim.txt");
-        Check(WriteBytes(path,
-            "alpha  \n\tbeta\t \n   \nkeep\nno newline  "u8),
-            "write trailing whitespace file");
+        Check(
+            WriteBytes(path, "alpha  \n\tbeta\t \n   \nkeep\nno newline  "u8),
+            "write trailing whitespace file"
+        );
 
         Document? document = Document.Open(path, out string error);
         Check(document is not null, $"open trailing whitespace document ({error})");
@@ -524,13 +627,15 @@ internal static class Program
             return;
         }
 
-        CheckEqual(document.TrimTrailingWhitespace(), 4,
-            "trimmed line count", "4");
-        CheckEqual(Text(document.Text()),
-            "alpha\n\tbeta\n\nkeep\nno newline", "trimmed document", "expected");
+        CheckEqual(document.TrimTrailingWhitespace(), 4, "trimmed line count", "4");
+        CheckEqual(
+            Text(document.Text()),
+            "alpha\n\tbeta\n\nkeep\nno newline",
+            "trimmed document",
+            "expected"
+        );
         Check(document.IsDirty, "trim marks document dirty");
-        CheckEqual(document.TrimTrailingWhitespace(), 0,
-            "second trim changes nothing", "0");
+        CheckEqual(document.TrimTrailingWhitespace(), 0, "second trim changes nothing", "0");
     }
 
     private static void TestDocumentIndentSettings()
@@ -540,29 +645,28 @@ internal static class Program
         Check(!document.UseTabs, "documents default to spaces");
         CheckEqual(document.IndentWidth, 4, "default indent width", "4");
         CheckEqual(document.TabWidth, 4, "default tab width", "4");
-        CheckEqual(Text(document.IndentUnit()), "    ", "default indent unit",
-            "four spaces");
+        CheckEqual(Text(document.IndentUnit()), "    ", "default indent unit", "four spaces");
 
         document.SetIndentTabs(8);
         Check(document.UseTabs, "tabs registered");
         CheckEqual(document.TabWidth, 8, "tab width set", "8");
         CheckEqual(document.IndentWidth, 8, "tab mode indent width", "8");
         CheckEqual(Text(document.IndentUnit()), "\t", "tab indent unit", "one tab");
-        CheckEqual(document.UnindentLength("\t    x"u8), 1,
-            "tab-indented line loses one tab", "1");
-        CheckEqual(document.UnindentLength("  x"u8), 2,
-            "tab mode still unindents spaces", "2");
+        CheckEqual(document.UnindentLength("\t    x"u8), 1, "tab-indented line loses one tab", "1");
+        CheckEqual(document.UnindentLength("  x"u8), 2, "tab mode still unindents spaces", "2");
 
         document.SetIndentSpaces(4);
         Check(!document.UseTabs, "spaces registered");
         CheckEqual(document.TabWidth, 8, "space mode keeps visual tab width", "8");
         CheckEqual(document.IndentWidth, 4, "space indent width set", "4");
-        CheckEqual(Text(document.IndentUnit()), "    ", "space indent unit",
-            "four spaces");
-        CheckEqual(document.UnindentLength("      x"u8), 4,
-            "space indentation trims one level", "4");
-        CheckEqual(document.UnindentLength("\tx"u8), 1,
-            "a leading tab counts as one level", "1");
+        CheckEqual(Text(document.IndentUnit()), "    ", "space indent unit", "four spaces");
+        CheckEqual(
+            document.UnindentLength("      x"u8),
+            4,
+            "space indentation trims one level",
+            "4"
+        );
+        CheckEqual(document.UnindentLength("\tx"u8), 1, "a leading tab counts as one level", "1");
 
         document.SetIndentSpaces(0);
         CheckEqual(document.IndentWidth, 1, "indent width is clamped", "1");
@@ -670,15 +774,12 @@ internal static class Program
         document.Insert(5, "X"u8);
         document.Insert(0, "Y"u8);
         document.EndCompositeEdit();
-        CheckEqual(Text(document.Text()), "Y01234X56789",
-            "composite text", "Y01234X56789");
+        CheckEqual(Text(document.Text()), "Y01234X56789", "composite text", "Y01234X56789");
 
         Check(document.Undo() is not null, "undo composite");
-        CheckEqual(Text(document.Text()), "0123456789",
-            "undo composite text", "0123456789");
+        CheckEqual(Text(document.Text()), "0123456789", "undo composite text", "0123456789");
         Check(document.Redo() is not null, "redo composite");
-        CheckEqual(Text(document.Text()), "Y01234X56789",
-            "redo composite text", "Y01234X56789");
+        CheckEqual(Text(document.Text()), "Y01234X56789", "redo composite text", "Y01234X56789");
 
         // Nested composite edits still form a single undo step.
         document.BeginCompositeEdit();
@@ -686,11 +787,14 @@ internal static class Program
         document.Erase(0, 2);
         document.EndCompositeEdit();
         document.EndCompositeEdit();
-        CheckEqual(Text(document.Text()), "1234X56789",
-            "nested composite text", "1234X56789");
+        CheckEqual(Text(document.Text()), "1234X56789", "nested composite text", "1234X56789");
         Check(document.Undo() is not null, "undo nested composite");
-        CheckEqual(Text(document.Text()), "Y01234X56789",
-            "undo nested composite text", "Y01234X56789");
+        CheckEqual(
+            Text(document.Text()),
+            "Y01234X56789",
+            "undo nested composite text",
+            "Y01234X56789"
+        );
     }
 
     private static void TestSaveFailureLeavesOriginal()
@@ -712,7 +816,12 @@ internal static class Program
         Check(!document.SaveAs(missing, out error), "save to missing directory fails");
         Check(error.Length > 0, "save failure has error");
         CheckEqual(Text(ReadBytes(path)), "original\n", "original untouched", "original");
-        CheckEqual(Text(document.Text()), "changed original\n", "in-memory text retained", "changed");
+        CheckEqual(
+            Text(document.Text()),
+            "changed original\n",
+            "in-memory text retained",
+            "changed"
+        );
         Check(document.IsDirty, "still dirty after failed save");
 
         Check(document.Save(out error), "save after failure");
@@ -726,13 +835,17 @@ internal static class Program
         string path = directory.Path("atomic.txt");
         Check(WriteBytes(path, "old"u8), "write atomic file");
 
-        Check(FileSystemUtil.AtomicWrite(path, stream => stream.Write("new"u8), out string error),
-            "atomic write");
+        Check(
+            FileSystemUtil.AtomicWrite(path, stream => stream.Write("new"u8), out string error),
+            "atomic write"
+        );
         CheckEqual(Text(ReadBytes(path)), "new", "atomic contents", "new");
 
         string missing = System.IO.Path.Combine(directory.Path("nope"), "x.txt");
-        Check(!FileSystemUtil.AtomicWrite(missing, stream => stream.Write("x"u8), out error),
-            "atomic write to missing directory fails");
+        Check(
+            !FileSystemUtil.AtomicWrite(missing, stream => stream.Write("x"u8), out error),
+            "atomic write to missing directory fails"
+        );
 
         Check(FileSystemUtil.ReadFile(path, out byte[] contents, out error), "read file");
         CheckEqual(Text(contents), "new", "read contents", "new");
@@ -748,65 +861,124 @@ internal static class Program
         Directory.CreateDirectory(ignored);
         Directory.CreateDirectory(generated);
 
-        Check(WriteBytes(directory.Path("root.txt"), "first line\nsecond line\n"u8),
-            "write search root file");
-        Check(WriteBytes(System.IO.Path.Combine(source, "code.cs"),
-            "alpha\n  beta needle gamma\n"u8), "write search nested file");
-        Check(WriteBytes(System.IO.Path.Combine(ignored, "skip.cs"),
-            "needle in ignored directory\n"u8), "write ignored file");
-        Check(WriteBytes(directory.Path(".gitignore"),
-            "ignored.txt\n*.log\n!keep.log\ngenerated/\n"u8),
-            "write gitignore file");
-        Check(WriteBytes(directory.Path("ignored.txt"), "needle in ignored file\n"u8),
-            "write gitignored file");
-        Check(WriteBytes(directory.Path("drop.log"), "needle in ignored log\n"u8),
-            "write ignored log file");
-        Check(WriteBytes(directory.Path("keep.log"), "kept log\n"u8),
-            "write negated log file");
-        Check(WriteBytes(System.IO.Path.Combine(generated, "skip.cs"),
-            "needle in generated directory\n"u8), "write generated file");
+        Check(
+            WriteBytes(directory.Path("root.txt"), "first line\nsecond line\n"u8),
+            "write search root file"
+        );
+        Check(
+            WriteBytes(System.IO.Path.Combine(source, "code.cs"), "alpha\n  beta needle gamma\n"u8),
+            "write search nested file"
+        );
+        Check(
+            WriteBytes(
+                System.IO.Path.Combine(ignored, "skip.cs"),
+                "needle in ignored directory\n"u8
+            ),
+            "write ignored file"
+        );
+        Check(
+            WriteBytes(
+                directory.Path(".gitignore"),
+                "ignored.txt\n*.log\n!keep.log\ngenerated/\n"u8
+            ),
+            "write gitignore file"
+        );
+        Check(
+            WriteBytes(directory.Path("ignored.txt"), "needle in ignored file\n"u8),
+            "write gitignored file"
+        );
+        Check(
+            WriteBytes(directory.Path("drop.log"), "needle in ignored log\n"u8),
+            "write ignored log file"
+        );
+        Check(WriteBytes(directory.Path("keep.log"), "kept log\n"u8), "write negated log file");
+        Check(
+            WriteBytes(
+                System.IO.Path.Combine(generated, "skip.cs"),
+                "needle in generated directory\n"u8
+            ),
+            "write generated file"
+        );
 
-        List<string> files = FileSearch.EnumerateFiles(directory.Path("."),
-            FileSearch.DefaultMaxFiles, CancellationToken.None);
+        List<string> files = FileSearch.EnumerateFiles(
+            directory.Path("."),
+            FileSearch.DefaultMaxFiles,
+            CancellationToken.None
+        );
 
-        Check(files.Contains(System.IO.Path.Combine("src", "code.cs")),
-            "nested file is enumerated");
+        Check(
+            files.Contains(System.IO.Path.Combine("src", "code.cs")),
+            "nested file is enumerated"
+        );
         Check(files.Contains("root.txt"), "root file is enumerated");
-        Check(!files.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
-            "ignored directory is skipped");
+        Check(
+            !files.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
+            "ignored directory is skipped"
+        );
         Check(!files.Contains("ignored.txt"), "gitignored file is skipped");
         Check(!files.Contains("drop.log"), "gitignore wildcard is applied");
         Check(files.Contains("keep.log"), "gitignore negation is applied");
-        Check(!files.Any(path => path.StartsWith("generated", StringComparison.Ordinal)),
-            "gitignored directory is skipped");
+        Check(
+            !files.Any(path => path.StartsWith("generated", StringComparison.Ordinal)),
+            "gitignored directory is skipped"
+        );
 
-        List<string> allFiles = FileSearch.EnumerateFiles(directory.Path("."),
-            FileSearch.DefaultMaxFiles, showIgnored: true, CancellationToken.None);
+        List<string> allFiles = FileSearch.EnumerateFiles(
+            directory.Path("."),
+            FileSearch.DefaultMaxFiles,
+            showIgnored: true,
+            CancellationToken.None
+        );
         Check(allFiles.Contains("ignored.txt"), "showIgnored includes gitignored file");
-        Check(allFiles.Any(path => path.StartsWith("generated", StringComparison.Ordinal)),
-            "showIgnored includes gitignored directory");
-        Check(allFiles.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
-            "showIgnored includes built-in ignored directory");
+        Check(
+            allFiles.Any(path => path.StartsWith("generated", StringComparison.Ordinal)),
+            "showIgnored includes gitignored directory"
+        );
+        Check(
+            allFiles.Any(path => path.StartsWith("build", StringComparison.Ordinal)),
+            "showIgnored includes built-in ignored directory"
+        );
 
-        List<FileSearchMatch> matches = FileSearch.Search(directory.Path("."), files,
-            "needle", FileSearch.DefaultMaxResults, CancellationToken.None);
+        List<FileSearchMatch> matches = FileSearch.Search(
+            directory.Path("."),
+            files,
+            "needle",
+            FileSearch.DefaultMaxResults,
+            CancellationToken.None
+        );
 
         CheckEqual(matches.Count, 1, "matches.Count", "1");
-        CheckEqual(matches[0].Path, System.IO.Path.Combine("src", "code.cs"),
-            "match.Path", "nested code.cs");
+        CheckEqual(
+            matches[0].Path,
+            System.IO.Path.Combine("src", "code.cs"),
+            "match.Path",
+            "nested code.cs"
+        );
         CheckEqual(matches[0].Line, 1L, "match.Line", "1");
         CheckEqual(matches[0].Column, 7L, "match.Column", "7");
-        Check(matches[0].Preview.Contains("beta needle", StringComparison.Ordinal),
-            "match preview");
+        Check(
+            matches[0].Preview.Contains("beta needle", StringComparison.Ordinal),
+            "match preview"
+        );
 
-        List<FileSearchMatch> caseSensitiveMiss = FileSearch.Search(directory.Path("."),
-            files, "NEEDLE", FileSearch.DefaultMaxResults, CancellationToken.None,
-            matchCase: true);
+        List<FileSearchMatch> caseSensitiveMiss = FileSearch.Search(
+            directory.Path("."),
+            files,
+            "NEEDLE",
+            FileSearch.DefaultMaxResults,
+            CancellationToken.None,
+            matchCase: true
+        );
         CheckEqual(caseSensitiveMiss.Count, 0, "case-sensitive misses", "0");
 
-        List<FileSearchMatch> caseSensitiveHit = FileSearch.Search(directory.Path("."),
-            files, "needle", FileSearch.DefaultMaxResults, CancellationToken.None,
-            matchCase: true);
+        List<FileSearchMatch> caseSensitiveHit = FileSearch.Search(
+            directory.Path("."),
+            files,
+            "needle",
+            FileSearch.DefaultMaxResults,
+            CancellationToken.None,
+            matchCase: true
+        );
         CheckEqual(caseSensitiveHit.Count, 1, "case-sensitive hit", "1");
     }
 
@@ -824,54 +996,62 @@ internal static class Program
         RunGit(repo, "config", "user.name", "Hexal Test");
 
         string changed = System.IO.Path.Combine(repo, "changed.txt");
-        Check(WriteBytes(changed, "one\ntwo\nthree\n"u8),
-            "write git diff file");
+        Check(WriteBytes(changed, "one\ntwo\nthree\n"u8), "write git diff file");
         Check(RunGit(repo, "add", "changed.txt"), "stage git diff file");
-        Check(RunGit(repo, "commit", "-q", "-m", "initial"),
-            "commit git diff file");
+        Check(RunGit(repo, "commit", "-q", "-m", "initial"), "commit git diff file");
 
-        Check(WriteBytes(changed, "one\nTWO\nthree\nfour\n"u8),
-            "modify git diff file");
+        Check(WriteBytes(changed, "one\nTWO\nthree\nfour\n"u8), "modify git diff file");
         Dictionary<long, GitDiffLineKind> diff = GitDiff.Load(changed, 4);
-        Check(diff.TryGetValue(1, out GitDiffLineKind kind) &&
-              kind == GitDiffLineKind.Modified,
-            "changed line is marked modified");
-        Check(diff.TryGetValue(3, out kind) && kind == GitDiffLineKind.Added,
-            "appended line is marked added");
+        Check(
+            diff.TryGetValue(1, out GitDiffLineKind kind) && kind == GitDiffLineKind.Modified,
+            "changed line is marked modified"
+        );
+        Check(
+            diff.TryGetValue(3, out kind) && kind == GitDiffLineKind.Added,
+            "appended line is marked added"
+        );
 
         string deleted = System.IO.Path.Combine(repo, "deleted.txt");
         Check(WriteBytes(deleted, "a\nb\nc\n"u8), "write deletion file");
         Check(RunGit(repo, "add", "deleted.txt"), "stage deletion file");
-        Check(RunGit(repo, "commit", "-q", "-m", "deletion baseline"),
-            "commit deletion file");
+        Check(RunGit(repo, "commit", "-q", "-m", "deletion baseline"), "commit deletion file");
 
         Check(WriteBytes(deleted, "a\nc\n"u8), "delete middle line");
         diff = GitDiff.Load(deleted, 2);
-        Check(diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
-            "deleted line is marked");
+        Check(
+            diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
+            "deleted line is marked"
+        );
     }
 
     private static void TestGitDiffCompute()
     {
         ulong[] oldLines = LineHashes("a", "b", "c");
         ulong[] newLines = LineHashes("a", "B", "c", "d");
-        Dictionary<long, GitDiffLineKind> diff =
-            GitDiff.Compute(oldLines, newLines);
-        Check(diff.TryGetValue(1, out GitDiffLineKind kind) &&
-              kind == GitDiffLineKind.Modified,
-            "live diff marks a changed line");
-        Check(diff.TryGetValue(3, out kind) && kind == GitDiffLineKind.Added,
-            "live diff marks an appended line");
+        Dictionary<long, GitDiffLineKind> diff = GitDiff.Compute(oldLines, newLines);
+        Check(
+            diff.TryGetValue(1, out GitDiffLineKind kind) && kind == GitDiffLineKind.Modified,
+            "live diff marks a changed line"
+        );
+        Check(
+            diff.TryGetValue(3, out kind) && kind == GitDiffLineKind.Added,
+            "live diff marks an appended line"
+        );
 
-        diff = GitDiff.Compute(LineHashes("a", "b", "c"),
-            LineHashes("a", "c"));
-        Check(diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
-            "live diff marks a deleted line");
+        diff = GitDiff.Compute(LineHashes("a", "b", "c"), LineHashes("a", "c"));
+        Check(
+            diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
+            "live diff marks a deleted line"
+        );
 
         diff = GitDiff.Compute(LineHashes("a"), LineHashes("a", "b", "c"));
-        Check(diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Added &&
-              diff.TryGetValue(2, out kind) && kind == GitDiffLineKind.Added,
-            "live diff marks inserted lines");
+        Check(
+            diff.TryGetValue(1, out kind)
+                && kind == GitDiffLineKind.Added
+                && diff.TryGetValue(2, out kind)
+                && kind == GitDiffLineKind.Added,
+            "live diff marks inserted lines"
+        );
     }
 
     private static ulong[] LineHashes(params string[] lines)
@@ -896,7 +1076,7 @@ internal static class Program
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
             };
 
             foreach (string argument in arguments)
@@ -904,8 +1084,7 @@ internal static class Program
                 startInfo.ArgumentList.Add(argument);
             }
 
-            using System.Diagnostics.Process? process =
-                System.Diagnostics.Process.Start(startInfo);
+            using System.Diagnostics.Process? process = System.Diagnostics.Process.Start(startInfo);
             if (process is null)
             {
                 return false;
@@ -916,9 +1095,13 @@ internal static class Program
             _ = process.StandardError.ReadToEnd();
             return process.WaitForExit(10_000) && process.ExitCode == 0;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
-                                   IOException or InvalidOperationException or
-                                   NotSupportedException)
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or IOException
+                        or InvalidOperationException
+                        or NotSupportedException
+            )
         {
             return false;
         }
@@ -933,13 +1116,16 @@ internal static class Program
         {
             content.Append($"line {i}\n");
         }
-        Check(WriteBytes(path, Encoding.UTF8.GetBytes(content.ToString())),
-            "write preview file");
+        Check(WriteBytes(path, Encoding.UTF8.GetBytes(content.ToString())), "write preview file");
 
         FilePreview preview = FileSearch.ReadPreview(path);
         CheckEqual(preview.Error, string.Empty, "preview.Error", "empty");
-        CheckEqual(preview.Lines.Count, FileSearch.DefaultPreviewLines,
-            "preview.Lines.Count", "10");
+        CheckEqual(
+            preview.Lines.Count,
+            FileSearch.DefaultPreviewLines,
+            "preview.Lines.Count",
+            "10"
+        );
         CheckEqual(preview.Lines[0], "line 0", "preview first line", "line 0");
         CheckEqual(preview.Lines[9], "line 9", "preview tenth line", "line 9");
         Check(preview.Truncated, "preview is truncated");
@@ -951,8 +1137,10 @@ internal static class Program
         Check(!shortPreview.Truncated, "short preview is not truncated");
 
         string binaryPath = directory.Path("binary.bin");
-        Check(WriteBytes(binaryPath, new byte[] { (byte)'a', 0, (byte)'b' }),
-            "write binary preview file");
+        Check(
+            WriteBytes(binaryPath, new byte[] { (byte)'a', 0, (byte)'b' }),
+            "write binary preview file"
+        );
         FilePreview binaryPreview = FileSearch.ReadPreview(binaryPath);
         Check(binaryPreview.Binary, "binary preview detected");
 
@@ -962,153 +1150,266 @@ internal static class Program
 
     private static void TestHexalConfig()
     {
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"formatOnSave\": true}",
-                "test.hexcfg", out HexalConfig? config, out string error),
-            "parse config");
+                "test.hexcfg",
+                out HexalConfig? config,
+                out string error
+            ),
+            "parse config"
+        );
         CheckEqual(error, string.Empty, "config error", "empty");
-        Check(config is not null && config.FormatOnSave,
-            "config formatOnSave root");
+        Check(config is not null && config.FormatOnSave, "config formatOnSave root");
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"editor\": {\"format_on_save\": true}}",
-                "test.hexcfg", out config, out error),
-            "parse nested config");
-        Check(config is not null && config.FormatOnSave,
-            "config editor.formatOnSave");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested config"
+        );
+        Check(config is not null && config.FormatOnSave, "config editor.formatOnSave");
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"formatOnSave\": false, \"editor\": {\"formatOnSave\": true}}",
-                "test.hexcfg", out config, out error),
-            "parse config with override");
-        Check(config is not null && !config.FormatOnSave,
-            "root formatOnSave takes precedence");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse config with override"
+        );
+        Check(config is not null && !config.FormatOnSave, "root formatOnSave takes precedence");
 
-        Check(HexalConfig.TryParse("{}", "test.hexcfg", out config, out error),
-            "parse empty config");
-        Check(config is not null && config.ShowDiffLines && !config.ShowGitIgnored &&
-              config.ConfirmQuitWithoutSaving && !config.SearchMatchCaseEnabled,
-            "display settings have defaults");
-        Check(config is not null && config.KeepSidebarFocusOnOpen,
-            "sidebar focus setting defaults on");
-        Check(config is not null && !config.TrimTrailingWhitespaceOnSave &&
-              config.SmartBackspace &&
-              config.AutoDetectIndentationOnStartup &&
-              !config.StartupBenchmarker &&
-              !config.SyntaxHighlightPickerPreview &&
-              config.DebugAdapter &&
-              config.CentralRepositoryUrl == HexalConfig.DefaultCentralRepositoryUrl,
-            "whitespace settings have defaults");
+        Check(
+            HexalConfig.TryParse("{}", "test.hexcfg", out config, out error),
+            "parse empty config"
+        );
+        Check(
+            config is not null
+                && config.ShowDiffLines
+                && !config.ShowGitIgnored
+                && config.ConfirmQuitWithoutSaving
+                && !config.SearchMatchCaseEnabled,
+            "display settings have defaults"
+        );
+        Check(
+            config is not null && config.KeepSidebarFocusOnOpen,
+            "sidebar focus setting defaults on"
+        );
+        Check(
+            config is not null
+                && !config.TrimTrailingWhitespaceOnSave
+                && config.SmartBackspace
+                && config.AutoDetectIndentationOnStartup
+                && !config.StartupBenchmarker
+                && !config.SyntaxHighlightPickerPreview
+                && config.DebugAdapter
+                && config.CentralRepositoryUrl == HexalConfig.DefaultCentralRepositoryUrl,
+            "whitespace settings have defaults"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"trimTrailingWhitespaceOnSave\": true, \"smartBackspace\": false}",
-                "test.hexcfg", out config, out error),
-            "parse whitespace settings");
-        Check(config is not null && config.TrimTrailingWhitespaceOnSave &&
-              !config.SmartBackspace,
-            "whitespace settings are read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse whitespace settings"
+        );
+        Check(
+            config is not null && config.TrimTrailingWhitespaceOnSave && !config.SmartBackspace,
+            "whitespace settings are read"
+        );
 
-        Check(HexalConfig.TryParse(
-                "{\"editor\": {\"trim_trailing_whitespace_on_save\": true, " +
-                "\"smart_backspace\": false}}",
-                "test.hexcfg", out config, out error),
-            "parse nested whitespace settings");
-        Check(config is not null && config.TrimTrailingWhitespaceOnSave &&
-              !config.SmartBackspace,
-            "nested whitespace settings are read");
+        Check(
+            HexalConfig.TryParse(
+                "{\"editor\": {\"trim_trailing_whitespace_on_save\": true, "
+                    + "\"smart_backspace\": false}}",
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested whitespace settings"
+        );
+        Check(
+            config is not null && config.TrimTrailingWhitespaceOnSave && !config.SmartBackspace,
+            "nested whitespace settings are read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"autoDetectIndentationOnStartup\": false}",
-                "test.hexcfg", out config, out error),
-            "parse auto-detect indentation setting");
-        Check(config is not null && !config.AutoDetectIndentationOnStartup,
-            "auto-detect indentation setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse auto-detect indentation setting"
+        );
+        Check(
+            config is not null && !config.AutoDetectIndentationOnStartup,
+            "auto-detect indentation setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"editor\": {\"auto_detect_indentation_on_startup\": false}}",
-                "test.hexcfg", out config, out error),
-            "parse nested auto-detect indentation setting");
-        Check(config is not null && !config.AutoDetectIndentationOnStartup,
-            "nested auto-detect indentation setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested auto-detect indentation setting"
+        );
+        Check(
+            config is not null && !config.AutoDetectIndentationOnStartup,
+            "nested auto-detect indentation setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"startupBenchmarker\": true}",
-                "test.hexcfg", out config, out error),
-            "parse startup benchmarker setting");
-        Check(config is not null && config.StartupBenchmarker,
-            "startup benchmarker setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse startup benchmarker setting"
+        );
+        Check(
+            config is not null && config.StartupBenchmarker,
+            "startup benchmarker setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"editor\": {\"startup_benchmarker\": true}}",
-                "test.hexcfg", out config, out error),
-            "parse nested startup benchmarker setting");
-        Check(config is not null && config.StartupBenchmarker,
-            "nested startup benchmarker setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested startup benchmarker setting"
+        );
+        Check(
+            config is not null && config.StartupBenchmarker,
+            "nested startup benchmarker setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
-                "{\"debugAdapter\": false}",
-                "test.hexcfg", out config, out error),
-            "parse debug adapter setting");
-        Check(config is not null && !config.DebugAdapter,
-            "debug adapter setting is read");
+        Check(
+            HexalConfig.TryParse("{\"debugAdapter\": false}", "test.hexcfg", out config, out error),
+            "parse debug adapter setting"
+        );
+        Check(config is not null && !config.DebugAdapter, "debug adapter setting is read");
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"editor\": {\"debug_adapter\": false}}",
-                "test.hexcfg", out config, out error),
-            "parse nested debug adapter setting");
-        Check(config is not null && !config.DebugAdapter,
-            "nested debug adapter setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested debug adapter setting"
+        );
+        Check(config is not null && !config.DebugAdapter, "nested debug adapter setting is read");
 
-        Check(HexalConfig.TryParse(
-                "{\"showDiffLines\": false, \"showGitIgnored\": true, " +
-                "\"searchMatchCaseEnabled\": true}",
-                "test.hexcfg", out config, out error),
-            "parse display settings");
-        Check(config is not null && !config.ShowDiffLines && config.ShowGitIgnored &&
-              config.SearchMatchCaseEnabled,
-            "display settings are read");
+        Check(
+            HexalConfig.TryParse(
+                "{\"showDiffLines\": false, \"showGitIgnored\": true, "
+                    + "\"searchMatchCaseEnabled\": true}",
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse display settings"
+        );
+        Check(
+            config is not null
+                && !config.ShowDiffLines
+                && config.ShowGitIgnored
+                && config.SearchMatchCaseEnabled,
+            "display settings are read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"editor\": {\"search_match_case_enabled\": true}}",
-                "test.hexcfg", out config, out error),
-            "parse nested search match case setting");
-        Check(config is not null && config.SearchMatchCaseEnabled,
-            "nested search match case setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested search match case setting"
+        );
+        Check(
+            config is not null && config.SearchMatchCaseEnabled,
+            "nested search match case setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"keepSidebarFocusOnOpen\": false}",
-                "test.hexcfg", out config, out error),
-            "parse sidebar focus setting");
-        Check(config is not null && !config.KeepSidebarFocusOnOpen,
-            "sidebar focus setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse sidebar focus setting"
+        );
+        Check(
+            config is not null && !config.KeepSidebarFocusOnOpen,
+            "sidebar focus setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"editor\": {\"keep_sidebar_focus_on_open\": false}}",
-                "test.hexcfg", out config, out error),
-            "parse nested sidebar focus setting");
-        Check(config is not null && !config.KeepSidebarFocusOnOpen,
-            "nested sidebar focus setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse nested sidebar focus setting"
+        );
+        Check(
+            config is not null && !config.KeepSidebarFocusOnOpen,
+            "nested sidebar focus setting is read"
+        );
 
-        Check(HexalConfig.TryParse(
+        Check(
+            HexalConfig.TryParse(
                 "{\"confirmQuitWithoutSaving\": false}",
-                "test.hexcfg", out config, out error),
-            "parse quit confirmation setting");
-        Check(config is not null && !config.ConfirmQuitWithoutSaving,
-            "quit confirmation setting is read");
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse quit confirmation setting"
+        );
+        Check(
+            config is not null && !config.ConfirmQuitWithoutSaving,
+            "quit confirmation setting is read"
+        );
 
-        Check(!HexalConfig.TryParse("[]", "test.hexcfg", out config, out error),
-            "reject non-object config");
+        Check(
+            !HexalConfig.TryParse("[]", "test.hexcfg", out config, out error),
+            "reject non-object config"
+        );
         Check(error.Length > 0, "config root error reported");
 
         using var directory = new TempDir();
         string configPath = directory.Path("test.hexcfg");
-        Check(WriteBytes(configPath,
-            "{\"formatOnSave\": true, \"custom\": \"kept\"}"u8),
-            "write config for update");
-        Check(HexalConfig.UpdateDisplaySettings(configPath,
-                showDiffLines: false, showGitIgnored: true,
-                searchMatchCaseEnabled: true, out error),
-            "update display settings");
+        Check(
+            WriteBytes(configPath, "{\"formatOnSave\": true, \"custom\": \"kept\"}"u8),
+            "write config for update"
+        );
+        Check(
+            HexalConfig.UpdateDisplaySettings(
+                configPath,
+                showDiffLines: false,
+                showGitIgnored: true,
+                searchMatchCaseEnabled: true,
+                out error
+            ),
+            "update display settings"
+        );
         CheckEqual(error, string.Empty, "update error", "empty");
 
         HexalConfig updated = HexalConfig.Load(configPath, out error);
@@ -1117,8 +1418,10 @@ internal static class Program
         Check(!updated.ShowDiffLines, "update writes showDiffLines");
         Check(updated.ShowGitIgnored, "update writes showGitIgnored");
         Check(updated.SearchMatchCaseEnabled, "update writes searchMatchCaseEnabled");
-        Check(File.ReadAllText(configPath).Contains("\"custom\": \"kept\"",
-                StringComparison.Ordinal), "update preserves unknown settings");
+        Check(
+            File.ReadAllText(configPath).Contains("\"custom\": \"kept\"", StringComparison.Ordinal),
+            "update preserves unknown settings"
+        );
     }
 
     private static void TestFormatterRunner()
@@ -1133,20 +1436,25 @@ internal static class Program
             Command = "/bin/sh",
             Arguments = new[] { "-c", "tr a-z A-Z" },
             Input = "stdin",
-            Output = "stdout"
+            Output = "stdout",
         };
 
-        FormatResult result = FormatterRunner.Run(config, "hello\n"u8.ToArray(),
-            null, CancellationToken.None);
+        FormatResult result = FormatterRunner.Run(
+            config,
+            "hello\n"u8.ToArray(),
+            null,
+            CancellationToken.None
+        );
         Check(result.Ok, $"formatter succeeds ({result.Error})");
         CheckEqual(Text(result.Output), "HELLO\n", "formatter output", "HELLO\n");
 
-        var missing = new FormatterConfig
-        {
-            Command = "hexal-formatter-that-does-not-exist"
-        };
-        FormatResult missingResult = FormatterRunner.Run(missing,
-            "text"u8.ToArray(), null, CancellationToken.None);
+        var missing = new FormatterConfig { Command = "hexal-formatter-that-does-not-exist" };
+        FormatResult missingResult = FormatterRunner.Run(
+            missing,
+            "text"u8.ToArray(),
+            null,
+            CancellationToken.None
+        );
         Check(!missingResult.Ok, "missing formatter fails");
         Check(missingResult.Error.Length > 0, "missing formatter reports error");
     }
@@ -1154,25 +1462,21 @@ internal static class Program
     private static void TestLspPositions()
     {
         byte[] line = Encoding.UTF8.GetBytes("a😀b");
-        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 0), 0,
-            "utf16 0", "0");
-        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 1), 1,
-            "utf16 1", "1");
-        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 2), 5,
-            "utf16 inside surrogate rounds up", "5");
-        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 3), 5,
-            "utf16 3", "5");
-        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 4), 6,
-            "utf16 4", "6");
-        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 99), 6,
-            "utf16 past end clamps", "6");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 0), 0, "utf16 0", "0");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 1), 1, "utf16 1", "1");
+        CheckEqual(
+            LspPositions.Utf16ColumnToByteOffset(line, 2),
+            5,
+            "utf16 inside surrogate rounds up",
+            "5"
+        );
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 3), 5, "utf16 3", "5");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 4), 6, "utf16 4", "6");
+        CheckEqual(LspPositions.Utf16ColumnToByteOffset(line, 99), 6, "utf16 past end clamps", "6");
 
-        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 1), 1,
-            "byte 1", "1");
-        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 5), 3,
-            "byte after emoji", "3");
-        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 6), 4,
-            "byte past end", "4");
+        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 1), 1, "byte 1", "1");
+        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 5), 3, "byte after emoji", "3");
+        CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 6), 4, "byte past end", "4");
     }
 
     private sealed class FakeLspTransport : ILspServerTransport
@@ -1198,9 +1502,7 @@ internal static class Program
             return false;
         }
 
-        public void Dispose()
-        {
-        }
+        public void Dispose() { }
     }
 
     private static void TestLspDebugReport()
@@ -1210,43 +1512,63 @@ internal static class Program
 
         using var manager = new LspManager();
         var transport = new FakeLspTransport();
-        bool started = manager.TryStart(new LspServerConfig
-        {
-            Name = "Fake",
-            Transport = transport,
-            LanguageId = "csharp"
-        }, path, "class C {}\n", Path.GetDirectoryName(path), out string startError);
+        bool started = manager.TryStart(
+            new LspServerConfig
+            {
+                Name = "Fake",
+                Transport = transport,
+                LanguageId = "csharp",
+            },
+            path,
+            "class C {}\n",
+            Path.GetDirectoryName(path),
+            out string startError
+        );
 
         Check(started, "fake LSP started", startError);
-        CheckEqual(transport.Sent.Count, 1,
-            "fake transport send count", "initialize request");
-        Check(manager.BuildDebugReport().Contains("Server: Fake",
-            StringComparison.Ordinal), "debug report includes server name");
-        Check(manager.BuildDebugReport().Contains("-->",
-            StringComparison.Ordinal), "debug report includes outbound traffic");
+        CheckEqual(transport.Sent.Count, 1, "fake transport send count", "initialize request");
+        Check(
+            manager.BuildDebugReport().Contains("Server: Fake", StringComparison.Ordinal),
+            "debug report includes server name"
+        );
+        Check(
+            manager.BuildDebugReport().Contains("-->", StringComparison.Ordinal),
+            "debug report includes outbound traffic"
+        );
 
-        transport.Incoming.Enqueue(
-            """{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        transport.Incoming.Enqueue("""{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
         manager.Pump();
 
         string report = manager.BuildDebugReport();
-        Check(report.Contains("<--", StringComparison.Ordinal),
-            "debug report includes inbound traffic");
-        Check(report.Contains("initialize response received", StringComparison.Ordinal),
-            "debug report includes lifecycle messages");
-        Check(report.Contains("initialized", StringComparison.Ordinal),
-            "debug report includes initialized state");
+        Check(
+            report.Contains("<--", StringComparison.Ordinal),
+            "debug report includes inbound traffic"
+        );
+        Check(
+            report.Contains("initialize response received", StringComparison.Ordinal),
+            "debug report includes lifecycle messages"
+        );
+        Check(
+            report.Contains("initialized", StringComparison.Ordinal),
+            "debug report includes initialized state"
+        );
 
         manager.ClearLog();
-        Check(manager.BuildDebugReport().Contains("log cleared",
-            StringComparison.Ordinal), "debug report log can be cleared");
+        Check(
+            manager.BuildDebugReport().Contains("log cleared", StringComparison.Ordinal),
+            "debug report log can be cleared"
+        );
 
         manager.Stop();
         string stopped = manager.BuildDebugReport();
-        Check(stopped.Contains("State: stopped", StringComparison.Ordinal),
-            "debug report shows stopped state");
-        Check(stopped.Contains("stopping Fake", StringComparison.Ordinal),
-            "debug report logs server shutdown");
+        Check(
+            stopped.Contains("State: stopped", StringComparison.Ordinal),
+            "debug report shows stopped state"
+        );
+        Check(
+            stopped.Contains("stopping Fake", StringComparison.Ordinal),
+            "debug report logs server shutdown"
+        );
 
         File.Delete(path);
     }
@@ -1259,16 +1581,21 @@ internal static class Program
 
         using var manager = new LspManager();
         var transport = new FakeLspTransport();
-        bool started = manager.TryStart(new LspServerConfig
-        {
-            Name = "FakeNew",
-            Transport = transport,
-            LanguageId = "python"
-        }, path, "print('new')\n", directory.Path("."), out string error);
+        bool started = manager.TryStart(
+            new LspServerConfig
+            {
+                Name = "FakeNew",
+                Transport = transport,
+                LanguageId = "python",
+            },
+            path,
+            "print('new')\n",
+            directory.Path("."),
+            out string error
+        );
 
         Check(started, $"new-file LSP started ({error})");
-        CheckEqual(transport.Sent.Count, 1,
-            "new-file LSP initialize count", "1");
+        CheckEqual(transport.Sent.Count, 1, "new-file LSP initialize count", "1");
         CheckEqual(manager.ServerName, "FakeNew", "new-file LSP name", "FakeNew");
         manager.Stop();
     }
@@ -1277,35 +1604,47 @@ internal static class Program
     {
         using var directory = new TempDir();
         string path = directory.Path("symbols.lua");
-        Check(WriteBytes(path, "local Widget = {}\nfunction Widget:Run() end\n"u8),
-            "write symbols document");
+        Check(
+            WriteBytes(path, "local Widget = {}\nfunction Widget:Run() end\n"u8),
+            "write symbols document"
+        );
 
         using var manager = new LspManager();
         var transport = new FakeLspTransport();
-        Check(manager.TryStart(new LspServerConfig
-        {
-            Name = "Symbols",
-            Transport = transport,
-            LanguageId = "lua"
-        }, path, "local Widget = {}\n", directory.Path("."), out string error),
-            $"symbols LSP started ({error})");
+        Check(
+            manager.TryStart(
+                new LspServerConfig
+                {
+                    Name = "Symbols",
+                    Transport = transport,
+                    LanguageId = "lua",
+                },
+                path,
+                "local Widget = {}\n",
+                directory.Path("."),
+                out string error
+            ),
+            $"symbols LSP started ({error})"
+        );
 
-        transport.Incoming.Enqueue(
-            """{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        transport.Incoming.Enqueue("""{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
         manager.Pump();
         Check(manager.IsInitialized, "symbols LSP initialized");
 
         Check(manager.RequestDocumentSymbols(path), "request document symbols");
         string request = transport.Sent.Last(message =>
-            message.Contains("textDocument/documentSymbol", StringComparison.Ordinal));
+            message.Contains("textDocument/documentSymbol", StringComparison.Ordinal)
+        );
         int requestId;
-        using (System.Text.Json.JsonDocument document =
-               System.Text.Json.JsonDocument.Parse(request))
+        using (
+            System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(request)
+        )
         {
             requestId = document.RootElement.GetProperty("id").GetInt32();
         }
 
-        transport.Incoming.Enqueue($$$$$$"""
+        transport.Incoming.Enqueue(
+            $$$$$$"""
             {"jsonrpc":"2.0","id":{{{{{{requestId}}}}}},"result":[
               {"name":"Widget","detail":"table","kind":5,
                "range":{"start":{"line":0,"character":0},"end":{"line":1,"character":1}},
@@ -1316,7 +1655,8 @@ internal static class Program
                   "selectionRange":{"start":{"line":1,"character":15},"end":{"line":1,"character":18}}}
                ]}
             ]}
-            """);
+            """
+        );
         manager.Pump();
 
         bool seen = false;
@@ -1328,41 +1668,42 @@ internal static class Program
             }
 
             seen = true;
-            CheckEqual(lspEvent.DocumentSymbols.Count, 2,
-                "document symbol count", "2");
-            CheckEqual(lspEvent.DocumentSymbols[0].Name, "Widget",
-                "document symbol name", "Widget");
-            CheckEqual(lspEvent.DocumentSymbols[0].Line, 0,
-                "document symbol line", "0");
-            CheckEqual(lspEvent.DocumentSymbols[0].Character, 6,
-                "document symbol character", "6");
-            CheckEqual(lspEvent.DocumentSymbols[0].Depth, 0,
-                "document symbol depth", "0");
-            CheckEqual(lspEvent.DocumentSymbols[1].Name, "Run",
-                "nested symbol name", "Run");
-            CheckEqual(lspEvent.DocumentSymbols[1].Line, 1,
-                "nested symbol line", "1");
-            CheckEqual(lspEvent.DocumentSymbols[1].Depth, 1,
-                "nested symbol depth", "1");
+            CheckEqual(lspEvent.DocumentSymbols.Count, 2, "document symbol count", "2");
+            CheckEqual(
+                lspEvent.DocumentSymbols[0].Name,
+                "Widget",
+                "document symbol name",
+                "Widget"
+            );
+            CheckEqual(lspEvent.DocumentSymbols[0].Line, 0, "document symbol line", "0");
+            CheckEqual(lspEvent.DocumentSymbols[0].Character, 6, "document symbol character", "6");
+            CheckEqual(lspEvent.DocumentSymbols[0].Depth, 0, "document symbol depth", "0");
+            CheckEqual(lspEvent.DocumentSymbols[1].Name, "Run", "nested symbol name", "Run");
+            CheckEqual(lspEvent.DocumentSymbols[1].Line, 1, "nested symbol line", "1");
+            CheckEqual(lspEvent.DocumentSymbols[1].Depth, 1, "nested symbol depth", "1");
         }
         Check(seen, "document symbol event received");
 
         Check(manager.RequestDocumentSymbols(path), "request flat symbols");
         request = transport.Sent.Last(message =>
-            message.Contains("textDocument/documentSymbol", StringComparison.Ordinal));
-        using (System.Text.Json.JsonDocument document =
-               System.Text.Json.JsonDocument.Parse(request))
+            message.Contains("textDocument/documentSymbol", StringComparison.Ordinal)
+        );
+        using (
+            System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(request)
+        )
         {
             requestId = document.RootElement.GetProperty("id").GetInt32();
         }
 
-        transport.Incoming.Enqueue($$$$$$"""
+        transport.Incoming.Enqueue(
+            $$$$$$"""
             {"jsonrpc":"2.0","id":{{{{{{requestId}}}}}},"result":[
               {"name":"main","kind":12,
                "location":{"uri":"file:///tmp/symbols.lua",
                  "range":{"start":{"line":3,"character":4},"end":{"line":3,"character":8}}}}
             ]}
-            """);
+            """
+        );
         manager.Pump();
 
         seen = false;
@@ -1374,16 +1715,16 @@ internal static class Program
             }
 
             seen = true;
-            CheckEqual(lspEvent.DocumentSymbols.Count, 1,
-                "flat symbol count", "1");
-            CheckEqual(lspEvent.DocumentSymbols[0].Name, "main",
-                "flat symbol name", "main");
-            CheckEqual(lspEvent.DocumentSymbols[0].Line, 3,
-                "flat symbol line", "3");
-            CheckEqual(lspEvent.DocumentSymbols[0].Character, 4,
-                "flat symbol character", "4");
-            CheckEqual(lspEvent.DocumentSymbols[0].Uri, "file:///tmp/symbols.lua",
-                "flat symbol uri", "file:///tmp/symbols.lua");
+            CheckEqual(lspEvent.DocumentSymbols.Count, 1, "flat symbol count", "1");
+            CheckEqual(lspEvent.DocumentSymbols[0].Name, "main", "flat symbol name", "main");
+            CheckEqual(lspEvent.DocumentSymbols[0].Line, 3, "flat symbol line", "3");
+            CheckEqual(lspEvent.DocumentSymbols[0].Character, 4, "flat symbol character", "4");
+            CheckEqual(
+                lspEvent.DocumentSymbols[0].Uri,
+                "file:///tmp/symbols.lua",
+                "flat symbol uri",
+                "file:///tmp/symbols.lua"
+            );
         }
         Check(seen, "flat document symbol event received");
     }
@@ -1392,42 +1733,51 @@ internal static class Program
     {
         using var directory = new TempDir();
         string path = directory.Path("completion.cs");
-        Check(WriteBytes(path, "class C { void M() { obj. } }\n"u8),
-            "write completion document");
+        Check(WriteBytes(path, "class C { void M() { obj. } }\n"u8), "write completion document");
 
         using var manager = new LspManager();
         var transport = new FakeLspTransport();
-        Check(manager.TryStart(new LspServerConfig
-        {
-            Name = "Completion",
-            Transport = transport,
-            LanguageId = "csharp"
-        }, path, "class C { void M() { obj. } }\n", directory.Path("."),
-            out string error), $"completion LSP started ({error})");
+        Check(
+            manager.TryStart(
+                new LspServerConfig
+                {
+                    Name = "Completion",
+                    Transport = transport,
+                    LanguageId = "csharp",
+                },
+                path,
+                "class C { void M() { obj. } }\n",
+                directory.Path("."),
+                out string error
+            ),
+            $"completion LSP started ({error})"
+        );
 
-        transport.Incoming.Enqueue("""
+        transport.Incoming.Enqueue(
+            """
             {"jsonrpc":"2.0","id":1,"result":{"capabilities":{
               "completionProvider":{"triggerCharacters":[".","<"]}}}}
-            """);
+            """
+        );
         manager.Pump();
         Check(manager.IsInitialized, "completion LSP initialized");
-        Check(manager.IsCompletionTriggerCharacter('.'),
-            "completion dot trigger registered");
-        Check(!manager.IsCompletionTriggerCharacter('x'),
-            "completion non-trigger rejected");
+        Check(manager.IsCompletionTriggerCharacter('.'), "completion dot trigger registered");
+        Check(!manager.IsCompletionTriggerCharacter('x'), "completion non-trigger rejected");
 
-        Check(manager.RequestCompletion(path, 0, 24, "."),
-            "request completions");
+        Check(manager.RequestCompletion(path, 0, 24, "."), "request completions");
         string request = transport.Sent.Last(message =>
-            message.Contains("textDocument/completion", StringComparison.Ordinal));
+            message.Contains("textDocument/completion", StringComparison.Ordinal)
+        );
         int requestId;
-        using (System.Text.Json.JsonDocument document =
-               System.Text.Json.JsonDocument.Parse(request))
+        using (
+            System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(request)
+        )
         {
             requestId = document.RootElement.GetProperty("id").GetInt32();
         }
 
-        transport.Incoming.Enqueue($$$$$"""
+        transport.Incoming.Enqueue(
+            $$$$$"""
             {"jsonrpc":"2.0","id":{{{{{requestId}}}}},"result":{"isIncomplete":false,"items":[
               {"label":"Name","kind":10,"detail":"string","insertText":"Name",
                "insertTextFormat":2,
@@ -1437,7 +1787,8 @@ internal static class Program
               {"label":"WriteLine","kind":2,"detail":"void",
                "insertText":"WriteLine(${1:value})","insertTextFormat":2}
             ]}}
-            """);
+            """
+        );
         manager.Pump();
 
         bool seen = false;
@@ -1449,49 +1800,57 @@ internal static class Program
             }
 
             seen = true;
-            CheckEqual(lspEvent.Completions.Count, 2,
-                "completion item count", "2");
-            CheckEqual(lspEvent.Completions[0].Label, "Name",
-                "completion label", "Name");
-            CheckEqual(lspEvent.Completions[0].InsertText, "${1:name}",
-                "completion snippet text", "${1:name}");
-            CheckEqual(lspEvent.Completions[0].InsertTextFormat, 2,
-                "completion snippet format", "2");
-            Check(lspEvent.Completions[0].HasTextEdit,
-                "completion text edit parsed");
-            CheckEqual(lspEvent.Completions[0].StartCharacter, 23,
-                "completion edit start", "23");
-            CheckEqual(lspEvent.Completions[1].Detail, "void",
-                "completion detail", "void");
+            CheckEqual(lspEvent.Completions.Count, 2, "completion item count", "2");
+            CheckEqual(lspEvent.Completions[0].Label, "Name", "completion label", "Name");
+            CheckEqual(
+                lspEvent.Completions[0].InsertText,
+                "${1:name}",
+                "completion snippet text",
+                "${1:name}"
+            );
+            CheckEqual(
+                lspEvent.Completions[0].InsertTextFormat,
+                2,
+                "completion snippet format",
+                "2"
+            );
+            Check(lspEvent.Completions[0].HasTextEdit, "completion text edit parsed");
+            CheckEqual(lspEvent.Completions[0].StartCharacter, 23, "completion edit start", "23");
+            CheckEqual(lspEvent.Completions[1].Detail, "void", "completion detail", "void");
         }
         Check(seen, "completion event received");
     }
 
     private static void TestDapLldbBreakpoint()
     {
-        string? adapter = ExecutableFinder.Find("lldb-dap") ??
-                          ExecutableFinder.Find("lldb-dap-18");
-        string? compiler = ExecutableFinder.Find("cc") ??
-                           ExecutableFinder.Find("gcc");
+        string? adapter = ExecutableFinder.Find("lldb-dap") ?? ExecutableFinder.Find("lldb-dap-18");
+        string? compiler = ExecutableFinder.Find("cc") ?? ExecutableFinder.Find("gcc");
         if (adapter is null || compiler is null)
         {
             Console.Error.WriteLine(
-                "lldb-dap or a C compiler unavailable; skipping DAP integration test");
+                "lldb-dap or a C compiler unavailable; skipping DAP integration test"
+            );
             return;
         }
 
         using var directory = new TempDir();
         string source = directory.Path("main.c");
         string executable = directory.Path("main");
-        File.WriteAllText(source, """
+        File.WriteAllText(
+            source,
+            """
             int main(void) {
                 int value = 42;
                 return value == 42 ? 0 : 1;
             }
-            """, new UTF8Encoding(false));
+            """,
+            new UTF8Encoding(false)
+        );
 
-        Check(RunCommand(compiler, directory.Path("."), "-g", "-O0", "-o",
-                executable, source), "compile C debugger target");
+        Check(
+            RunCommand(compiler, directory.Path("."), "-g", "-O0", "-o", executable, source),
+            "compile C debugger target"
+        );
         if (!File.Exists(executable))
         {
             return;
@@ -1500,22 +1859,28 @@ internal static class Program
         string fullSource = System.IO.Path.GetFullPath(source);
         var breakpoints = new Dictionary<string, SortedSet<int>>
         {
-            [fullSource] = new SortedSet<int> { 2 }
+            [fullSource] = new SortedSet<int> { 2 },
         };
         var launch = new JsonObject
         {
             ["request"] = "launch",
             ["program"] = executable,
             ["cwd"] = directory.Path("."),
-            ["stopOnEntry"] = false
+            ["stopOnEntry"] = false,
         };
 
         using var manager = new DapManager();
-        Check(manager.TryStart(new DebuggerConfig
-        {
-            Adapter = "lldb-dap"
-        }, fullSource, directory.Path("."), launch, breakpoints,
-            out string error), $"start lldb-dap ({error})");
+        Check(
+            manager.TryStart(
+                new DebuggerConfig { Adapter = "lldb-dap" },
+                fullSource,
+                directory.Path("."),
+                launch,
+                breakpoints,
+                out string error
+            ),
+            $"start lldb-dap ({error})"
+        );
         if (!manager.IsRunning)
         {
             return;
@@ -1527,8 +1892,7 @@ internal static class Program
         string stoppedPath = string.Empty;
         string dapError = string.Empty;
         long deadline = Environment.TickCount64 + 15000;
-        while (Environment.TickCount64 < deadline &&
-               (!sawStopped || !sawLocation))
+        while (Environment.TickCount64 < deadline && (!sawStopped || !sawLocation))
         {
             while (manager.TryDequeueEvent(out DapEvent dapEvent))
             {
@@ -1565,10 +1929,12 @@ internal static class Program
         Check(sawStopped, "DAP stopped at breakpoint");
         Check(sawLocation, $"DAP reported a stop location ({dapError})");
         CheckEqual(stoppedLine, 2, "DAP stopped line", "2");
-        CheckEqual(stoppedPath.Length > 0
-                ? System.IO.Path.GetFullPath(stoppedPath)
-                : string.Empty,
-            fullSource, "DAP stopped path", fullSource);
+        CheckEqual(
+            stoppedPath.Length > 0 ? System.IO.Path.GetFullPath(stoppedPath) : string.Empty,
+            fullSource,
+            "DAP stopped path",
+            fullSource
+        );
 
         if (sawLocation)
         {
@@ -1580,8 +1946,7 @@ internal static class Program
             bool sawWatch = false;
             string watchedValue = string.Empty;
             deadline = Environment.TickCount64 + 5000;
-            while (Environment.TickCount64 < deadline &&
-                   (!sawVariables || !sawWatch))
+            while (Environment.TickCount64 < deadline && (!sawVariables || !sawWatch))
             {
                 while (manager.TryDequeueEvent(out DapEvent dapEvent))
                 {
@@ -1593,14 +1958,17 @@ internal static class Program
                         case DapEventKind.Variables:
                             sawVariables = dapEvent.ScopedVariables.Any(scope =>
                                 scope.Variables.Any(variable =>
-                                    string.Equals(variable.Name, "value",
-                                        StringComparison.Ordinal) &&
-                                    variable.Value.Contains("42",
-                                        StringComparison.Ordinal)));
+                                    string.Equals(variable.Name, "value", StringComparison.Ordinal)
+                                    && variable.Value.Contains("42", StringComparison.Ordinal)
+                                )
+                            );
                             break;
                         case DapEventKind.WatchValue when dapEvent.Watch is { } watch:
-                            sawWatch = string.Equals(watch.Expression, "value",
-                                StringComparison.Ordinal);
+                            sawWatch = string.Equals(
+                                watch.Expression,
+                                "value",
+                                StringComparison.Ordinal
+                            );
                             watchedValue = watch.Value;
                             break;
                         case DapEventKind.Error:
@@ -1609,8 +1977,10 @@ internal static class Program
                     }
                 }
 
-                if (!manager.IsRunning || (!sawVariables && !sawWatch &&
-                                            Environment.TickCount64 >= deadline))
+                if (
+                    !manager.IsRunning
+                    || (!sawVariables && !sawWatch && Environment.TickCount64 >= deadline)
+                )
                 {
                     break;
                 }
@@ -1620,8 +1990,10 @@ internal static class Program
             Check(sawScopes, "DAP returned scopes");
             Check(sawVariables, $"DAP returned local variables ({dapError})");
             Check(sawWatch, "DAP returned watch value");
-            Check(watchedValue.Contains("42", StringComparison.Ordinal),
-                "DAP watch value contains 42");
+            Check(
+                watchedValue.Contains("42", StringComparison.Ordinal),
+                "DAP watch value contains 42"
+            );
         }
 
         if (sawStopped)
@@ -1633,8 +2005,7 @@ internal static class Program
             {
                 while (manager.TryDequeueEvent(out DapEvent dapEvent))
                 {
-                    if (dapEvent.Kind is DapEventKind.Exited or
-                        DapEventKind.Terminated)
+                    if (dapEvent.Kind is DapEventKind.Exited or DapEventKind.Terminated)
                     {
                         sawExit = true;
                     }
@@ -1688,141 +2059,192 @@ internal static class Program
             }
             """;
 
-        Check(LanguageDefinition.TryParse(grammarJson, "test.hexdef",
-                out LanguageDefinition? language, out string parseError),
-            "parse grammar");
+        Check(
+            LanguageDefinition.TryParse(
+                grammarJson,
+                "test.hexdef",
+                out LanguageDefinition? language,
+                out string parseError
+            ),
+            "parse grammar"
+        );
         CheckEqual(parseError, string.Empty, "parse error", "empty");
         Check(language is not null, "grammar parsed");
         LanguageDefinition definition = language!;
         CheckEqual(definition.Id, "test", "grammar id", "test");
         CheckEqual(definition.Extensions[0], ".tst", "grammar extension", ".tst");
         Check(definition.Formatter is not null, "grammar formatter parsed");
-        CheckEqual(definition.Formatter?.Command, "testfmt", "formatter command",
-            "testfmt");
-        CheckEqual(definition.Formatter?.Arguments.Count, 2,
-            "formatter argument count", "2");
-        CheckEqual(definition.Formatter?.TimeoutMs, 2500,
-            "formatter timeout", "2500");
-        CheckEqual(definition.FormatOnSave, true, "formatter formatOnSave",
-            "true");
+        CheckEqual(definition.Formatter?.Command, "testfmt", "formatter command", "testfmt");
+        CheckEqual(definition.Formatter?.Arguments.Count, 2, "formatter argument count", "2");
+        CheckEqual(definition.Formatter?.TimeoutMs, 2500, "formatter timeout", "2500");
+        CheckEqual(definition.FormatOnSave, true, "formatter formatOnSave", "true");
         Check(definition.Indentation is not null, "grammar indentation parsed");
-        CheckEqual(definition.Indentation?.UseTabs, true,
-            "grammar indentation uses tabs", "true");
-        CheckEqual(definition.Indentation?.IndentWidth, 8,
-            "grammar indentation width", "8");
-        CheckEqual(definition.Indentation?.TabWidth, 4,
-            "grammar tab width", "4");
+        CheckEqual(definition.Indentation?.UseTabs, true, "grammar indentation uses tabs", "true");
+        CheckEqual(definition.Indentation?.IndentWidth, 8, "grammar indentation width", "8");
+        CheckEqual(definition.Indentation?.TabWidth, 4, "grammar tab width", "4");
         Check(definition.AutoIndent, "grammar auto indent defaults on");
         Check(definition.AutoClose, "grammar auto close defaults on");
-        Check(!definition.TraditionalMarkupLanguage,
-            "grammar is not markup by default");
+        Check(!definition.TraditionalMarkupLanguage, "grammar is not markup by default");
 
-        Check(LanguageDefinition.TryParse("""
-            {
-                "id": "markup",
-                "autoIndent": false,
-                "autoClose": false,
-                "traditionalMarkupLanguage": true,
-                "indentAfter": [":", "=>"],
-                "unindentBefore": ["end"]
-            }
-            """, "markup.hexdef", out LanguageDefinition? markup,
-                out parseError), "parse markup grammar");
+        Check(
+            LanguageDefinition.TryParse(
+                """
+                {
+                    "id": "markup",
+                    "autoIndent": false,
+                    "autoClose": false,
+                    "traditionalMarkupLanguage": true,
+                    "indentAfter": [":", "=>"],
+                    "unindentBefore": ["end"]
+                }
+                """,
+                "markup.hexdef",
+                out LanguageDefinition? markup,
+                out parseError
+            ),
+            "parse markup grammar"
+        );
         Check(markup is not null, "markup grammar parsed");
         Check(!markup!.AutoIndent, "markup auto indent opt-out");
         Check(!markup.AutoClose, "markup auto close opt-out");
         Check(markup.TraditionalMarkupLanguage, "markup mode enabled");
         CheckEqual(markup.IndentAfter.Count, 2, "indentAfter count", "2");
-        Check(markup.IsUnindentKeyword("end"),
-            "unindent keyword recognized");
-        Check(!markup.IsUnindentKeyword("ended"),
-            "partial unindent keyword rejected");
+        Check(markup.IsUnindentKeyword("end"), "unindent keyword recognized");
+        Check(!markup.IsUnindentKeyword("ended"), "partial unindent keyword rejected");
 
-        Check(LanguageDefinition.TryParse("""
-            {
-                "id": "debuggable",
-                "debugger": {
-                    "adapter": "lldb-dap",
-                    "arguments": ["--stdio"],
-                    "configuration": {
-                        "request": "launch",
-                        "program": "${executable}",
-                        "cwd": "${workspace}"
+        Check(
+            LanguageDefinition.TryParse(
+                """
+                {
+                    "id": "debuggable",
+                    "debugger": {
+                        "adapter": "lldb-dap",
+                        "arguments": ["--stdio"],
+                        "configuration": {
+                            "request": "launch",
+                            "program": "${executable}",
+                            "cwd": "${workspace}"
+                        }
                     }
                 }
-            }
-            """, "debuggable.hexdef", out LanguageDefinition? debuggable,
-                out parseError), "parse debugger grammar");
-        Check(debuggable?.Debugger is not null,
-            "debugger metadata parsed");
-        CheckEqual(debuggable?.Debugger?.Adapter, "lldb-dap",
-            "debug adapter", "lldb-dap");
-        CheckEqual(debuggable?.Debugger?.Arguments.Count, 1,
-            "debug adapter argument count", "1");
-        CheckEqual(debuggable?.Debugger?.Configuration["program"]?.GetValue<string>(),
-            "${executable}", "debug program placeholder", "${executable}");
+                """,
+                "debuggable.hexdef",
+                out LanguageDefinition? debuggable,
+                out parseError
+            ),
+            "parse debugger grammar"
+        );
+        Check(debuggable?.Debugger is not null, "debugger metadata parsed");
+        CheckEqual(debuggable?.Debugger?.Adapter, "lldb-dap", "debug adapter", "lldb-dap");
+        CheckEqual(debuggable?.Debugger?.Arguments.Count, 1, "debug adapter argument count", "1");
+        CheckEqual(
+            debuggable?.Debugger?.Configuration["program"]?.GetValue<string>(),
+            "${executable}",
+            "debug program placeholder",
+            "${executable}"
+        );
 
         using var directory = new TempDir();
         string grammarPath = directory.Path("test.hexdef");
-        Check(WriteBytes(grammarPath, Encoding.UTF8.GetBytes(grammarJson)),
-            "write grammar file");
+        Check(WriteBytes(grammarPath, Encoding.UTF8.GetBytes(grammarJson)), "write grammar file");
 
         var registry = new LanguageRegistry();
         registry.LoadDirectory(directory.Path("."));
         CheckEqual(registry.Errors.Count, 0, "registry errors", "0");
-        Check(ReferenceEquals(registry.Detect("sample.tst"), registry.Find("test")),
-            "extension detection");
+        Check(
+            ReferenceEquals(registry.Detect("sample.tst"), registry.Find("test")),
+            "extension detection"
+        );
 
         var bundled = LanguageRegistry.LoadUserGrammars();
         Check(bundled.Errors.Count == 0, "bundled grammars load without errors");
         Check(bundled.Find("ruby") is not null, "bundled ruby grammar loads");
         Check(bundled.Find("rust") is not null, "bundled rust grammar loads");
-        Check(ReferenceEquals(bundled.Detect("main.rs"), bundled.Find("rust")),
-            "bundled rust extension detection");
-        Check(bundled.Find("lua")?.IsUnindentKeyword("end") == true,
-            "bundled lua unindents end");
-        Check(bundled.Find("ruby")?.IsUnindentKeyword("end") == true,
-            "bundled ruby unindents end");
+        Check(
+            ReferenceEquals(bundled.Detect("main.rs"), bundled.Find("rust")),
+            "bundled rust extension detection"
+        );
+        Check(bundled.Find("lua")?.IsUnindentKeyword("end") == true, "bundled lua unindents end");
+        Check(bundled.Find("ruby")?.IsUnindentKeyword("end") == true, "bundled ruby unindents end");
 
         string[] addedLanguages =
         {
-            "nix", "perl", "raku", "julia", "fsharp", "blade", "jinja",
-            "nunjucks", "gotempl", "meson", "matlab", "godot-tscn", "rebol",
-            "red", "diff", "mlir", "elm", "git-commit", "graphql", "haskell",
-            "scheme", "supercollider", "ocaml"
+            "nix",
+            "perl",
+            "raku",
+            "julia",
+            "fsharp",
+            "blade",
+            "jinja",
+            "nunjucks",
+            "gotempl",
+            "meson",
+            "matlab",
+            "godot-tscn",
+            "rebol",
+            "red",
+            "diff",
+            "mlir",
+            "elm",
+            "git-commit",
+            "graphql",
+            "haskell",
+            "scheme",
+            "supercollider",
+            "ocaml",
         };
         foreach (string addedLanguage in addedLanguages)
         {
-            Check(bundled.Find(addedLanguage) is not null,
-                $"bundled {addedLanguage} grammar loads");
+            Check(
+                bundled.Find(addedLanguage) is not null,
+                $"bundled {addedLanguage} grammar loads"
+            );
         }
 
         LanguageDefinition? csharpLanguage = bundled.Find("csharp");
-        Check(csharpLanguage?.Formatter?.Command == "csharpier" &&
-              csharpLanguage.Formatter.Arguments.Count == 3 &&
-              csharpLanguage.Formatter.Arguments[0] == "format" &&
-              csharpLanguage.Formatter.Arguments[1] == "--stdin-path" &&
-              csharpLanguage.Formatter.Arguments[2] == "{path}" &&
-              csharpLanguage.Formatter.UsesStdin &&
-              !csharpLanguage.Formatter.WritesFile,
-            "csharpier formats C# through stdin/stdout");
+        Check(
+            csharpLanguage?.Formatter?.Command == "csharpier"
+                && csharpLanguage.Formatter.Arguments.Count == 3
+                && csharpLanguage.Formatter.Arguments[0] == "format"
+                && csharpLanguage.Formatter.Arguments[1] == "--stdin-path"
+                && csharpLanguage.Formatter.Arguments[2] == "{path}"
+                && csharpLanguage.Formatter.UsesStdin
+                && !csharpLanguage.Formatter.WritesFile,
+            "csharpier formats C# through stdin/stdout"
+        );
 
-        Check(ReferenceEquals(bundled.Detect("file.fs"),
-                bundled.Find("fsharp")), "fsharp owns .fs");
-        Check(ReferenceEquals(bundled.Detect("shader.glsl"),
-                bundled.Find("glsl")), "glsl detection still works");
-        Check(ReferenceEquals(bundled.Detect("view.blade.php"),
-                bundled.Find("blade")), "compound blade extension detection");
-        Check(ReferenceEquals(bundled.Detect("COMMIT_EDITMSG"),
-                bundled.Find("git-commit")), "git commit file name detection");
-        Check(ReferenceEquals(bundled.Detect("meson.build"),
-                bundled.Find("meson")), "meson file name detection");
-        Check(ReferenceEquals(bundled.Detect("script.nix"),
-                bundled.Find("nix")), "nix extension detection");
-        Check(ReferenceEquals(bundled.Detect("Dockerfile"),
-                bundled.Find("dockerfile")), "Dockerfile file name detection");
-        Check(ReferenceEquals(bundled.Detect("/repo/Containerfile"),
-                bundled.Find("dockerfile")), "Containerfile file name detection");
+        Check(
+            ReferenceEquals(bundled.Detect("file.fs"), bundled.Find("fsharp")),
+            "fsharp owns .fs"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("shader.glsl"), bundled.Find("glsl")),
+            "glsl detection still works"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("view.blade.php"), bundled.Find("blade")),
+            "compound blade extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("COMMIT_EDITMSG"), bundled.Find("git-commit")),
+            "git commit file name detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("meson.build"), bundled.Find("meson")),
+            "meson file name detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("script.nix"), bundled.Find("nix")),
+            "nix extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("Dockerfile"), bundled.Find("dockerfile")),
+            "Dockerfile file name detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("/repo/Containerfile"), bundled.Find("dockerfile")),
+            "Containerfile file name detection"
+        );
 
         var diffTokens = new List<SyntaxToken>();
         LanguageDefinition? dockerfileLanguage = bundled.Find("dockerfile");
@@ -1830,29 +2252,37 @@ internal static class Program
         if (dockerfileLanguage is not null)
         {
             diffTokens.Clear();
-            SyntaxHighlighter.GetLineTokens(dockerfileLanguage,
-                "FROM alpine:3.20"u8, false, diffTokens, out _);
-            Check(diffTokens.Count >= 1 &&
-                  diffTokens[0].Kind == SyntaxTokenKind.Keyword &&
-                  diffTokens[0].Start == 0 && diffTokens[0].Length == 4,
-                "dockerfile instructions are highlighted");
+            SyntaxHighlighter.GetLineTokens(
+                dockerfileLanguage,
+                "FROM alpine:3.20"u8,
+                false,
+                diffTokens,
+                out _
+            );
+            Check(
+                diffTokens.Count >= 1
+                    && diffTokens[0].Kind == SyntaxTokenKind.Keyword
+                    && diffTokens[0].Start == 0
+                    && diffTokens[0].Length == 4,
+                "dockerfile instructions are highlighted"
+            );
         }
         LanguageDefinition? diffLanguage = bundled.Find("diff");
         Check(diffLanguage is not null, "diff language available");
         if (diffLanguage is not null)
         {
             diffTokens.Clear();
-            SyntaxHighlighter.GetLineTokens(diffLanguage, "+added"u8, false,
-                diffTokens, out _);
-            Check(diffTokens.Count == 1 &&
-                  diffTokens[0].Kind == SyntaxTokenKind.Added,
-                "diff added line is highlighted");
+            SyntaxHighlighter.GetLineTokens(diffLanguage, "+added"u8, false, diffTokens, out _);
+            Check(
+                diffTokens.Count == 1 && diffTokens[0].Kind == SyntaxTokenKind.Added,
+                "diff added line is highlighted"
+            );
             diffTokens.Clear();
-            SyntaxHighlighter.GetLineTokens(diffLanguage, "-removed"u8, false,
-                diffTokens, out _);
-            Check(diffTokens.Count == 1 &&
-                  diffTokens[0].Kind == SyntaxTokenKind.Deleted,
-                "diff deleted line is highlighted");
+            SyntaxHighlighter.GetLineTokens(diffLanguage, "-removed"u8, false, diffTokens, out _);
+            Check(
+                diffTokens.Count == 1 && diffTokens[0].Kind == SyntaxTokenKind.Deleted,
+                "diff deleted line is highlighted"
+            );
         }
 
         LanguageDefinition? commitLanguage = bundled.Find("git-commit");
@@ -1860,16 +2290,25 @@ internal static class Program
         if (commitLanguage is not null)
         {
             diffTokens.Clear();
-            SyntaxHighlighter.GetLineTokens(commitLanguage,
-                "feat: add some thing"u8, false, diffTokens, out _);
-            Check(diffTokens.Count == 1 &&
-                  diffTokens[0].Kind == SyntaxTokenKind.Keyword &&
-                  diffTokens[0].Start == 0 && diffTokens[0].Length == 5,
-                "git commit prefix including colon is highlighted");
+            SyntaxHighlighter.GetLineTokens(
+                commitLanguage,
+                "feat: add some thing"u8,
+                false,
+                diffTokens,
+                out _
+            );
+            Check(
+                diffTokens.Count == 1
+                    && diffTokens[0].Kind == SyntaxTokenKind.Keyword
+                    && diffTokens[0].Start == 0
+                    && diffTokens[0].Length == 5,
+                "git commit prefix including colon is highlighted"
+            );
         }
 
         string sourcePath = directory.Path("sample.tst");
-        const string source = "fn main() {\n  let x = 42;\n  // comment\n  /* block\n     still */\n  int y = true;\n}\n";
+        const string source =
+            "fn main() {\n  let x = 42;\n  // comment\n  /* block\n     still */\n  int y = true;\n}\n";
         Check(WriteBytes(sourcePath, Encoding.UTF8.GetBytes(source)), "write source");
         Document? document = Document.Open(sourcePath, out string openError);
         Check(document is not null, $"open source ({openError})");
@@ -1883,33 +2322,34 @@ internal static class Program
         var tokens = new List<SyntaxToken>();
 
         highlighter.GetLineTokens(0, document.LineText(0), tokens);
-        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword),
-            "keyword token");
-        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.ControlStatement) == false,
-            "no control token on line 0");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword), "keyword token");
+        Check(
+            tokens.Any(token => token.Kind == SyntaxTokenKind.ControlStatement) == false,
+            "no control token on line 0"
+        );
 
         highlighter.GetLineTokens(1, document.LineText(1), tokens);
-        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Number),
-            "number token");
-        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword),
-            "line 1 keyword token");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Number), "number token");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword), "line 1 keyword token");
 
         highlighter.GetLineTokens(2, document.LineText(2), tokens);
-        Check(tokens.Count == 1 && tokens[0].Kind == SyntaxTokenKind.Comment,
-            "line comment token");
+        Check(tokens.Count == 1 && tokens[0].Kind == SyntaxTokenKind.Comment, "line comment token");
 
         highlighter.GetLineTokens(3, document.LineText(3), tokens);
-        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Comment),
-            "block comment start token");
+        Check(
+            tokens.Any(token => token.Kind == SyntaxTokenKind.Comment),
+            "block comment start token"
+        );
 
         highlighter.GetLineTokens(4, document.LineText(4), tokens);
-        Check(tokens.Count == 1 && tokens[0].Kind == SyntaxTokenKind.Comment,
-            "continued block comment token");
+        Check(
+            tokens.Count == 1 && tokens[0].Kind == SyntaxTokenKind.Comment,
+            "continued block comment token"
+        );
 
         highlighter.GetLineTokens(5, document.LineText(5), tokens);
         Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Type), "type token");
-        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Constant),
-            "constant token");
+        Check(tokens.Any(token => token.Kind == SyntaxTokenKind.Constant), "constant token");
     }
 
     private static void TestThemes()
@@ -1932,9 +2372,10 @@ internal static class Program
             }
             """;
 
-        Check(Theme.TryParse(json, "test-theme.json", out Theme? theme,
-                out string error),
-            $"parse theme ({error})");
+        Check(
+            Theme.TryParse(json, "test-theme.json", out Theme? theme, out string error),
+            $"parse theme ({error})"
+        );
         Check(theme is not null, "theme parsed");
         if (theme is null)
         {
@@ -1952,21 +2393,24 @@ internal static class Program
         CheckEqual(theme.Background, 0u, "named background", "0");
         CheckEqual(theme.Muted, 245u, "numeric muted", "245");
         CheckEqual(theme.Accent, 14u, "named accent", "14");
-        CheckEqual(theme.SelectionForeground, Theme.Rgb(255, 255, 255),
-            "selection fg", "#ffffff");
+        CheckEqual(theme.SelectionForeground, Theme.Rgb(255, 255, 255), "selection fg", "#ffffff");
         CheckEqual(theme.SelectionBackground, 4u, "selection bg", "4");
         CheckEqual(theme.Keyword, Theme.Rgb(255, 0, 170), "keyword", "#ff00aa");
 
-        Check(!Theme.TryParse(
+        Check(
+            !Theme.TryParse(
                 "{\"colors\": {\"foreground\": \"not-a-colour\"}}",
-                "bad.json", out _, out error),
-            "reject invalid colour");
+                "bad.json",
+                out _,
+                out error
+            ),
+            "reject invalid colour"
+        );
         Check(error.Length > 0, "invalid colour reports error");
 
         using var directory = new TempDir();
         File.WriteAllText(directory.Path("one.json"), json);
-        File.WriteAllText(directory.Path("two.json"),
-            "{\"id\": \"two\", \"name\": \"Two\"}");
+        File.WriteAllText(directory.Path("two.json"), "{\"id\": \"two\", \"name\": \"Two\"}");
         var registry = new ThemeRegistry();
         registry.LoadDirectory(directory.Path("."));
         CheckEqual(registry.Themes.Count, 2, "theme registry count", "2");
@@ -1985,12 +2429,14 @@ internal static class Program
 
         var loaded = new PluginConfigStore(path);
         Check(loaded.TryLoad(out error), $"load plugin config ({error})");
-        CheckEqual(Convert.ToInt64(loaded.Get("answer")), 42L,
-            "config answer", "42");
-        CheckEqual(loaded.Get("nested.name") as string, "hexal",
-            "nested config value", "hexal");
-        CheckEqual(loaded.Get("missing", "fallback") as string, "fallback",
-            "config fallback", "fallback");
+        CheckEqual(Convert.ToInt64(loaded.Get("answer")), 42L, "config answer", "42");
+        CheckEqual(loaded.Get("nested.name") as string, "hexal", "nested config value", "hexal");
+        CheckEqual(
+            loaded.Get("missing", "fallback") as string,
+            "fallback",
+            "config fallback",
+            "fallback"
+        );
     }
 
     private static void TestPluginMetadataAndToggle()
@@ -2000,18 +2446,26 @@ internal static class Program
         string plugin = System.IO.Path.Combine(plugins, "example");
         Directory.CreateDirectory(plugin);
 
-        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "plugin.toml"),
+            """
             name = "Example"
             version = "1.2.3"
             description = "Example plugin"
             author = "Test Author"
             license = "MIT"
-            """, new UTF8Encoding(false));
-        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), """
+            """,
+            new UTF8Encoding(false)
+        );
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "init.lua"),
+            """
             hexal.commands.register("hello", function()
                 hexal.ui.message("HI")
             end, "Say hi")
-            """, new UTF8Encoding(false));
+            """,
+            new UTF8Encoding(false)
+        );
 
         var host = new FakeHost();
         using (var manager = new LuaPluginManager(host, plugins))
@@ -2023,8 +2477,7 @@ internal static class Program
             PluginInfo info = manager.Plugins.Single();
             CheckEqual(info.Id, "example", "plugin id", "example");
             CheckEqual(info.Version, "1.2.3", "plugin version", "1.2.3");
-            CheckEqual(info.Description, "Example plugin", "plugin description",
-                "Example plugin");
+            CheckEqual(info.Description, "Example plugin", "plugin description", "Example plugin");
             CheckEqual(info.Author, "Test Author", "plugin author", "Test Author");
             CheckEqual(info.License, "MIT", "plugin license", "MIT");
             Check(info.Enabled, "plugin starts enabled");
@@ -2032,16 +2485,17 @@ internal static class Program
             Check(info.Commands.Contains("hello"), "plugin command listed");
             Check(manager.HasCommand("hello"), "plugin command registered");
 
-            Check(manager.SetPluginEnabled("example", false, out string error),
-                $"disable plugin ({error})");
+            Check(
+                manager.SetPluginEnabled("example", false, out string error),
+                $"disable plugin ({error})"
+            );
             CheckEqual(manager.PluginCount, 0, "disabled plugin unloaded", "0");
             Check(!manager.HasCommand("hello"), "disabled plugin command removed");
             info = manager.Plugins.Single();
             Check(!info.Enabled, "plugin reports disabled");
             Check(!info.Running, "disabled plugin not running");
 
-            Check(manager.SetPluginEnabled("example", true, out error),
-                $"enable plugin ({error})");
+            Check(manager.SetPluginEnabled("example", true, out error), $"enable plugin ({error})");
             CheckEqual(manager.PluginCount, 1, "enabled plugin loaded", "1");
             Check(manager.HasCommand("hello"), "enabled plugin command restored");
         }
@@ -2050,16 +2504,17 @@ internal static class Program
         using (var manager = new LuaPluginManager(host, plugins, statePath))
         {
             manager.LoadAll();
-            Check(manager.SetPluginEnabled("example", false, out string error),
-                $"disable plugin for state ({error})");
+            Check(
+                manager.SetPluginEnabled("example", false, out string error),
+                $"disable plugin for state ({error})"
+            );
         }
 
         using (var manager = new LuaPluginManager(host, plugins, statePath))
         {
             manager.LoadAll();
             CheckEqual(manager.PluginCount, 0, "disabled state persists", "0");
-            Check(!manager.Plugins.Single().Enabled,
-                "persisted plugin reports disabled");
+            Check(!manager.Plugins.Single().Enabled, "persisted plugin reports disabled");
         }
     }
 
@@ -2072,13 +2527,21 @@ internal static class Program
 
         void WritePlugin(string command)
         {
-            File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+            File.WriteAllText(
+                System.IO.Path.Combine(plugin, "plugin.toml"),
+                """
                 name = "Reloadable"
                 version = "1.0"
-                """, new UTF8Encoding(false));
-            File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), $"""
+                """,
+                new UTF8Encoding(false)
+            );
+            File.WriteAllText(
+                System.IO.Path.Combine(plugin, "init.lua"),
+                $"""
                 hexal.commands.register("{command}", function() end, "Test command")
-                """, new UTF8Encoding(false));
+                """,
+                new UTF8Encoding(false)
+            );
         }
 
         WritePlugin("first");
@@ -2090,8 +2553,7 @@ internal static class Program
         Check(!manager.HasCommand("second"), "reload second command absent");
 
         WritePlugin("second");
-        Check(manager.ReloadPlugin("reloadable", out string error),
-            $"reload plugin ({error})");
+        Check(manager.ReloadPlugin("reloadable", out string error), $"reload plugin ({error})");
         Check(manager.HasCommand("second"), "reloaded command registered");
         Check(!manager.HasCommand("first"), "reloaded old command removed");
 
@@ -2107,50 +2569,78 @@ internal static class Program
         string repository = directory.Path("repository");
         string plugin = System.IO.Path.Combine(repository, "demo");
         Directory.CreateDirectory(plugin);
-        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "plugin.toml"),
+            """
             name = "Demo"
             version = "1.0"
-            """, new UTF8Encoding(false));
-        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"),
+            """,
+            new UTF8Encoding(false)
+        );
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "init.lua"),
             "hexal.commands.register(\"demo\", function() end)\n",
-            new UTF8Encoding(false));
+            new UTF8Encoding(false)
+        );
 
         if (!RunCommand("git", repository, "init", "-q"))
         {
-            Console.Error.WriteLine(
-                "git unavailable; skipping plugin installer test");
+            Console.Error.WriteLine("git unavailable; skipping plugin installer test");
             return;
         }
 
-        RunCommand("git", repository, "config", "user.email",
-            "tests@example.com");
+        RunCommand("git", repository, "config", "user.email", "tests@example.com");
         RunCommand("git", repository, "config", "user.name", "Hexal Tests");
-        Check(RunCommand("git", repository, "add", "demo/plugin.toml",
-                "demo/init.lua"), "git add plugin");
-        Check(RunCommand("git", repository, "commit", "-qm", "plugin"),
-            "git commit plugin");
+        Check(
+            RunCommand("git", repository, "add", "demo/plugin.toml", "demo/init.lua"),
+            "git add plugin"
+        );
+        Check(RunCommand("git", repository, "commit", "-qm", "plugin"), "git commit plugin");
 
         string plugins = directory.Path("plugins");
-        Check(PluginInstaller.TryInstall("demo", repository, plugins,
-                out string installed, out string error),
-            $"install plugin ({error})");
+        Check(
+            PluginInstaller.TryInstall(
+                "demo",
+                repository,
+                plugins,
+                out string installed,
+                out string error
+            ),
+            $"install plugin ({error})"
+        );
         Check(Directory.Exists(installed), "installed plugin directory exists");
-        Check(File.Exists(System.IO.Path.Combine(installed, "plugin.toml")),
-            "installed plugin manifest exists");
-        Check(File.Exists(System.IO.Path.Combine(installed, "init.lua")),
-            "installed plugin entry exists");
-        Check(!Directory.Exists(System.IO.Path.Combine(installed, ".git")),
-            "installed plugin has no repository metadata");
+        Check(
+            File.Exists(System.IO.Path.Combine(installed, "plugin.toml")),
+            "installed plugin manifest exists"
+        );
+        Check(
+            File.Exists(System.IO.Path.Combine(installed, "init.lua")),
+            "installed plugin entry exists"
+        );
+        Check(
+            !Directory.Exists(System.IO.Path.Combine(installed, ".git")),
+            "installed plugin has no repository metadata"
+        );
 
-        Check(!PluginInstaller.TryInstall("demo", repository, plugins,
-                out _, out string duplicateError),
-            "duplicate plugin install is rejected");
-        Check(duplicateError.Contains("already installed",
-                StringComparison.OrdinalIgnoreCase),
-            "duplicate install error is descriptive");
+        Check(
+            !PluginInstaller.TryInstall(
+                "demo",
+                repository,
+                plugins,
+                out _,
+                out string duplicateError
+            ),
+            "duplicate plugin install is rejected"
+        );
+        Check(
+            duplicateError.Contains("already installed", StringComparison.OrdinalIgnoreCase),
+            "duplicate install error is descriptive"
+        );
 
-        Check(!PluginInstaller.TryInstall("../demo", repository, plugins,
-                out _, out _), "path traversal plugin name is rejected");
+        Check(
+            !PluginInstaller.TryInstall("../demo", repository, plugins, out _, out _),
+            "path traversal plugin name is rejected"
+        );
     }
 
     private static void TestPluginProcessAndPanel()
@@ -2164,11 +2654,17 @@ internal static class Program
             ? "local result = hexal.exec.run(\"cmd\", { \"/c\", \"echo\", \"hello\" })"
             : "local result = hexal.exec.run(\"echo\", { \"hello\" })";
 
-        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "plugin.toml"),
+            """
             name = "API"
             version = "1.0"
-            """, new UTF8Encoding(false));
-        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), $$"""
+            """,
+            new UTF8Encoding(false)
+        );
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "init.lua"),
+            $$"""
             {{processCall}}
             assert(result.ok, result.error)
             assert(result.stdout:find("hello", 1, true) ~= nil, result.stdout)
@@ -2199,7 +2695,9 @@ internal static class Program
             })
             panel:close()
             hexal.ui.message("PROCESS_PANEL_OK")
-            """, new UTF8Encoding(false));
+            """,
+            new UTF8Encoding(false)
+        );
 
         var host = new FakeHost();
         using var manager = new LuaPluginManager(host, plugins);
@@ -2210,11 +2708,14 @@ internal static class Program
             Console.Error.WriteLine(string.Join("\n", manager.Errors));
         }
         CheckEqual(manager.Errors.Count, 0, "plugin API errors", "0");
-        Check(host.Messages.Contains("PROCESS_PANEL_OK"),
-            "plugin process and panel API completed");
+        Check(host.Messages.Contains("PROCESS_PANEL_OK"), "plugin process and panel API completed");
         CheckEqual(host.PanelLines.Count, 1, "plugin panel line update", "1");
-        CheckEqual(host.PanelLines[0].Segments[0].Text, "three",
-            "plugin panel segment text", "three");
+        CheckEqual(
+            host.PanelLines[0].Segments[0].Text,
+            "three",
+            "plugin panel segment text",
+            "three"
+        );
     }
 
     private static void TestLazyPluginLoading()
@@ -2224,50 +2725,59 @@ internal static class Program
         string plugin = System.IO.Path.Combine(plugins, "lazy");
         Directory.CreateDirectory(plugin);
 
-        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "plugin.toml"),
+            """
             name = "Lazy"
             version = "1.0"
             lazy = true
             language = "test"
-            """, new UTF8Encoding(false));
-        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), """
+            """,
+            new UTF8Encoding(false)
+        );
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "init.lua"),
+            """
             hexal.ui.message("LAZY_STARTED")
             hexal.events.on("buffer_opened", function(event)
                 hexal.ui.message("LAZY_OPENED:" .. tostring(event.language))
             end)
-            """, new UTF8Encoding(false));
+            """,
+            new UTF8Encoding(false)
+        );
 
         var host = new FakeHost();
         using var manager = new LuaPluginManager(host, plugins);
         manager.LoadAll();
 
         CheckEqual(manager.PluginCount, 0, "lazy plugin not started", "0");
-        CheckEqual(manager.DeferredPluginCount, 1,
-            "lazy plugin deferred count", "1");
+        CheckEqual(manager.DeferredPluginCount, 1, "lazy plugin deferred count", "1");
 
-        manager.FireEvent("buffer_opened",
-            new Dictionary<string, object?> { ["language"] = "other" });
-        CheckEqual(manager.PluginCount, 0, "lazy plugin ignores other language",
-            "0");
-        CheckEqual(manager.DeferredPluginCount, 1,
-            "lazy plugin remains deferred", "1");
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "other" }
+        );
+        CheckEqual(manager.PluginCount, 0, "lazy plugin ignores other language", "0");
+        CheckEqual(manager.DeferredPluginCount, 1, "lazy plugin remains deferred", "1");
 
-        manager.FireEvent("buffer_opened",
-            new Dictionary<string, object?> { ["language"] = "test" });
-        CheckEqual(manager.PluginCount, 1, "lazy plugin started on language",
-            "1");
-        CheckEqual(manager.DeferredPluginCount, 0,
-            "lazy plugin no longer deferred", "0");
-        Check(host.Messages.Contains("LAZY_STARTED"),
-            "lazy plugin init script ran");
-        Check(host.Messages.Contains("LAZY_OPENED:test"),
-            "lazy plugin received the opening event");
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "test" }
+        );
+        CheckEqual(manager.PluginCount, 1, "lazy plugin started on language", "1");
+        CheckEqual(manager.DeferredPluginCount, 0, "lazy plugin no longer deferred", "0");
+        Check(host.Messages.Contains("LAZY_STARTED"), "lazy plugin init script ran");
+        Check(host.Messages.Contains("LAZY_OPENED:test"), "lazy plugin received the opening event");
     }
 
     private static void TestGitLogPlugin()
     {
-        string source = System.IO.Path.Combine(AppContext.BaseDirectory,
-            "data", "plugins", "gitlog");
+        string source = System.IO.Path.Combine(
+            AppContext.BaseDirectory,
+            "data",
+            "plugins",
+            "gitlog"
+        );
         Check(Directory.Exists(source), "bundled git log plugin exists");
         if (!Directory.Exists(source))
         {
@@ -2288,16 +2798,15 @@ internal static class Program
 
         string tracked = System.IO.Path.Combine(repo, "file.txt");
         File.WriteAllText(tracked, "one\ntwo\nthree\n", new UTF8Encoding(false));
-        Check(RunCommand("git", repo, "add", "file.txt"),
-            "git add first commit");
-        Check(RunCommand("git", repo, "commit", "-qm", "first commit"),
-            "git create first commit");
+        Check(RunCommand("git", repo, "add", "file.txt"), "git add first commit");
+        Check(RunCommand("git", repo, "commit", "-qm", "first commit"), "git create first commit");
 
         File.WriteAllText(tracked, "one\nTHREE\n", new UTF8Encoding(false));
-        Check(RunCommand("git", repo, "add", "file.txt"),
-            "git add second commit");
-        Check(RunCommand("git", repo, "commit", "-qm", "second commit"),
-            "git create second commit");
+        Check(RunCommand("git", repo, "add", "file.txt"), "git add second commit");
+        Check(
+            RunCommand("git", repo, "commit", "-qm", "second commit"),
+            "git create second commit"
+        );
         RunCommand("git", repo, "tag", "v1.0");
         RunCommand("git", repo, "branch", "feature");
 
@@ -2306,8 +2815,7 @@ internal static class Program
         Directory.CreateDirectory(plugin);
         foreach (string file in Directory.GetFiles(source))
         {
-            File.Copy(file, System.IO.Path.Combine(plugin,
-                System.IO.Path.GetFileName(file)));
+            File.Copy(file, System.IO.Path.Combine(plugin, System.IO.Path.GetFileName(file)));
         }
 
         var host = new FakeHost { WorkspaceRoot = repo };
@@ -2320,9 +2828,10 @@ internal static class Program
         }
         CheckEqual(manager.Errors.Count, 0, "git log plugin errors", "0");
         Check(manager.HasCommand("gl"), "git log registers :gl");
-        Check(manager.TryExecuteCommand("gl", Array.Empty<string>(),
-                out string error),
-            $"run git log command ({error})");
+        Check(
+            manager.TryExecuteCommand("gl", Array.Empty<string>(), out string error),
+            $"run git log command ({error})"
+        );
         CheckEqual(error, string.Empty, "git log command error", "empty");
         Check(host.PanelLines.Count > 0, "git log opens a panel");
 
@@ -2340,8 +2849,7 @@ internal static class Program
         Check(sawBranch, "git log shows branches");
         Check(sawAuthor, "git log shows authors");
 
-        Check(host.PanelKeyHandler is not null,
-            "git log panel has a key handler");
+        Check(host.PanelKeyHandler is not null, "git log panel has a key handler");
         if (host.PanelKeyHandler is not null)
         {
             Check(host.PanelKeyHandler("enter", 1), "git log opens a commit diff");
@@ -2352,10 +2860,16 @@ internal static class Program
             {
                 foreach (PluginPanelSegment segment in line.Segments)
                 {
-                    added |= string.Equals(segment.Style, "diff_added",
-                        StringComparison.OrdinalIgnoreCase);
-                    deleted |= string.Equals(segment.Style, "diff_deleted",
-                        StringComparison.OrdinalIgnoreCase);
+                    added |= string.Equals(
+                        segment.Style,
+                        "diff_added",
+                        StringComparison.OrdinalIgnoreCase
+                    );
+                    deleted |= string.Equals(
+                        segment.Style,
+                        "diff_deleted",
+                        StringComparison.OrdinalIgnoreCase
+                    );
                 }
             }
 
@@ -2364,8 +2878,7 @@ internal static class Program
         }
     }
 
-    private static bool RunCommand(string command, string directory,
-        params string[] arguments)
+    private static bool RunCommand(string command, string directory, params string[] arguments)
     {
         try
         {
@@ -2376,7 +2889,7 @@ internal static class Program
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                CreateNoWindow = true
+                CreateNoWindow = true,
             };
             foreach (string argument in arguments)
             {
@@ -2394,9 +2907,13 @@ internal static class Program
             process.WaitForExit();
             return process.ExitCode == 0;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
-                                   InvalidOperationException or IOException or
-                                   UnauthorizedAccessException)
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or InvalidOperationException
+                        or IOException
+                        or UnauthorizedAccessException
+            )
         {
             return false;
         }
@@ -2404,8 +2921,12 @@ internal static class Program
 
     private static void TestLazyCSharpPlugin()
     {
-        string source = System.IO.Path.Combine(AppContext.BaseDirectory,
-            "data", "plugins", "csharp");
+        string source = System.IO.Path.Combine(
+            AppContext.BaseDirectory,
+            "data",
+            "plugins",
+            "csharp"
+        );
         Check(Directory.Exists(source), "bundled csharp plugin exists");
         if (!Directory.Exists(source))
         {
@@ -2418,8 +2939,7 @@ internal static class Program
         Directory.CreateDirectory(plugin);
         foreach (string file in Directory.GetFiles(source))
         {
-            File.Copy(file, System.IO.Path.Combine(plugin,
-                System.IO.Path.GetFileName(file)));
+            File.Copy(file, System.IO.Path.Combine(plugin, System.IO.Path.GetFileName(file)));
         }
 
         var host = new FakeHost();
@@ -2427,15 +2947,14 @@ internal static class Program
         manager.LoadAll();
 
         CheckEqual(manager.Errors.Count, 0, "csharp plugin errors", "0");
-        CheckEqual(manager.Coordinators.Count, 0,
-            "csharp LSP is lazy at startup", "0");
+        CheckEqual(manager.Coordinators.Count, 0, "csharp LSP is lazy at startup", "0");
 
-        manager.FireEvent("buffer_opened",
-            new Dictionary<string, object?> { ["language"] = "csharp" });
-        CheckEqual(manager.Coordinators.Count, 1,
-            "csharp LSP starts for csharp buffers", "1");
-        CheckEqual(manager.Coordinators[0].Servers.Count, 1,
-            "csharp server registered", "1");
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "csharp" }
+        );
+        CheckEqual(manager.Coordinators.Count, 1, "csharp LSP starts for csharp buffers", "1");
+        CheckEqual(manager.Coordinators[0].Servers.Count, 1, "csharp server registered", "1");
     }
 
     private static void TestLuaLspRuntime()
@@ -2619,8 +3138,11 @@ internal static class Program
             hexal.ui.message("LUA_LSP_OK")
             """;
 
-        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), script,
-            new UTF8Encoding(false));
+        File.WriteAllText(
+            System.IO.Path.Combine(plugin, "init.lua"),
+            script,
+            new UTF8Encoding(false)
+        );
 
         var host = new FakeHost();
         using var manager = new LuaPluginManager(host, plugins);
@@ -2641,13 +3163,21 @@ internal static class Program
         LuaLspServer server = coordinator.Servers[0];
         using var lsp = new LspManager();
         var transport = new LuaLspTransport(server);
-        Check(lsp.TryStart(new LspServerConfig
-        {
-            Name = server.Name,
-            LanguageId = "test",
-            Transport = transport
-        }, sourcePath, "hello", directory.Path("."), out string lspError),
-            $"start in-process lua lsp ({lspError})");
+        Check(
+            lsp.TryStart(
+                new LspServerConfig
+                {
+                    Name = server.Name,
+                    LanguageId = "test",
+                    Transport = transport,
+                },
+                sourcePath,
+                "hello",
+                directory.Path("."),
+                out string lspError
+            ),
+            $"start in-process lua lsp ({lspError})"
+        );
         lsp.Pump();
         Check(lsp.IsInitialized, "in-process lua lsp initialized");
         Check(lsp.RequestHover(sourcePath, 0, 1), "request lua lsp hover");
@@ -2655,25 +3185,28 @@ internal static class Program
         bool hoverSeen = false;
         while (lsp.TryDequeueEvent(out LspEvent lspEvent))
         {
-            if (lspEvent.Kind == LspEventKind.Hover &&
-                lspEvent.Text.Contains("hover-doc", StringComparison.Ordinal))
+            if (
+                lspEvent.Kind == LspEventKind.Hover
+                && lspEvent.Text.Contains("hover-doc", StringComparison.Ordinal)
+            )
             {
                 hoverSeen = true;
             }
         }
         Check(hoverSeen, "in-process lua lsp hover event");
 
-        Check(lsp.RequestDefinition(sourcePath, 0, 1),
-            "request lua lsp definition");
+        Check(lsp.RequestDefinition(sourcePath, 0, 1), "request lua lsp definition");
         lsp.Pump();
         bool definitionSeen = false;
         while (lsp.TryDequeueEvent(out LspEvent lspEvent))
         {
-            if (lspEvent.Kind == LspEventKind.Definition &&
-                lspEvent.Locations.Count == 1 &&
-                lspEvent.Locations[0].Uri == "file:///test.tst" &&
-                lspEvent.Locations[0].Line == 0 &&
-                lspEvent.Locations[0].Character == 2)
+            if (
+                lspEvent.Kind == LspEventKind.Definition
+                && lspEvent.Locations.Count == 1
+                && lspEvent.Locations[0].Uri == "file:///test.tst"
+                && lspEvent.Locations[0].Line == 0
+                && lspEvent.Locations[0].Character == 2
+            )
             {
                 definitionSeen = true;
             }
@@ -2696,8 +3229,11 @@ internal static class Program
 
         public Func<string, long, bool>? PanelKeyHandler { get; private set; }
 
-        public int OpenPluginPanel(PluginPanelOptions options,
-            Func<string, long, bool>? onKey, string pluginId)
+        public int OpenPluginPanel(
+            PluginPanelOptions options,
+            Func<string, long, bool>? onKey,
+            string pluginId
+        )
         {
             PanelId = 1;
             PanelLines = options.Lines;
@@ -2705,32 +3241,20 @@ internal static class Program
             return PanelId;
         }
 
-        public void SetPluginPanelLines(int panelId,
-            IReadOnlyList<PluginPanelLine> lines) => PanelLines = lines;
+        public void SetPluginPanelLines(int panelId, IReadOnlyList<PluginPanelLine> lines) =>
+            PanelLines = lines;
 
-        public void SetPluginPanelTitle(int panelId, string title)
-        {
-        }
+        public void SetPluginPanelTitle(int panelId, string title) { }
 
-        public void SetPluginPanelFooter(int panelId, string footer)
-        {
-        }
+        public void SetPluginPanelFooter(int panelId, string footer) { }
 
-        public void SetPluginPanelSelected(int panelId, long selected)
-        {
-        }
+        public void SetPluginPanelSelected(int panelId, long selected) { }
 
-        public void SetPluginPanelSelectable(int panelId, bool selectable)
-        {
-        }
+        public void SetPluginPanelSelectable(int panelId, bool selectable) { }
 
-        public void ClosePluginPanel(int panelId)
-        {
-        }
+        public void ClosePluginPanel(int panelId) { }
 
-        public void ClosePluginPanels(string pluginId)
-        {
-        }
+        public void ClosePluginPanels(string pluginId) { }
 
         public string GetText() => string.Empty;
 
@@ -2756,8 +3280,7 @@ internal static class Program
             return true;
         }
 
-        public bool ReplaceRange(object? start, object? finish, string text,
-            out string error)
+        public bool ReplaceRange(object? start, object? finish, string text, out string error)
         {
             error = string.Empty;
             return true;
@@ -2765,15 +3288,15 @@ internal static class Program
 
         public void ShowMessage(string text, bool warning) => Messages.Add(text);
 
-        public void SetPluginStatus(string key, string? text)
-        {
-        }
+        public void SetPluginStatus(string key, string? text) { }
 
-        public void RequestPrompt(string label, Action<string?> callback) =>
-            callback(null);
+        public void RequestPrompt(string label, Action<string?> callback) => callback(null);
 
-        public void RequestSelect(string title, IReadOnlyList<string> items,
-            Action<int?> callback) => callback(null);
+        public void RequestSelect(
+            string title,
+            IReadOnlyList<string> items,
+            Action<int?> callback
+        ) => callback(null);
 
         public bool StartLsp(LspServerConfig config, out string error)
         {
@@ -2781,12 +3304,9 @@ internal static class Program
             return true;
         }
 
-        public void StopLsp(string? name)
-        {
-        }
+        public void StopLsp(string? name) { }
 
-        public bool ExecuteCommand(string name, IReadOnlyList<string> args,
-            out string error)
+        public bool ExecuteCommand(string name, IReadOnlyList<string> args, out string error)
         {
             error = string.Empty;
             return false;
@@ -2802,24 +3322,37 @@ internal static class Program
         using var home = new TempDir();
 
         string fallback = HexalPaths.ResolveDataDirectory(
-            binary.Path("."), home.Path("."), "grammars");
-        CheckEqual(fallback,
+            binary.Path("."),
+            home.Path("."),
+            "grammars"
+        );
+        CheckEqual(
+            fallback,
             System.IO.Path.Combine(home.Path("."), ".hexal", "data", "grammars"),
-            "fallback grammar path", "home data path");
+            "fallback grammar path",
+            "home data path"
+        );
 
-        string portableDirectory = System.IO.Path.Combine(binary.Path("."), "data",
-            "grammars");
+        string portableDirectory = System.IO.Path.Combine(binary.Path("."), "data", "grammars");
         Directory.CreateDirectory(portableDirectory);
         string portable = HexalPaths.ResolveDataDirectory(
-            binary.Path("."), home.Path("."), "grammars");
-        CheckEqual(portable, portableDirectory, "portable grammar path",
-            "binary data path");
+            binary.Path("."),
+            home.Path("."),
+            "grammars"
+        );
+        CheckEqual(portable, portableDirectory, "portable grammar path", "binary data path");
 
         string themeFallback = HexalPaths.ResolveDataDirectory(
-            binary.Path("."), home.Path("."), "themes");
-        CheckEqual(themeFallback,
+            binary.Path("."),
+            home.Path("."),
+            "themes"
+        );
+        CheckEqual(
+            themeFallback,
             System.IO.Path.Combine(home.Path("."), ".hexal", "data", "themes"),
-            "fallback theme path", "home data path");
+            "fallback theme path",
+            "home data path"
+        );
     }
 
     private static long ExpectedLineStart(byte[] text, long line)
@@ -2862,8 +3395,12 @@ internal static class Program
     {
         try
         {
-            using var stream = new FileStream(path, FileMode.Create, FileAccess.Write,
-                FileShare.None);
+            using var stream = new FileStream(
+                path,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None
+            );
             stream.Write(data);
             return true;
         }
@@ -2891,8 +3428,10 @@ internal static class Program
 
         public TempDir()
         {
-            _directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                $"hexal-tests-{Guid.NewGuid():N}");
+            _directory = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"hexal-tests-{Guid.NewGuid():N}"
+            );
             Directory.CreateDirectory(_directory);
         }
 
