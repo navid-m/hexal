@@ -1531,6 +1531,9 @@ internal static class Program
 
         var bundled = LanguageRegistry.LoadUserGrammars();
         Check(bundled.Find("ruby") is not null, "bundled ruby grammar loads");
+        Check(bundled.Find("rust") is not null, "bundled rust grammar loads");
+        Check(ReferenceEquals(bundled.Detect("main.rs"), bundled.Find("rust")),
+            "bundled rust extension detection");
         Check(bundled.Find("lua")?.IsUnindentKeyword("end") == true,
             "bundled lua unindents end");
         Check(bundled.Find("ruby")?.IsUnindentKeyword("end") == true,

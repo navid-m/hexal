@@ -1,0 +1,45 @@
+{
+    "id": "rust",
+    "name": "Rust",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 8 },
+    "autoIndent": true,
+    "autoClose": true,
+    "indentAfter": ["=>"],
+    "extensions": [".rs"],
+    "keywords": [
+        "as", "async", "await", "crate", "dyn", "extern", "fn", "impl",
+        "let", "mod", "move", "mut", "pub", "ref", "self", "Self",
+        "static", "struct", "super", "trait", "type", "unsafe", "use",
+        "where", "abstract", "become", "box", "do", "final", "gen",
+        "macro_rules", "override", "priv", "try", "typeof", "union",
+        "unsized", "virtual", "yield"
+    ],
+    "controlStatements": [
+        "break", "continue", "else", "for", "if", "loop", "match",
+        "return", "while"
+    ],
+    "types": [
+        "bool", "char", "str", "i8", "i16", "i32", "i64", "i128",
+        "isize", "u8", "u16", "u32", "u64", "u128", "usize", "f32",
+        "f64", "String", "Vec", "Option", "Result", "Box", "Rc", "Arc",
+        "RefCell", "Cell", "HashMap", "HashSet", "BTreeMap", "BTreeSet",
+        "Cow", "OsStr", "OsString", "Path", "PathBuf"
+    ],
+    "constants": ["true", "false", "None", "Some", "Ok", "Err"],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": ["\""],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "formatter": {
+        "command": "rustfmt",
+        "arguments": ["--edition", "2021"],
+        "input": "stdin",
+        "output": "stdout"
+    }
+}

@@ -24,8 +24,8 @@ architecture and observable behaviour as the C++ MVP:
 - **Lua plugins** through an isolated NLua state and the documented
   `hexal.*` API modules
 - **Bundled grammars and LSP plugins** for Lua, Go, XML, C#, C, C++, Python,
-  Cython, GLSL, Shell Script, Git Ignore, PowerShell, JSON, Fish Shell, and
-  Ruby; the first language server found in `PATH` is started automatically
+  Cython, GLSL, Shell Script, Git Ignore, PowerShell, JSON, Fish Shell, Ruby,
+  and Rust; the first language server found in `PATH` is started automatically
 
 ## Why this stack
 
@@ -594,6 +594,7 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | JSON | `.json`, `.jsonc`, `.jsonl`, `.ndjson`, `.geojson`, `.har`, `.webmanifest` | `vscode-json-languageserver` |
 | Fish Shell | `.fish` | `fish-lsp` |
 | Ruby | `.rb`, `.rake`, `.gemspec`, `.ru` | `ruby-lsp`, `solargraph` |
+| Rust | `.rs` | `rust-analyzer` |
 
 PowerShell Editor Services is launched through `pwsh` rather than as a
 standalone executable. Set `bundlePath` to the extracted PSES directory in
