@@ -50,6 +50,7 @@ public sealed class LuaPluginManager : IDisposable
         public LuaTable Hexal = null!;
         public PluginConfigStore Config = null!;
         public LuaLspCoordinator? Lsp;
+        public bool LspBinding;
         public bool Running;
     }
 
@@ -1280,15 +1281,93 @@ public sealed class LuaPluginManager : IDisposable
         _ = keymap;
         _ = config;
 
-        lua.DoString(Prelude);
+        internalApi["lsp_ensure"] = new Func<bool>(() => EnsureLsp(plugin) is not null);
+        ConfigureLazyLspModules(plugin);
 
-        var coordinator = new LuaLspCoordinator(lua, plugin.Id, plugin.Directory)
+        lua.DoString(Prelude);
+    }
+
+    private LuaLspCoordinator? EnsureLsp(LoadedPlugin plugin)
+    {
+        if (plugin.Lsp is not null)
         {
-            ReportError = message => _host.ReportPluginError(plugin.Id, message),
-            Host = _host as ILuaLspHost
-        };
-        plugin.Lsp = coordinator;
-        LuaLspModuleBinder.Bind(lua, plugin.Hexal, coordinator);
+            return plugin.Lsp;
+        }
+        if (plugin.LspBinding)
+        {
+            return null;
+        }
+
+        plugin.LspBinding = true;
+        try
+        {
+            var coordinator = new LuaLspCoordinator(plugin.Lua, plugin.Id,
+                plugin.Directory)
+            {
+                ReportError = message => _host.ReportPluginError(plugin.Id, message),
+                Host = _host as ILuaLspHost
+            };
+            plugin.Lsp = coordinator;
+            LuaLspModuleBinder.Bind(plugin.Lua, plugin.Hexal, coordinator);
+            return coordinator;
+        }
+        catch (Exception ex)
+        {
+            plugin.Lsp = null;
+            _host.ReportPluginError(plugin.Id,
+                $"LSP module initialization failed: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            plugin.LspBinding = false;
+        }
+    }
+
+    private static void ConfigureLazyLspModules(LoadedPlugin plugin)
+    {
+        Lua lua = plugin.Lua;
+        LuaTable root = plugin.Hexal;
+
+        foreach (string name in new[]
+                 {
+                     "async", "json", "fs", "log", "index", "process",
+                     "debug", "testing"
+                 })
+        {
+            if (root[name] is not LuaTable)
+            {
+                LuaTable module = NewTable(lua);
+                root[name] = module;
+            }
+        }
+
+        LuaTable meta = (LuaTable)lua.DoString(
+            "return { __index = function(t, k) " +
+            "if __hexal_host_api.lsp_ensure() then return rawget(t, k) end end }")[0]!;
+
+        LuaFunction setMetatable = (LuaFunction)lua["setmetatable"];
+        var lazyTables = new List<LuaTable>();
+        if (root["lsp"] is LuaTable lsp)
+        {
+            lazyTables.Add(lsp);
+        }
+        foreach (string name in new[]
+                 {
+                     "async", "json", "fs", "log", "index", "process",
+                     "debug", "testing"
+                 })
+        {
+            if (root[name] is LuaTable module)
+            {
+                lazyTables.Add(module);
+            }
+        }
+
+        foreach (LuaTable table in lazyTables)
+        {
+            setMetatable.Call(table, meta);
+        }
     }
 
     private bool AddBinding(LoadedPlugin plugin, string keys, string? command,
@@ -2030,6 +2109,41 @@ public sealed class LuaPluginManager : IDisposable
     private const string Prelude = """
         (function()
             local H = __hexal_host_api
+
+            local searchers = package.searchers or package.loaders
+            if searchers then
+                local additional = {
+                    "hexal.async", "hexal.json", "hexal.fs", "hexal.log",
+                    "hexal.index", "hexal.process", "hexal.debug",
+                    "hexal.testing",
+                }
+                table.insert(searchers, 2, function(name)
+                    local wanted = name == "hexal" or
+                        name == "hexal.lsp" or
+                        name:match("^hexal%.lsp%.") or
+                        name:match("^hexal%.testing%.")
+                    if not wanted then
+                        for _, module_name in ipairs(additional) do
+                            if name == module_name then
+                                wanted = true
+                                break
+                            end
+                        end
+                    end
+                    if wanted then
+                        H.lsp_ensure()
+                        local loaded = package.loaded[name]
+                        if loaded ~= nil then
+                            return function() return loaded end
+                        end
+                        local loader = package.preload[name]
+                        if type(loader) == "function" then
+                            return loader
+                        end
+                    end
+                    return "\n\tno lazy hexal module '" .. name .. "'"
+                end)
+            end
 
             local C = hexal.commands
             C.register = function(name, callback, description)

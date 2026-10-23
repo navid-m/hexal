@@ -59,28 +59,44 @@ public sealed class LanguageRegistry
 
         Array.Sort(files, StringComparer.OrdinalIgnoreCase);
 
-        foreach (string file in files)
+        // Parsing is CPU-bound and each definition is independent. Parse in
+        // parallel, then merge in file order so duplicate handling stays
+        // deterministic.
+        var parsed = new (LanguageDefinition? Definition, string? Error)[files.Length];
+        Parallel.For(0, files.Length, index =>
         {
-            string text;
+            string file = files[index];
             try
             {
-                text = File.ReadAllText(file);
+                string text = File.ReadAllText(file);
+                if (LanguageDefinition.TryParse(text, file,
+                        out LanguageDefinition? definition, out string error))
+                {
+                    parsed[index] = (definition, null);
+                }
+                else
+                {
+                    parsed[index] = (null, error);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                        NotSupportedException or ArgumentException)
             {
-                _errors.Add($"{Path.GetFileName(file)}: {ex.Message}");
-                continue;
+                parsed[index] = (null, ex.Message);
             }
+        });
 
-            if (!LanguageDefinition.TryParse(text, file, out LanguageDefinition? definition,
-                    out string error))
+        for (int index = 0; index < files.Length; ++index)
+        {
+            string file = files[index];
+            (LanguageDefinition? definition, string? error) = parsed[index];
+            if (definition is null)
             {
                 _errors.Add($"{Path.GetFileName(file)}: {error}");
                 continue;
             }
 
-            LanguageDefinition language = definition!;
+            LanguageDefinition language = definition;
             if (_byId.ContainsKey(language.Id))
             {
                 _errors.Add($"{Path.GetFileName(file)}: duplicate language id '{language.Id}'");

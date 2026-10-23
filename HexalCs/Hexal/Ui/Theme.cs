@@ -526,34 +526,48 @@ public sealed class ThemeRegistry
 
         Array.Sort(files, StringComparer.OrdinalIgnoreCase);
 
-        foreach (string file in files)
+        // Theme files are independent; parse them concurrently and merge in
+        // sorted file order for stable duplicate handling.
+        var parsed = new (Theme? Theme, string? Error)[files.Length];
+        Parallel.For(0, files.Length, index =>
         {
-            string text;
+            string file = files[index];
             try
             {
-                text = File.ReadAllText(file);
+                string text = File.ReadAllText(file);
+                if (Theme.TryParse(text, file, out Theme? theme, out string error))
+                {
+                    parsed[index] = (theme, null);
+                }
+                else
+                {
+                    parsed[index] = (null, error);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                                        NotSupportedException or ArgumentException)
             {
-                _errors.Add($"{Path.GetFileName(file)}: {ex.Message}");
-                continue;
+                parsed[index] = (null, ex.Message);
             }
+        });
 
-            if (!Theme.TryParse(text, file, out Theme? theme, out string error))
+        for (int index = 0; index < files.Length; ++index)
+        {
+            string file = files[index];
+            (Theme? theme, string? error) = parsed[index];
+            if (theme is null)
             {
                 _errors.Add($"{Path.GetFileName(file)}: {error}");
                 continue;
             }
 
-            Theme parsed = theme!;
-            if (_byId.ContainsKey(parsed.Id))
+            if (_byId.ContainsKey(theme.Id))
             {
-                _errors.Add($"{Path.GetFileName(file)}: duplicate theme id '{parsed.Id}'");
+                _errors.Add($"{Path.GetFileName(file)}: duplicate theme id '{theme.Id}'");
                 continue;
             }
 
-            AddTheme(parsed);
+            AddTheme(theme);
         }
     }
 

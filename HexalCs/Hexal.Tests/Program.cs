@@ -47,6 +47,7 @@ internal static class Program
         TestPluginReload();
         TestPluginProcessAndPanel();
         TestGitLogPlugin();
+        TestLazyCSharpPlugin();
         TestLuaLspRuntime();
         TestHexalPaths();
 
@@ -1576,6 +1577,8 @@ internal static class Program
             {{processCall}}
             assert(result.ok, result.error)
             assert(result.stdout:find("hello", 1, true) ~= nil, result.stdout)
+            assert(hexal.lsp.missing_api_key == nil,
+                "missing lazy LSP keys should return nil")
 
             local panel = hexal.ui.panel({
                 title = "Test",
@@ -1755,6 +1758,42 @@ internal static class Program
         {
             return false;
         }
+    }
+
+    private static void TestLazyCSharpPlugin()
+    {
+        string source = System.IO.Path.Combine(AppContext.BaseDirectory,
+            "data", "plugins", "csharp");
+        Check(Directory.Exists(source), "bundled csharp plugin exists");
+        if (!Directory.Exists(source))
+        {
+            return;
+        }
+
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "csharp");
+        Directory.CreateDirectory(plugin);
+        foreach (string file in Directory.GetFiles(source))
+        {
+            File.Copy(file, System.IO.Path.Combine(plugin,
+                System.IO.Path.GetFileName(file)));
+        }
+
+        var host = new FakeHost();
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+
+        CheckEqual(manager.Errors.Count, 0, "csharp plugin errors", "0");
+        CheckEqual(manager.Coordinators.Count, 0,
+            "csharp LSP is lazy at startup", "0");
+
+        manager.FireEvent("buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "csharp" });
+        CheckEqual(manager.Coordinators.Count, 1,
+            "csharp LSP starts for csharp buffers", "1");
+        CheckEqual(manager.Coordinators[0].Servers.Count, 1,
+            "csharp server registered", "1");
     }
 
     private static void TestLuaLspRuntime()
