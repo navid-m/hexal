@@ -23,6 +23,9 @@ architecture and observable behaviour as the C++ MVP:
   beside the executable, with viewport-only incremental syntax highlighting
 - **Lua plugins** through an isolated NLua state and the documented
   `hexal.*` API modules
+- **Experimental Debug Adapter Protocol support** with optional per-language
+  `debugger` configuration, `Ctrl+E` breakpoints and `:debug`/`:dbg-*`
+  commands; disable it with `"debugAdapter": false` in `.hexcfg`
 - **Bundled grammars and LSP plugins** for Lua, Go, XML, C#, C, C++, Python,
   Cython, GLSL, Shell Script, Git Ignore, PowerShell, JSON, Fish Shell, Ruby,
   and Rust; the first language server found in `PATH` is started automatically
@@ -131,8 +134,8 @@ Exit codes: `0` success, `1` terminal/fatal error, `2` invalid command line,
 `4` file error at startup.
 
 `--health` prints one row per loaded grammar with the availability of its
-language server, formatter and syntax highlighting. Pass a language id to show
-only that row.
+language server, formatter, debug adapter and syntax highlighting. Pass a
+language id to show only that row.
 
 ### Keys
 
@@ -152,6 +155,7 @@ only that row.
 | `d` / `D`, `Delete` | Delete the character/selection under the cursor |
 | `u` / `Ctrl+R` | Undo / redo |
 | `Ctrl+Space` | Request LSP completions in INSERT mode |
+| `Ctrl+E` | Toggle a debug breakpoint on the current line (experimental DAP) |
 | `:` | Open the Ex command line |
 | `Ctrl+P` | Open the command palette |
 | `/` | Search inside the current file (literal) |
@@ -264,6 +268,11 @@ support it. Pasting without a clipboard helper reports an error.
 | `:adi` | Detect and apply the current buffer's indentation style |
 | `:help` | Show a short key reminder |
 | `:debug-lsp`, `:dl` | Inspect live language-server traffic and client diagnostics |
+| `:debug [executable]`, `:dbg` | Start an experimental DAP session |
+| `:dbg-break` | Toggle a breakpoint on the current line |
+| `:dbg-cont`, `:dbg-next`, `:dbg-step`, `:dbg-out` | Continue or step the stopped debuggee |
+| `:dbg-pause`, `:dbg-stop` | Pause or stop the debug session |
+| `:debug-dap`, `:dd` | Inspect live debug-adapter traffic and state |
 
 Panes can be split repeatedly into a nested layout. Each pane keeps its own
 cursor, selection and viewport; panes showing the same buffer share edits and
@@ -366,6 +375,15 @@ Canonical schema:
         "output": "stdout",
         "timeout": 15000
     },
+    "debugger": {
+        "adapter": "lldb-dap",
+        "arguments": [],
+        "configuration": {
+            "request": "launch",
+            "program": "${executable}",
+            "cwd": "${workspace}"
+        }
+    },
     "formatOnSave": true
 }
 ```
@@ -391,6 +409,16 @@ Canonical schema:
   its contents.
 - Highlight categories are keyword, control statement, type, constant, string,
   comment, and number. Default text uses the terminal foreground.
+- `debugger` is optional. `debugger.adapter` names the DAP executable found in
+  `PATH` (for example `lldb-dap`, `codelldb`, `netcoredbg` or `dlv`).
+  `debugger.arguments` is an optional argument list passed to the adapter.
+  `debugger.configuration` is the DAP launch/attach payload. String values
+  expand `${workspace}`, `${file}`, `${fileDir}`, `${fileBasename}`,
+  `${fileBasenameNoExtension}` and `${executable}`. `${executable}` comes from
+  the optional argument to `:debug`; when omitted, Hexal tries common build
+  output paths next to the source and workspace.
+- The built-in `lldb-dap` adapter reference also falls back to versioned LLVM
+  binaries such as `lldb-dap-18` when the unsuffixed command is unavailable.
 - `:lang <id>` overrides auto-detection for the current buffer.
 
 ### Formatting
@@ -423,6 +451,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "autoDetectIndentationOnStartup": true,
     "startupBenchmarker": false,
     "syntaxHighlightPickerPreview": false,
+    "debugAdapter": true,
     "showDiffLines": true,
     "showGitIgnored": false,
     "confirmQuitWithoutSaving": true,
@@ -447,6 +476,10 @@ startup, plugin load/unload and editor initialization timings, then exposes a
 benchmarker is never created and no measurements are taken.
 `syntaxHighlightPickerPreview` is disabled by default and controls whether the
 file picker preview applies the detected language's syntax highlighting.
+
+`debugAdapter` is enabled by default and controls the experimental Debug
+Adapter Protocol integration. Set it to `false` to disable the `Ctrl+E`
+breakpoint toggle and all `:debug`/`:dbg-*` commands.
 
 `confirmQuitWithoutSaving` controls whether `:q` asks for confirmation when
 there are unsaved changes. When set to `false`, the quit is refused and `:q!`
@@ -571,6 +604,25 @@ Line and column values are zero-based. Columns count Unicode scalars, not bytes
 or display cells. `replace_range` accepts numeric UTF-8 byte offsets or
 `{ line = ..., column = ... }` tables. Edits made through the API participate
 in normal undo/redo and mark the buffer dirty.
+
+### Debugging (experimental)
+
+Debug Adapter Protocol support is intentionally small and can be disabled with
+`"debugAdapter": false` in `.hexcfg`. Languages opt in with the optional
+`debugger` object described in the grammar schema. `Ctrl+E` toggles a
+breakpoint on the current line; breakpoints are drawn in the marker column.
+`:debug [executable]` starts the configured adapter, `:dbg-cont` continues,
+`:dbg-next`/`:dbg-step`/`:dbg-out` step, `:dbg-pause` pauses and `:dbg-stop`
+ends the session. When execution stops, Hexal moves to the reported source
+location and marks it in the gutter.
+
+The bundled C, C++, Rust, Zig, D, Hare, Swift, Vala, NASM and Crystal grammars
+use `lldb-dap`; Python uses `debugpy.adapter`, C# uses `netcoredbg`, and Dart
+uses `dart debug_adapter`. The client supports launch,
+attach, breakpoints, continue, pause and the three stepping requests. It does
+not yet implement `runInTerminal`, variable/scopes inspection or a dedicated
+call-stack panel. `:debug-dap` (or `:dd`) shows the protocol log and current
+state.
 
 ### Language servers
 

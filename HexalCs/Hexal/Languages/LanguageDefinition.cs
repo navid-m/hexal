@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hexal.Core;
+using Hexal.Dap;
 
 namespace Hexal.Languages;
 
@@ -50,7 +52,7 @@ public sealed class LanguageDefinition
         FormatterConfig? formatter, bool? formatOnSave,
         IndentationSettings? indentation, bool autoIndent, bool autoClose,
         bool traditionalMarkupLanguage, List<string> indentAfter,
-        List<string> unindentBefore)
+        List<string> unindentBefore, DebuggerConfig? debugger)
     {
         Id = id;
         Name = name;
@@ -74,6 +76,7 @@ public sealed class LanguageDefinition
         TraditionalMarkupLanguage = traditionalMarkupLanguage;
         IndentAfter = indentAfter;
         UnindentBefore = unindentBefore;
+        Debugger = debugger;
 
         LineCommentBytes = Encode(lineComment);
         BlockCommentStartBytes = Encode(blockCommentStart);
@@ -142,6 +145,11 @@ public sealed class LanguageDefinition
     /// closing line to unindent.
     /// </summary>
     public IReadOnlyList<string> UnindentBefore { get; }
+
+    /// <summary>
+    /// Optional Debug Adapter Protocol configuration for this language.
+    /// </summary>
+    public DebuggerConfig? Debugger { get; }
 
     /// <summary>
     /// True when a line's leading text exactly matches one of the grammar's
@@ -368,6 +376,46 @@ public sealed class LanguageDefinition
                 };
             }
 
+            DebuggerConfig? debugger = null;
+            if (root.TryGetProperty("debugger", out JsonElement debuggerElement))
+            {
+                if (debuggerElement.ValueKind != JsonValueKind.Object)
+                {
+                    error = "debugger must be a JSON object";
+                    return false;
+                }
+
+                string adapter = (GetString(debuggerElement, "adapter") ?? string.Empty)
+                    .Trim();
+                if (adapter.Length == 0)
+                {
+                    error = "debugger.adapter is required";
+                    return false;
+                }
+
+                var debuggerConfiguration = new JsonObject();
+                if (debuggerElement.TryGetProperty("configuration",
+                        out JsonElement configurationElement))
+                {
+                    if (configurationElement.ValueKind != JsonValueKind.Object)
+                    {
+                        error = "debugger.configuration must be a JSON object";
+                        return false;
+                    }
+
+                    debuggerConfiguration =
+                        JsonNode.Parse(configurationElement.GetRawText()) as JsonObject ??
+                        new JsonObject();
+                }
+
+                debugger = new DebuggerConfig
+                {
+                    Adapter = adapter,
+                    Arguments = ReadStringArray(debuggerElement, "arguments").ToList(),
+                    Configuration = debuggerConfiguration
+                };
+            }
+
             IndentationSettings? indentation = null;
             if (root.TryGetProperty("indentation", out JsonElement indentationElement))
             {
@@ -445,7 +493,7 @@ public sealed class LanguageDefinition
                 controlStatements, types, constants, lineComment, blockStart,
                 blockEnd, quoteCharacters, escapeCharacter, highlightNumbers,
                 formatter, formatOnSave, indentation, autoIndent, autoClose,
-                traditionalMarkupLanguage, indentAfter, unindentBefore);
+                traditionalMarkupLanguage, indentAfter, unindentBefore, debugger);
             return true;
         }
         catch (JsonException ex)

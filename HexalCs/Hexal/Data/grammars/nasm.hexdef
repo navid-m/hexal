@@ -451,5 +451,14 @@
         ],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "debugger": {
+        "adapter": "lldb-dap",
+        "configuration": {
+            "request": "launch",
+            "program": "${executable}",
+            "cwd": "${workspace}",
+            "stopOnEntry": false
+        }
+    }
 }

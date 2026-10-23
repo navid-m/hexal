@@ -1,11 +1,12 @@
+using Hexal.Dap;
 using Hexal.Lsp;
 using Hexal.Scripting;
 
 namespace Hexal.Languages;
 
 /// <summary>
-/// The health of one language's editor support. A null language server or
-/// formatter means that none is configured for the language.
+/// The health of one language's editor support. A null language server,
+/// formatter or debug adapter means that none is configured for the language.
 /// </summary>
 public sealed record LanguageHealthEntry(
     string Language,
@@ -13,6 +14,8 @@ public sealed record LanguageHealthEntry(
     bool LanguageServerAvailable,
     string? Formatter,
     bool FormatterAvailable,
+    string? DebugAdapter,
+    bool DebugAdapterAvailable,
     bool Highlighting);
 
 public sealed class LanguageHealthReport
@@ -112,12 +115,18 @@ public static class LanguageHealth
             bool formatterAvailable = formatter is not null &&
                                       ExecutableFinder.Find(formatter) is not null;
 
+            string? debugAdapter = language.Debugger?.Adapter;
+            bool debugAdapterAvailable = debugAdapter is not null &&
+                                         DapManager.FindAdapter(debugAdapter) is not null;
+
             entries.Add(new LanguageHealthEntry(
                 language.Id,
                 selected?.Name,
                 selected?.Available ?? false,
                 formatter,
                 formatterAvailable,
+                debugAdapter,
+                debugAdapterAvailable,
                 Highlighting: true));
         }
 

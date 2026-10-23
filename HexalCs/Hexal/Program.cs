@@ -257,10 +257,18 @@ internal static class Program
               :rcfg            Reload configuration and grammars
               :help            Show a short key reminder
               :debug-lsp, :dl  Inspect LSP traffic and diagnostics
+              :debug [exe]     Start an experimental DAP debug session
+              :dbg-cont        Continue the stopped debuggee
+              :dbg-next        Step over
+              :dbg-step        Step in
+              :dbg-out         Step out
+              :dbg-stop        Stop the debug session
+              :debug-dap, :dd  Inspect DAP traffic and state
 
             Modes and keys:
               i / I            Enter INSERT mode
               Ctrl+Space       Request LSP completions in INSERT mode
+              Ctrl+E           Toggle a breakpoint on the current line
               Esc              Return to NORMAL mode
               h j k l          Move left / down / up / right
               arrows           Move (Home/End/PageUp/PageDown supported)

@@ -34,5 +34,16 @@
         "quoteCharacters": ["\"", "'"],
         "escapeCharacter": "\\"
     },
-    "numbers": true
+    "numbers": true,
+    "debugger": {
+        "adapter": "netcoredbg",
+        "arguments": [
+            "--interpreter=vscode"
+        ],
+        "configuration": {
+            "request": "launch",
+            "program": "${executable}",
+            "cwd": "${workspace}"
+        }
+    }
 }

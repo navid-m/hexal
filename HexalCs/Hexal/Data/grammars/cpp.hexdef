@@ -43,5 +43,14 @@
         "arguments": ["--assume-filename={file}"],
         "input": "stdin",
         "output": "stdout"
+    },
+    "debugger": {
+        "adapter": "lldb-dap",
+        "configuration": {
+            "request": "launch",
+            "program": "${executable}",
+            "cwd": "${workspace}",
+            "stopOnEntry": false
+        }
     }
 }

@@ -2,23 +2,26 @@ namespace Hexal.Languages;
 
 /// <summary>
 /// Renders the <c>--health</c> report in a compact, fixed-width table. The
-/// layout mirrors Helix's health table without the debug adapter, textobject
-/// and indent columns.
+/// layout mirrors Helix's health table with language server, formatter,
+/// debug-adapter and highlighting columns.
 /// </summary>
 public static class LanguageHealthTable
 {
     private const int LanguageWidth = 14;
     private const int ServerWidth = 32;
     private const int FormatterWidth = 18;
+    private const int DebugAdapterWidth = 18;
 
     public static void Write(IReadOnlyList<LanguageHealthEntry> entries,
         TextWriter writer)
     {
-        WriteRow(writer, "Language", "Language server", "Formatter", "Highlight");
+        WriteRow(writer, "Language", "Language server", "Formatter",
+            "Debug adapter", "Highlight");
         foreach (LanguageHealthEntry entry in entries)
         {
             WriteRow(writer, entry.Language, ServerCell(entry),
-                FormatterCell(entry), entry.Highlighting ? "✓" : "✘");
+                FormatterCell(entry), DebugAdapterCell(entry),
+                entry.Highlighting ? "✓" : "✘");
         }
     }
 
@@ -42,13 +45,24 @@ public static class LanguageHealthTable
         return $"{(entry.FormatterAvailable ? "✓" : "✘")} {entry.Formatter}";
     }
 
+    private static string DebugAdapterCell(LanguageHealthEntry entry)
+    {
+        if (entry.DebugAdapter is null)
+        {
+            return "None";
+        }
+
+        return $"{(entry.DebugAdapterAvailable ? "✓" : "✘")} {entry.DebugAdapter}";
+    }
+
     private static void WriteRow(TextWriter writer, string language, string server,
-        string formatter, string highlight)
+        string formatter, string debugAdapter, string highlight)
     {
         writer.WriteLine(
             $"{Cell(language, LanguageWidth)} " +
             $"{Cell(server, ServerWidth)} " +
             $"{Cell(formatter, FormatterWidth)} " +
+            $"{Cell(debugAdapter, DebugAdapterWidth)} " +
             highlight);
     }
 

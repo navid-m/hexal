@@ -71,6 +71,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
     private void UnloadPlugins()
     {
+        DisposeDebugger();
         if (_plugins is null)
         {
             return;

@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json.Nodes;
 using Hexal.Core;
+using Hexal.Dap;
 using Hexal.Languages;
 using Hexal.Lsp;
 using Hexal.Scripting;
@@ -42,6 +44,7 @@ internal static class Program
         TestLspStartsForNewFile();
         TestLspDocumentSymbols();
         TestLspCompletions();
+        TestDapLldbBreakpoint();
         TestLanguageGrammars();
         TestThemes();
         TestPluginConfigStore();
@@ -990,6 +993,7 @@ internal static class Program
               config.AutoDetectIndentationOnStartup &&
               !config.StartupBenchmarker &&
               !config.SyntaxHighlightPickerPreview &&
+              config.DebugAdapter &&
               config.CentralRepositoryUrl == HexalConfig.DefaultCentralRepositoryUrl,
             "whitespace settings have defaults");
 
@@ -1037,6 +1041,20 @@ internal static class Program
             "parse nested startup benchmarker setting");
         Check(config is not null && config.StartupBenchmarker,
             "nested startup benchmarker setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"debugAdapter\": false}",
+                "test.hexcfg", out config, out error),
+            "parse debug adapter setting");
+        Check(config is not null && !config.DebugAdapter,
+            "debug adapter setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"debug_adapter\": false}}",
+                "test.hexcfg", out config, out error),
+            "parse nested debug adapter setting");
+        Check(config is not null && !config.DebugAdapter,
+            "nested debug adapter setting is read");
 
         Check(HexalConfig.TryParse(
                 "{\"showDiffLines\": false, \"showGitIgnored\": true, " +
@@ -1432,6 +1450,137 @@ internal static class Program
         Check(seen, "completion event received");
     }
 
+    private static void TestDapLldbBreakpoint()
+    {
+        string? adapter = ExecutableFinder.Find("lldb-dap") ??
+                          ExecutableFinder.Find("lldb-dap-18");
+        string? compiler = ExecutableFinder.Find("cc") ??
+                           ExecutableFinder.Find("gcc");
+        if (adapter is null || compiler is null)
+        {
+            Console.Error.WriteLine(
+                "lldb-dap or a C compiler unavailable; skipping DAP integration test");
+            return;
+        }
+
+        using var directory = new TempDir();
+        string source = directory.Path("main.c");
+        string executable = directory.Path("main");
+        File.WriteAllText(source, """
+            int main(void) {
+                int value = 42;
+                return value == 42 ? 0 : 1;
+            }
+            """, new UTF8Encoding(false));
+
+        Check(RunCommand(compiler, directory.Path("."), "-g", "-O0", "-o",
+                executable, source), "compile C debugger target");
+        if (!File.Exists(executable))
+        {
+            return;
+        }
+
+        string fullSource = System.IO.Path.GetFullPath(source);
+        var breakpoints = new Dictionary<string, SortedSet<int>>
+        {
+            [fullSource] = new SortedSet<int> { 1 }
+        };
+        var launch = new JsonObject
+        {
+            ["request"] = "launch",
+            ["program"] = executable,
+            ["cwd"] = directory.Path("."),
+            ["stopOnEntry"] = false
+        };
+
+        using var manager = new DapManager();
+        Check(manager.TryStart(new DebuggerConfig
+        {
+            Adapter = "lldb-dap"
+        }, fullSource, directory.Path("."), launch, breakpoints,
+            out string error), $"start lldb-dap ({error})");
+        if (!manager.IsRunning)
+        {
+            return;
+        }
+
+        bool sawStopped = false;
+        bool sawLocation = false;
+        int stoppedLine = -1;
+        string stoppedPath = string.Empty;
+        string dapError = string.Empty;
+        long deadline = Environment.TickCount64 + 15000;
+        while (Environment.TickCount64 < deadline &&
+               (!sawStopped || !sawLocation))
+        {
+            while (manager.TryDequeueEvent(out DapEvent dapEvent))
+            {
+                switch (dapEvent.Kind)
+                {
+                    case DapEventKind.Stopped:
+                        sawStopped = true;
+                        break;
+                    case DapEventKind.StoppedLocation:
+                        sawLocation = true;
+                        stoppedPath = dapEvent.Path;
+                        stoppedLine = dapEvent.Line;
+                        break;
+                    case DapEventKind.Error:
+                        dapError = dapEvent.Message;
+                        break;
+                    case DapEventKind.Terminated:
+                        deadline = 0;
+                        break;
+                }
+            }
+
+            if (!manager.IsRunning || deadline == 0)
+            {
+                break;
+            }
+            Thread.Sleep(25);
+        }
+
+        if (!sawStopped || !sawLocation)
+        {
+            Console.Error.WriteLine(manager.BuildDebugReport());
+        }
+        Check(sawStopped, "DAP stopped at breakpoint");
+        Check(sawLocation, $"DAP reported a stop location ({dapError})");
+        CheckEqual(stoppedLine, 1, "DAP stopped line", "1");
+        CheckEqual(stoppedPath.Length > 0
+                ? System.IO.Path.GetFullPath(stoppedPath)
+                : string.Empty,
+            fullSource, "DAP stopped path", fullSource);
+
+        if (sawStopped)
+        {
+            Check(manager.Continue(), "DAP continue");
+            bool sawExit = false;
+            deadline = Environment.TickCount64 + 10000;
+            while (Environment.TickCount64 < deadline)
+            {
+                while (manager.TryDequeueEvent(out DapEvent dapEvent))
+                {
+                    if (dapEvent.Kind is DapEventKind.Exited or
+                        DapEventKind.Terminated)
+                    {
+                        sawExit = true;
+                    }
+                }
+
+                if (sawExit || !manager.IsRunning)
+                {
+                    break;
+                }
+                Thread.Sleep(25);
+            }
+            Check(sawExit || !manager.IsRunning, "DAP program exits after continue");
+        }
+
+        manager.Stop();
+    }
+
     private static void TestLanguageGrammars()
     {
         const string grammarJson = """
@@ -1517,6 +1666,30 @@ internal static class Program
             "unindent keyword recognized");
         Check(!markup.IsUnindentKeyword("ended"),
             "partial unindent keyword rejected");
+
+        Check(LanguageDefinition.TryParse("""
+            {
+                "id": "debuggable",
+                "debugger": {
+                    "adapter": "lldb-dap",
+                    "arguments": ["--stdio"],
+                    "configuration": {
+                        "request": "launch",
+                        "program": "${executable}",
+                        "cwd": "${workspace}"
+                    }
+                }
+            }
+            """, "debuggable.hexdef", out LanguageDefinition? debuggable,
+                out parseError), "parse debugger grammar");
+        Check(debuggable?.Debugger is not null,
+            "debugger metadata parsed");
+        CheckEqual(debuggable?.Debugger?.Adapter, "lldb-dap",
+            "debug adapter", "lldb-dap");
+        CheckEqual(debuggable?.Debugger?.Arguments.Count, 1,
+            "debug adapter argument count", "1");
+        CheckEqual(debuggable?.Debugger?.Configuration["program"]?.GetValue<string>(),
+            "${executable}", "debug program placeholder", "${executable}");
 
         using var directory = new TempDir();
         string grammarPath = directory.Path("test.hexdef");

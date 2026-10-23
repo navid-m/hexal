@@ -68,13 +68,16 @@ public sealed partial class Editor
         ('A', "LSP code actions"),
         ('S', "Document symbols"),
         ('D', "Workspace diagnostics"),
-        ('d', "Document diagnostics")
+        ('d', "Document diagnostics"),
+        ('b', "Toggle breakpoint")
     };
 
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cw", "cfg", "rcfg", "lang", "help",
-        "about", "a", "debug-lsp", "dl", "s", "t", "gi", "gdl", "smc", "vs",
+        "about", "a", "debug-lsp", "dl", "debug", "dbg", "dbg-break",
+        "dbg-cont", "dbg-next", "dbg-step", "dbg-out", "dbg-pause",
+        "dbg-stop", "debug-dap", "dd", "s", "t", "gi", "gdl", "smc", "vs",
         "hs", "cb", "adi"
     };
 
@@ -95,6 +98,17 @@ public sealed partial class Editor
             ["a"] = "Alias for :about.",
             ["debug-lsp"] = "Show live language-server traffic and diagnostics.",
             ["dl"] = "Alias for :debug-lsp.",
+            ["debug"] = "Start a debug session, optionally with an executable.",
+            ["dbg"] = "Alias for :debug.",
+            ["dbg-break"] = "Toggle a breakpoint on the current line.",
+            ["dbg-cont"] = "Continue the stopped debuggee.",
+            ["dbg-next"] = "Step over the current source line.",
+            ["dbg-step"] = "Step into the current call.",
+            ["dbg-out"] = "Step out of the current function.",
+            ["dbg-pause"] = "Pause the running debuggee.",
+            ["dbg-stop"] = "Stop the debug session.",
+            ["debug-dap"] = "Show live debug-adapter traffic and state.",
+            ["dd"] = "Alias for :debug-dap.",
             ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
             ["t"] = "Indent with tabs and set the visual tab width (:t <width>).",
             ["gi"] = "Toggle showing git-ignored files in the sidebar and pickers.",
@@ -477,7 +491,7 @@ public sealed partial class Editor
                         _formatOperation is not null ||
                         _pickerTask is not null ||
                         _pickerPreviewTask is not null || previewPending ||
-                        _lsp.IsRunning || _lspDirty;
+                        _lsp.IsRunning || _lspDirty || _dap.IsRunning;
             int timeout = previewPending ? 16 : busy ? 50 : -1;
             if (!_terminal.ReadEvent(out InputEvent inputEvent, timeout))
             {
@@ -589,6 +603,12 @@ public sealed partial class Editor
             return _running;
         }
 
+        if (_dapDebugVisible)
+        {
+            HandleDapDebugInput(inputEvent);
+            return _running;
+        }
+
         if (inputEvent.Key is not (Key.ScrollUp or Key.ScrollDown))
         {
             _freeScroll = false;
@@ -623,6 +643,18 @@ public sealed partial class Editor
             _mode is Mode.Normal or Mode.Insert or Mode.Select)
         {
             ToggleSidebar();
+            return _running;
+        }
+
+        if (inputEvent.Key == Key.Character && inputEvent.Ctrl &&
+            inputEvent.Character.Value is 'e' or 'E' &&
+            _pickerKind == PickerKind.None &&
+            _prompt == PromptKind.None &&
+            !_spaceMenuOpen &&
+            !_findActive &&
+            _mode is Mode.Normal or Mode.Insert or Mode.Select)
+        {
+            ToggleBreakpoint();
             return _running;
         }
 
@@ -2283,6 +2315,10 @@ public sealed partial class Editor
                 return;
             case 'd':
                 ShowProblems(workspace: false);
+                return;
+            case 'b':
+            case 'B':
+                ToggleBreakpoint();
                 return;
             default:
                 // Helix closes the which-key menu when an unbound key is
@@ -4203,6 +4239,84 @@ public sealed partial class Editor
                 }
                 OpenLspDebug();
                 return;
+
+            case "debug":
+            case "dbg":
+                StartDebugSession(arguments);
+                return;
+
+            case "dbg-break":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-break");
+                    return;
+                }
+                ToggleBreakpoint();
+                return;
+
+            case "dbg-cont":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-cont");
+                    return;
+                }
+                ContinueDebugSession();
+                return;
+
+            case "dbg-next":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-next");
+                    return;
+                }
+                NextDebugSession();
+                return;
+
+            case "dbg-step":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-step");
+                    return;
+                }
+                StepInDebugSession();
+                return;
+
+            case "dbg-out":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-out");
+                    return;
+                }
+                StepOutDebugSession();
+                return;
+
+            case "dbg-pause":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-pause");
+                    return;
+                }
+                PauseDebugSession();
+                return;
+
+            case "dbg-stop":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :dbg-stop");
+                    return;
+                }
+                StopDebugSession();
+                return;
+
+            case "debug-dap":
+            case "dd":
+                if (arguments.Count != 0)
+                {
+                    SetError($"usage: :{name}");
+                    return;
+                }
+                OpenDapDebug();
+                return;
         }
 
         if (_plugins is not null && _plugins.HasCommand(name))
@@ -4552,6 +4666,7 @@ public sealed partial class Editor
         }
 
         _config = config;
+        ApplyDebugAdapterConfiguration();
         if (config.StartupBenchmarker && _benchmark is null)
         {
             _benchmark = new StartupBenchmark();
@@ -4702,6 +4817,11 @@ public sealed partial class Editor
         }
 
         if (PollLsp())
+        {
+            redraw = true;
+        }
+
+        if (PollDap())
         {
             redraw = true;
         }
@@ -6513,14 +6633,12 @@ public sealed partial class Editor
     // RENDERING
     // -----------------------------------------------------------------------
 
-    private int DiffMarkerWidth() => _showDiffLines ? 1 : 0;
-
     private int GutterWidth() => GutterWidthFor(_columns - _editorLeft);
 
     private int GutterWidthFor(int width)
     {
         int digits = DigitCount(_document.LineCount);
-        int marker = DiffMarkerWidth();
+        int marker = EditorMarkerWidth();
         int gutter = digits + 1 + marker;
         if (width < gutter + 10)
         {
@@ -6602,6 +6720,12 @@ public sealed partial class Editor
         {
             text += "  " + pluginStatus;
         }
+
+        string debugStatus = DebugStatusText();
+        if (debugStatus.Length > 0)
+        {
+            text += "  " + debugStatus;
+        }
         return text;
     }
 
@@ -6623,7 +6747,7 @@ public sealed partial class Editor
             return;
         }
 
-        int markerWidth = DiffMarkerWidth();
+        int markerWidth = EditorMarkerWidth();
         int digits = gutter - 1 - markerWidth;
         long current = CursorLine();
         long total = _document.LineCount;
@@ -6643,10 +6767,22 @@ public sealed partial class Editor
                 x = 0;
             }
 
-            if (markerWidth > 0 &&
-                TryGetDiffMarker(line, out char marker, out Style markerStyle))
+            if (markerWidth > 0)
             {
-                _screen.Put(_editorLeft, row, marker, markerStyle);
+                if (IsBreakpointAt(line))
+                {
+                    _screen.Put(_editorLeft, row, '\u25CF', _theme.ErrorStyle);
+                }
+                else if (IsCurrentDebugLine(line))
+                {
+                    _screen.Put(_editorLeft, row, '\u25B6',
+                        _theme.WarningStyle);
+                }
+                else if (TryGetDiffMarker(line, out char marker,
+                             out Style markerStyle))
+                {
+                    _screen.Put(_editorLeft, row, marker, markerStyle);
+                }
             }
 
             Style style = line == current
@@ -7933,6 +8069,7 @@ public sealed partial class Editor
         RenderAbout();
         RenderPluginManager();
         RenderLspDebug();
+        RenderDapDebug();
         RenderPluginPanel();
         RenderStartupBenchmark();
 

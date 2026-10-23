@@ -22,6 +22,7 @@ public sealed class HexalConfig
             "autoDetectIndentationOnStartup": true,
             "startupBenchmarker": false,
             "syntaxHighlightPickerPreview": false,
+            "debugAdapter": true,
             "showDiffLines": true,
             "showGitIgnored": false,
             "confirmQuitWithoutSaving": true,
@@ -70,6 +71,12 @@ public sealed class HexalConfig
     /// syntax highlighting. Disabled by default.
     /// </summary>
     public bool SyntaxHighlightPickerPreview { get; init; }
+
+    /// <summary>
+    /// Enables the experimental Debug Adapter Protocol integration,
+    /// including the Ctrl+E breakpoint toggle and the :debug commands.
+    /// </summary>
+    public bool DebugAdapter { get; init; } = true;
 
     public bool ShowDiffLines { get; init; } = true;
 
@@ -179,6 +186,8 @@ public sealed class HexalConfig
             bool? syntaxHighlightPickerPreview =
                 ReadBool(root, "syntaxHighlightPickerPreview") ??
                 ReadBool(root, "syntax_highlight_picker_preview");
+            bool? debugAdapter = ReadBool(root, "debugAdapter") ??
+                                 ReadBool(root, "debug_adapter");
             bool? showDiffLines = ReadBool(root, "showDiffLines") ??
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
@@ -212,6 +221,8 @@ public sealed class HexalConfig
                 syntaxHighlightPickerPreview ??=
                     ReadBool(editor, "syntaxHighlightPickerPreview") ??
                     ReadBool(editor, "syntax_highlight_picker_preview");
+                debugAdapter ??= ReadBool(editor, "debugAdapter") ??
+                                 ReadBool(editor, "debug_adapter");
                 showDiffLines ??= ReadBool(editor, "showDiffLines") ??
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
@@ -239,6 +250,7 @@ public sealed class HexalConfig
                 StartupBenchmarker = startupBenchmarker ?? false,
                 SyntaxHighlightPickerPreview =
                     syntaxHighlightPickerPreview ?? false,
+                DebugAdapter = debugAdapter ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,

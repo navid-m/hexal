@@ -39,5 +39,18 @@
         "arguments": ["-"],
         "input": "stdin",
         "output": "stdout"
+    },
+    "debugger": {
+        "adapter": "python3",
+        "arguments": [
+            "-m",
+            "debugpy.adapter"
+        ],
+        "configuration": {
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "${workspace}",
+            "justMyCode": true
+        }
     }
 }

@@ -127,5 +127,16 @@
         "input": "stdin",
         "output": "stdout",
         "timeout": 15000
+    },
+    "debugger": {
+        "adapter": "dart",
+        "arguments": [
+            "debug_adapter"
+        ],
+        "configuration": {
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "${workspace}"
+        }
     }
 }

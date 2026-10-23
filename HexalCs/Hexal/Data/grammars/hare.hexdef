@@ -98,5 +98,14 @@
     "numbers": true,
     "indentAfter": [
         "=>"
-    ]
+    ],
+    "debugger": {
+        "adapter": "lldb-dap",
+        "configuration": {
+            "request": "launch",
+            "program": "${executable}",
+            "cwd": "${workspace}",
+            "stopOnEntry": false
+        }
+    }
 }
