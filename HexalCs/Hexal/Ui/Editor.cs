@@ -107,7 +107,7 @@ public sealed partial class Editor
     private Screen _screen = new();
 
     private Document _document;
-    private readonly string _workspaceRoot;
+    private string _workspaceRoot;
     private readonly bool _openFilePickerOnStart;
 
     private struct FileStamp

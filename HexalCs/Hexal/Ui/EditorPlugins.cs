@@ -120,8 +120,24 @@ public sealed partial class Editor
             case 'T':
                 ToggleSelectedPlugin();
                 return;
+            case 's':
+            case 'S':
+                OpenSelectedPluginSource();
+                return;
+            case 'r':
+                ReloadSelectedPlugin();
+                return;
+            case 'R':
+                ReloadAllPlugins();
+                return;
         }
     }
+
+    private PluginInfo? SelectedPluginManagerItem()
+        => _pluginManagerSelected >= 0 &&
+           _pluginManagerSelected < _pluginManagerItems.Count
+            ? _pluginManagerItems[_pluginManagerSelected]
+            : null;
 
     private void MovePluginManagerSelection(int delta)
     {
@@ -183,6 +199,170 @@ public sealed partial class Editor
         SetMessage($"Plugin {plugin.Id} {(enable ? "enabled" : "disabled")}.");
         RefreshPluginManagerItems(keepSelection: true);
         _forceFullRedraw = true;
+    }
+
+    private void OpenSelectedPluginSource()
+    {
+        PluginInfo? plugin = SelectedPluginManagerItem();
+        if (plugin is null)
+        {
+            return;
+        }
+
+        string directory = plugin.Directory;
+        if (directory.Length == 0 && plugin.EntryPath.Length > 0)
+        {
+            directory = Path.GetDirectoryName(plugin.EntryPath) ?? string.Empty;
+        }
+
+        if (directory.Length == 0)
+        {
+            SetError($"plugin directory is unavailable for {plugin.Id}");
+            return;
+        }
+
+        string fullDirectory;
+        try
+        {
+            fullDirectory = Path.GetFullPath(directory);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            SetError($"invalid plugin directory: {ex.Message}");
+            return;
+        }
+
+        if (!Directory.Exists(fullDirectory))
+        {
+            SetError($"plugin directory not found: {fullDirectory}");
+            return;
+        }
+
+        string entryPath = plugin.EntryPath.Length > 0
+            ? plugin.EntryPath
+            : Path.Combine(fullDirectory, "init.lua");
+
+        if (!MakeDocumentPathsAbsolute())
+        {
+            return;
+        }
+
+        _workspaceRoot = fullDirectory;
+        try
+        {
+            Directory.SetCurrentDirectory(fullDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            SetError($"cannot change working directory: {ex.Message}");
+        }
+
+        if (_sidebarVisible)
+        {
+            ExpandSidebarToPath(entryPath);
+            RefreshSidebar(entryPath);
+        }
+
+        ClosePluginManager();
+        RequestOpen(entryPath, force: false);
+        if (_prompt == PromptKind.None)
+        {
+            SetMessage($"Working directory: {fullDirectory}");
+        }
+    }
+
+    private bool MakeDocumentPathsAbsolute()
+    {
+        try
+        {
+            if (_diffBaselinePath.Length > 0 &&
+                !Path.IsPathRooted(_diffBaselinePath))
+            {
+                _diffBaselinePath = Path.GetFullPath(_diffBaselinePath);
+            }
+
+            foreach (EditorPane pane in AllPanes())
+            {
+                if (pane.Document.Path is { } path && !Path.IsPathRooted(path))
+                {
+                    pane.Document.ChangePath(Path.GetFullPath(path));
+                }
+
+                if (pane.DiffBaselinePath.Length > 0 &&
+                    !Path.IsPathRooted(pane.DiffBaselinePath))
+                {
+                    pane.DiffBaselinePath =
+                        Path.GetFullPath(pane.DiffBaselinePath);
+                }
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException or IOException or
+                                   UnauthorizedAccessException)
+        {
+            SetError($"cannot preserve document paths: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void ReloadSelectedPlugin()
+    {
+        PluginInfo? plugin = SelectedPluginManagerItem();
+        if (_plugins is null || plugin is null)
+        {
+            return;
+        }
+
+        bool reloaded = _plugins.ReloadPlugin(plugin.Id, out string error);
+        RefreshPluginManagerItems(keepSelection: true);
+        _forceFullRedraw = true;
+
+        if (!reloaded)
+        {
+            SetError(error);
+            return;
+        }
+
+        PluginInfo? current = SelectedPluginManagerItem();
+        if (current is not null && current.Running)
+        {
+            FirePluginStartedAndOpened();
+        }
+        SetMessage($"Reloaded plugin {plugin.Id}.");
+    }
+
+    private void ReloadAllPlugins()
+    {
+        if (_plugins is null)
+        {
+            return;
+        }
+
+        bool reloaded = _plugins.ReloadAll(out string error);
+        RefreshPluginManagerItems(keepSelection: true);
+        _forceFullRedraw = true;
+
+        FirePluginStartedAndOpened();
+        if (!reloaded)
+        {
+            SetError(error);
+            return;
+        }
+
+        SetMessage("Reloaded all plugins.");
+    }
+
+    private void FirePluginStartedAndOpened()
+    {
+        _plugins?.FireEvent("editor_started", new Dictionary<string, object?>
+        {
+            ["api_version"] = 1
+        });
+        _plugins?.FireEvent("buffer_opened", CurrentBufferData());
+        _plugins?.ActivateLuaLsp();
     }
 
     private int PluginManagerHeight()
@@ -276,7 +456,7 @@ public sealed partial class Editor
         }
 
         _screen.PutString(x + 2, y + height - 2,
-            "j/k move  ·  Enter/Space toggle  ·  Esc close",
+            "j/k move · Enter toggle · s source · r reload · R all · Esc close",
             _theme.MutedStyle, width - 4);
     }
 

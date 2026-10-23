@@ -43,6 +43,7 @@ internal static class Program
         TestThemes();
         TestPluginConfigStore();
         TestPluginMetadataAndToggle();
+        TestPluginReload();
         TestLuaLspRuntime();
         TestHexalPaths();
 
@@ -1439,6 +1440,44 @@ internal static class Program
             Check(!manager.Plugins.Single().Enabled,
                 "persisted plugin reports disabled");
         }
+    }
+
+    private static void TestPluginReload()
+    {
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "reloadable");
+        Directory.CreateDirectory(plugin);
+
+        void WritePlugin(string command)
+        {
+            File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+                name = "Reloadable"
+                version = "1.0"
+                """, new UTF8Encoding(false));
+            File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), $"""
+                hexal.commands.register("{command}", function() end, "Test command")
+                """, new UTF8Encoding(false));
+        }
+
+        WritePlugin("first");
+
+        var host = new FakeHost();
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+        Check(manager.HasCommand("first"), "reload initial command registered");
+        Check(!manager.HasCommand("second"), "reload second command absent");
+
+        WritePlugin("second");
+        Check(manager.ReloadPlugin("reloadable", out string error),
+            $"reload plugin ({error})");
+        Check(manager.HasCommand("second"), "reloaded command registered");
+        Check(!manager.HasCommand("first"), "reloaded old command removed");
+
+        WritePlugin("third");
+        Check(manager.ReloadAll(out error), $"reload all plugins ({error})");
+        Check(manager.HasCommand("third"), "reload all command registered");
+        Check(!manager.HasCommand("second"), "reload all old command removed");
     }
 
     private static void TestLuaLspRuntime()

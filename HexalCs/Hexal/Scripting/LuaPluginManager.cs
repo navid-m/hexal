@@ -212,6 +212,84 @@ public sealed class LuaPluginManager : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Re-reads a plugin manifest and entry point from disk, replacing the
+    /// running instance. Disabled plugins stay disabled.
+    /// </summary>
+    public bool ReloadPlugin(string id, out string error)
+    {
+        error = string.Empty;
+        PluginEntry? entry = FindEntry(id);
+        if (entry is null)
+        {
+            error = $"unknown plugin '{id}'";
+            return false;
+        }
+
+        PluginEntry reloaded = ReloadEntry(entry);
+        if (reloaded.Error.Length > 0)
+        {
+            error = $"{reloaded.Id}: {reloaded.Error}";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Re-scans the plugin directory and restarts every enabled plugin. This
+    /// also discovers plugins that were added after startup.
+    /// </summary>
+    public bool ReloadAll(out string error)
+    {
+        error = string.Empty;
+
+        foreach (PluginEntry entry in _entries.ToArray())
+        {
+            StopPlugin(entry);
+        }
+
+        _entries.Clear();
+        _errors.Clear();
+        _commands.Clear();
+        _keyBindings.Clear();
+        _subscriptions.Clear();
+        _pendingKeys.Clear();
+        LoadAll();
+
+        if (_errors.Count > 0)
+        {
+            error = _errors[0];
+            return false;
+        }
+
+        return true;
+    }
+
+    private PluginEntry ReloadEntry(PluginEntry entry)
+    {
+        int index = _entries.IndexOf(entry);
+        string directory = entry.Directory;
+        string oldId = entry.Id;
+
+        StopPlugin(entry);
+        _entries.Remove(entry);
+        _errors.RemoveAll(error =>
+            error.StartsWith(oldId + ": ", StringComparison.Ordinal));
+
+        DiscoverPlugin(directory, _disabledPlugins);
+
+        PluginEntry reloaded = _entries[^1];
+        int last = _entries.Count - 1;
+        if (index >= 0 && index < last)
+        {
+            _entries.RemoveAt(last);
+            _entries.Insert(index, reloaded);
+        }
+
+        return reloaded;
+    }
+
     private List<string> CommandsForPlugin(string pluginId)
     {
         var names = new List<string>();
