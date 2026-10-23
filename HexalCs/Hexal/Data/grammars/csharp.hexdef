@@ -36,9 +36,8 @@
     },
     "numbers": true,
     "formatter": {
-        "command": "dotnet",
+        "command": "csharpier",
         "arguments": [
-            "csharpier",
             "format",
             "--stdin-path",
             "{path}"
