@@ -153,6 +153,7 @@ internal static class Program
               :cfg             Open the configuration file
               :rcfg            Reload configuration and grammars
               :help            Show a short key reminder
+              :debug-lsp, :dl  Inspect LSP traffic and diagnostics
 
             Modes and keys:
               i / I            Enter INSERT mode

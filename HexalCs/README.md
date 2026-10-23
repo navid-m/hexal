@@ -226,6 +226,7 @@ Pasting without a clipboard helper reports an error.
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
 | `:help` | Show a short key reminder |
+| `:debug-lsp`, `:dl` | Inspect live language-server traffic and client diagnostics |
 
 `:w`/`:wq` return immediately. The status bar shows `[saving]` while the worker
 writes; scrolling and editing remain available. If an edit lands after the
@@ -486,7 +487,19 @@ save notifications, and displays diagnostic counts in the status bar.
 `hexal.lsp.on_diagnostics` callbacks receive the server, URI and diagnostic
 objects. Servers are stopped and restarted when the buffer or language changes.
 If the executable is missing, the next candidate is attempted; absence of a
-server does not affect normal editing.
+server does not affect normal editing. When configuring OmniSharp manually,
+include `--languageserver` in its arguments; without that flag it writes
+newline-delimited host events instead of framed LSP messages, and the client
+will wait forever for an `initialize` response.
+
+Run `:debug-lsp` (or `:dl`) to open a full-screen, live view of the language
+server state and recent traffic. It shows the command and arguments, process
+ID, initialization state, pending requests and the JSON-RPC messages exchanged
+with the server, plus its stderr and any unframed raw stdout. Use `j`/`k`, the
+arrow keys, `PageUp`/
+`PageDown` and `Home`/`End` to scroll, `y` to copy the complete report to the
+system clipboard, and `c` to clear the captured log. The same report notes the
+path of the persistent `~/.hexal/hexal.log` file.
 
 ### Lua language servers
 

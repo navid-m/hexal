@@ -15,12 +15,18 @@ namespace Hexal.Lsp;
 /// </summary>
 public sealed class LspManager : IDisposable
 {
+    private const int MaxLogEntries = 4000;
+    private const int MaxLogEntryLength = 16 * 1024;
+
     private readonly object _stateLock = new();
     private readonly object _writeLock = new();
+    private readonly object _logLock = new();
     private readonly ConcurrentQueue<LspEvent> _events = new();
     private readonly Dictionary<long, string> _pendingRequests = new();
     private readonly Dictionary<string, List<LspDiagnostic>> _diagnostics =
         new(StringComparer.Ordinal);
+    private readonly Queue<LspLogEntry> _log = new();
+    private long _droppedLogEntries;
 
     private Process? _process;
     private ILspServerTransport? _transport;
@@ -39,6 +45,11 @@ public sealed class LspManager : IDisposable
     private bool _initialized;
     private bool _workspaceDiagnosticsSupported;
     private bool _disposed;
+
+    private sealed record LspLogEntry(
+        DateTime Timestamp,
+        string Channel,
+        string Text);
 
     public bool IsRunning
     {
@@ -69,6 +80,199 @@ public sealed class LspManager : IDisposable
             lock (_stateLock)
             {
                 return _config?.Name ?? string.Empty;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds a self-contained diagnostic report for the LSP debug modal. The
+    /// report includes the client state, the server command line and the
+    /// recent JSON-RPC/stderr traffic captured by this manager.
+    /// </summary>
+    public string BuildDebugReport()
+    {
+        string serverName;
+        string command;
+        string arguments;
+        string transportKind;
+        string rootPath;
+        string rootUri;
+        string documentUri;
+        bool running;
+        bool initialized;
+        bool workspaceDiagnostics;
+        long version;
+        int processId = -1;
+        int pendingCount;
+        string pendingMethods;
+        int diagnosticDocuments;
+
+        lock (_stateLock)
+        {
+            serverName = _config?.Name ?? string.Empty;
+            command = _config?.Command ?? string.Empty;
+            arguments = _config is null
+                ? string.Empty
+                : string.Join(' ', _config.Arguments);
+            transportKind = _transport is not null
+                ? "in-process"
+                : _process is not null ? "stdio" : "none";
+            rootPath = _rootPath;
+            rootUri = _rootUri;
+            documentUri = _documentUri;
+            running = _process is not null || _transport is not null;
+            initialized = _initialized;
+            workspaceDiagnostics = _workspaceDiagnosticsSupported;
+            version = _version;
+            pendingCount = _pendingRequests.Count;
+            pendingMethods = string.Join(", ", _pendingRequests.Values
+                .Distinct(StringComparer.Ordinal));
+            diagnosticDocuments = _diagnostics.Count;
+
+            if (_process is not null)
+            {
+                try
+                {
+                    processId = _process.Id;
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or
+                                           NotSupportedException)
+                {
+                    processId = -1;
+                }
+            }
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("Hexal LSP diagnostics");
+        builder.Append("Generated: ").AppendLine(
+            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        builder.Append("Server: ").AppendLine(serverName.Length > 0
+            ? serverName
+            : "(none)");
+        builder.Append("Command: ").AppendLine(command.Length > 0
+            ? command
+            : "(none)");
+        builder.Append("Arguments: ").AppendLine(arguments.Length > 0
+            ? arguments
+            : "(none)");
+        builder.Append("Transport: ").AppendLine(transportKind);
+        builder.Append("State: ")
+            .Append(running ? "running" : "stopped")
+            .Append(initialized ? ", initialized" : ", not initialized")
+            .AppendLine();
+        builder.Append("Process ID: ").AppendLine(processId > 0
+            ? processId.ToString()
+            : "(none)");
+        builder.Append("Document: ").AppendLine(documentUri.Length > 0
+            ? documentUri
+            : "(none)");
+        builder.Append("Root: ").AppendLine(rootPath.Length > 0
+            ? $"{rootPath}  ({rootUri})"
+            : "(none)");
+        builder.Append("Document version: ").AppendLine(version.ToString());
+        builder.Append("Pending requests: ").Append(pendingCount);
+        if (pendingMethods.Length > 0)
+        {
+            builder.Append("  ").Append(pendingMethods);
+        }
+        builder.AppendLine();
+        builder.Append("Diagnostic documents: ").AppendLine(
+            diagnosticDocuments.ToString());
+        builder.Append("Workspace diagnostics: ").AppendLine(
+            workspaceDiagnostics ? "supported" : "not supported");
+        builder.Append("File log: ").AppendLine(HexalPaths.LogPath);
+        builder.AppendLine();
+
+        lock (_logLock)
+        {
+            builder.Append("Log entries: ").Append(_log.Count);
+            if (_droppedLogEntries > 0)
+            {
+                builder.Append(" (").Append(_droppedLogEntries)
+                    .Append(" oldest dropped)");
+            }
+            builder.AppendLine();
+            builder.AppendLine("----- LSP log (oldest first) -----");
+            foreach (LspLogEntry entry in _log)
+            {
+                builder.Append(entry.Timestamp.ToString("HH:mm:ss.fff"))
+                    .Append(' ')
+                    .Append(entry.Channel)
+                    .Append(' ')
+                    .AppendLine(entry.Text);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    public void ClearLog()
+    {
+        lock (_logLock)
+        {
+            _log.Clear();
+            _droppedLogEntries = 0;
+        }
+
+        LogInfo("log cleared");
+    }
+
+    private void LogInfo(string text) => Log("info", text);
+
+    private void LogTraffic(string channel, string text) => Log(channel, text);
+
+    private void LogOutbound(JsonObject message, string json)
+    {
+        // Full-document didChange messages are sent on every burst of typing.
+        // Logging their payload would bury the protocol traffic being debugged.
+        if (message["method"] is JsonValue methodValue &&
+            methodValue.TryGetValue(out string? method) &&
+            method == "textDocument/didChange")
+        {
+            int characters = 0;
+            if (message["params"] is JsonObject parameters &&
+                parameters["contentChanges"] is JsonArray changes)
+            {
+                foreach (JsonNode? change in changes)
+                {
+                    if (change is JsonObject item &&
+                        item["text"] is JsonValue textValue &&
+                        textValue.TryGetValue(out string? text))
+                    {
+                        characters += text?.Length ?? 0;
+                    }
+                }
+            }
+
+            LogTraffic("-->", $"textDocument/didChange (full document, " +
+                              $"{characters} characters)");
+            return;
+        }
+
+        LogTraffic("-->", json);
+    }
+
+    private void Log(string channel, string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        if (text.Length > MaxLogEntryLength)
+        {
+            text = text[..MaxLogEntryLength] +
+                   $"\n… truncated ({text.Length} chars total)";
+        }
+
+        lock (_logLock)
+        {
+            _log.Enqueue(new LspLogEntry(DateTime.Now, channel, text));
+            while (_log.Count > MaxLogEntries)
+            {
+                _log.Dequeue();
+                ++_droppedLogEntries;
             }
         }
     }
@@ -146,6 +350,7 @@ public sealed class LspManager : IDisposable
                     });
                 };
 
+                LogInfo($"starting in-process LSP: {config.Name} for {transportPath}");
                 SendInitializeLocked();
                 Enqueue(new LspEvent
                 {
@@ -208,6 +413,11 @@ public sealed class LspManager : IDisposable
                 startInfo.ArgumentList.Add(argument);
             }
 
+            string arguments = string.Join(' ', config.Arguments);
+            LogInfo($"starting {config.Name}: {executable}" +
+                    (arguments.Length > 0 ? $" {arguments}" : string.Empty) +
+                    $" (cwd {workingDirectory})");
+
             try
             {
                 _process = Process.Start(startInfo);
@@ -217,6 +427,20 @@ public sealed class LspManager : IDisposable
                     return false;
                 }
 
+                int processId = -1;
+                try
+                {
+                    processId = _process.Id;
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or
+                                           NotSupportedException)
+                {
+                    processId = -1;
+                }
+
+                LogInfo(processId > 0
+                    ? $"process started (pid {processId})"
+                    : "process started");
                 _input = _process.StandardInput.BaseStream;
                 _cancellation = new CancellationTokenSource();
                 CancellationToken token = _cancellation.Token;
@@ -602,6 +826,7 @@ public sealed class LspManager : IDisposable
                 break;
             }
 
+            LogTraffic("<--", message);
             try
             {
                 HandleMessage(Encoding.UTF8.GetBytes(message));
@@ -610,6 +835,7 @@ public sealed class LspManager : IDisposable
                                        InvalidOperationException or
                                        ArgumentException)
             {
+                LogInfo($"invalid LSP message: {ex.Message}");
                 Enqueue(new LspEvent
                 {
                     Kind = LspEventKind.Error,
@@ -678,6 +904,8 @@ public sealed class LspManager : IDisposable
                 }
             }
         };
+
+        _pendingRequests[_initializeId] = "initialize";
 
         var message = new JsonObject
         {
@@ -784,12 +1012,15 @@ public sealed class LspManager : IDisposable
         {
             try
             {
-                transport.Send(message.ToJsonString());
+                string json = message.ToJsonString();
+                LogOutbound(message, json);
+                transport.Send(json);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or
                                        InvalidOperationException or
                                        System.Text.Json.JsonException)
             {
+                LogInfo($"send failed: {ex.Message}");
                 Enqueue(new LspEvent
                 {
                     Kind = LspEventKind.Error,
@@ -807,7 +1038,9 @@ public sealed class LspManager : IDisposable
 
         try
         {
-            byte[] body = Encoding.UTF8.GetBytes(message.ToJsonString());
+            string json = message.ToJsonString();
+            LogOutbound(message, json);
+            byte[] body = Encoding.UTF8.GetBytes(json);
             byte[] header = Encoding.ASCII.GetBytes(
                 $"Content-Length: {body.Length}\r\n\r\n");
 
@@ -821,6 +1054,7 @@ public sealed class LspManager : IDisposable
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or
                                    InvalidOperationException)
         {
+            LogInfo($"send failed: {ex.Message}");
             Enqueue(new LspEvent
             {
                 Kind = LspEventKind.Error,
@@ -849,10 +1083,21 @@ public sealed class LspManager : IDisposable
                 byte[] body = ReadBody(output, contentLength);
                 if (body.Length != contentLength)
                 {
+                    LogInfo($"incomplete message body ({body.Length}/{contentLength} bytes)");
                     break;
                 }
 
-                HandleMessage(body);
+                LogTraffic("<--", Encoding.UTF8.GetString(body));
+                try
+                {
+                    HandleMessage(body);
+                }
+                catch (Exception ex) when (ex is JsonException or
+                                           InvalidOperationException or
+                                           ArgumentException)
+                {
+                    LogInfo($"invalid LSP message: {ex.Message}");
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or
@@ -860,6 +1105,7 @@ public sealed class LspManager : IDisposable
         {
             if (!token.IsCancellationRequested)
             {
+                LogInfo($"read failed: {ex.Message}");
                 Enqueue(new LspEvent
                 {
                     Kind = LspEventKind.Error,
@@ -872,6 +1118,7 @@ public sealed class LspManager : IDisposable
         {
             if (!token.IsCancellationRequested)
             {
+                LogInfo("server output closed");
                 Enqueue(new LspEvent
                 {
                     Kind = LspEventKind.Stopped,
@@ -895,6 +1142,7 @@ public sealed class LspManager : IDisposable
 
                 if (line.Length > 0)
                 {
+                    LogTraffic("stderr", line);
                     HexalPaths.Log($"LSP stderr [{ServerName}]: {line}");
                 }
             }
@@ -954,6 +1202,8 @@ public sealed class LspManager : IDisposable
     {
         lock (_stateLock)
         {
+            _pendingRequests.Remove(_initializeId);
+
             if (_process is null && _transport is null)
             {
                 return;
@@ -984,6 +1234,7 @@ public sealed class LspManager : IDisposable
                 _workspaceDiagnosticsSupported = true;
             }
 
+            LogInfo("initialize response received");
             SendInitializedAndOpenLocked();
         }
     }
@@ -1174,6 +1425,7 @@ public sealed class LspManager : IDisposable
             string message = parameters.TryGetProperty("message", out JsonElement text)
                 ? text.GetString() ?? string.Empty
                 : string.Empty;
+            LogTraffic("server", message);
             Enqueue(new LspEvent
             {
                 Kind = LspEventKind.Error,
@@ -1186,6 +1438,7 @@ public sealed class LspManager : IDisposable
             string message = parameters.TryGetProperty("message", out JsonElement text)
                 ? text.GetString() ?? string.Empty
                 : string.Empty;
+            LogTraffic("server", message);
             HexalPaths.Log($"LSP [{_config?.Name}]: {message}");
         }
     }
@@ -1582,7 +1835,7 @@ public sealed class LspManager : IDisposable
         };
     }
 
-    private static int ReadHeaders(Stream stream)
+    private int ReadHeaders(Stream stream)
     {
         int contentLength = -1;
 
@@ -1599,21 +1852,26 @@ public sealed class LspManager : IDisposable
             }
 
             int separator = line.IndexOf(':');
-            if (separator <= 0)
+            string name = separator > 0 ? line[..separator].Trim() : string.Empty;
+            if (string.Equals(name, "Content-Length",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (int.TryParse(line[(separator + 1)..].Trim(), out int length))
+                {
+                    contentLength = length;
+                }
+                continue;
+            }
+
+            if (string.Equals(name, "Content-Type", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            string name = line[..separator].Trim();
-            if (!string.Equals(name, "Content-Length", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (int.TryParse(line[(separator + 1)..].Trim(), out int length))
-            {
-                contentLength = length;
-            }
+            // Servers invoked without their stdio/LSP flag often emit plain
+            // newline-delimited logs instead of framed JSON-RPC. Surface those
+            // lines in the debug log instead of silently waiting for a header.
+            LogTraffic("raw", line);
         }
     }
 
@@ -1682,6 +1940,7 @@ public sealed class LspManager : IDisposable
             return;
         }
 
+        LogInfo($"stopping {_config?.Name ?? "language server"}");
         _cancellation?.Cancel();
 
         if (_process is not null)

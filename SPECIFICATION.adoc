@@ -834,6 +834,9 @@ Required initial capabilities:
     - Process diagnostics.
     - Display diagnostics without blocking the UI.
     - Shut down processes cleanly.
+    - Expose recent JSON-RPC traffic, stderr and client state through
+      :debug-lsp (alias :dl) for troubleshooting without leaving the
+      editor. The report MUST be scrollable and copyable.
 
 The architecture SHOULD allow future support for:
 
@@ -1826,6 +1829,7 @@ Example:
       :cfg                Open configuration
       :rcfg               Reload configuration
       :lang <language>    Set the current language
+      :debug-lsp, :dl     Inspect LSP traffic and diagnostics
       :sf <pattern>       Search filenames
       :g                  Open the file tree
       :sv                 Split the current pane vertically

@@ -35,6 +35,7 @@ internal static class Program
         TestHexalConfig();
         TestFormatterRunner();
         TestLspPositions();
+        TestLspDebugReport();
         TestLanguageGrammars();
         TestThemes();
         TestPluginConfigStore();
@@ -851,6 +852,82 @@ internal static class Program
             "byte after emoji", "3");
         CheckEqual(LspPositions.ByteOffsetToUtf16Column(line, 6), 4,
             "byte past end", "4");
+    }
+
+    private sealed class FakeLspTransport : ILspServerTransport
+    {
+        public readonly List<string> Sent = new();
+        public readonly Queue<string> Incoming = new();
+
+        public bool IsAlive => true;
+
+        public Action? Disconnected { get; set; }
+
+        public void Send(string message) => Sent.Add(message);
+
+        public bool TryReceive(out string message)
+        {
+            if (Incoming.Count > 0)
+            {
+                message = Incoming.Dequeue();
+                return true;
+            }
+
+            message = string.Empty;
+            return false;
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private static void TestLspDebugReport()
+    {
+        string path = Path.GetTempFileName();
+        File.WriteAllText(path, "class C {}\n");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        bool started = manager.TryStart(new LspServerConfig
+        {
+            Name = "Fake",
+            Transport = transport,
+            LanguageId = "csharp"
+        }, path, "class C {}\n", Path.GetDirectoryName(path), out string startError);
+
+        Check(started, "fake LSP started", startError);
+        CheckEqual(transport.Sent.Count, 1,
+            "fake transport send count", "initialize request");
+        Check(manager.BuildDebugReport().Contains("Server: Fake",
+            StringComparison.Ordinal), "debug report includes server name");
+        Check(manager.BuildDebugReport().Contains("-->",
+            StringComparison.Ordinal), "debug report includes outbound traffic");
+
+        transport.Incoming.Enqueue(
+            """{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        manager.Pump();
+
+        string report = manager.BuildDebugReport();
+        Check(report.Contains("<--", StringComparison.Ordinal),
+            "debug report includes inbound traffic");
+        Check(report.Contains("initialize response received", StringComparison.Ordinal),
+            "debug report includes lifecycle messages");
+        Check(report.Contains("initialized", StringComparison.Ordinal),
+            "debug report includes initialized state");
+
+        manager.ClearLog();
+        Check(manager.BuildDebugReport().Contains("log cleared",
+            StringComparison.Ordinal), "debug report log can be cleared");
+
+        manager.Stop();
+        string stopped = manager.BuildDebugReport();
+        Check(stopped.Contains("State: stopped", StringComparison.Ordinal),
+            "debug report shows stopped state");
+        Check(stopped.Contains("stopping Fake", StringComparison.Ordinal),
+            "debug report logs server shutdown");
+
+        File.Delete(path);
     }
 
     private static void TestLanguageGrammars()

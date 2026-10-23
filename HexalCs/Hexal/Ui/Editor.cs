@@ -71,7 +71,7 @@ public sealed partial class Editor
     private static readonly string[] BuiltinCommands =
     {
         "e", "w", "wq", "q", "fmt", "cfg", "rcfg", "lang", "help", "about", "a",
-        "s", "t"
+        "debug-lsp", "dl", "s", "t"
     };
 
     private static readonly Dictionary<string, string> BuiltinCommandDescriptions =
@@ -88,6 +88,8 @@ public sealed partial class Editor
             ["help"] = "Show a short reminder of the available keys.",
             ["about"] = "Show information about Hexal itself.",
             ["a"] = "Alias for :about.",
+            ["debug-lsp"] = "Show live language-server traffic and diagnostics.",
+            ["dl"] = "Alias for :debug-lsp.",
             ["s"] = "Indent with spaces; :s <width> also sets the indent width.",
             ["t"] = "Indent with tabs and set the visual tab width (:t <width>)."
         };
@@ -516,6 +518,12 @@ public sealed partial class Editor
         if (_pluginManagerVisible)
         {
             HandlePluginManagerInput(inputEvent);
+            return _running;
+        }
+
+        if (_lspDebugVisible)
+        {
+            HandleLspDebugInput(inputEvent);
             return _running;
         }
 
@@ -3770,6 +3778,16 @@ public sealed partial class Editor
                     return;
                 }
                 OpenAbout();
+                return;
+
+            case "debug-lsp":
+            case "dl":
+                if (arguments.Count != 0)
+                {
+                    SetError($"usage: :{name}");
+                    return;
+                }
+                OpenLspDebug();
                 return;
         }
 
@@ -7226,6 +7244,7 @@ public sealed partial class Editor
         RenderHover();
         RenderAbout();
         RenderPluginManager();
+        RenderLspDebug();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)
