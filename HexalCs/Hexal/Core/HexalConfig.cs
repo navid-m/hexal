@@ -16,6 +16,7 @@ public sealed class HexalConfig
             "trimTrailingWhitespaceOnSave": false,
             "smartBackspace": true,
             "autoDetectIndentationOnStartup": true,
+            "startupBenchmarker": false,
             "showDiffLines": true,
             "showGitIgnored": false,
             "confirmQuitWithoutSaving": true,
@@ -45,6 +46,12 @@ public sealed class HexalConfig
     /// width instead of relying on the language defaults.
     /// </summary>
     public bool AutoDetectIndentationOnStartup { get; init; } = true;
+
+    /// <summary>
+    /// When true, records startup, plugin and shutdown timings and exposes the
+    /// benchmark modal through the command palette.
+    /// </summary>
+    public bool StartupBenchmarker { get; init; }
 
     public bool ShowDiffLines { get; init; } = true;
 
@@ -146,6 +153,8 @@ public sealed class HexalConfig
             bool? autoDetectIndentationOnStartup =
                 ReadBool(root, "autoDetectIndentationOnStartup") ??
                 ReadBool(root, "auto_detect_indentation_on_startup");
+            bool? startupBenchmarker = ReadBool(root, "startupBenchmarker") ??
+                                       ReadBool(root, "startup_benchmarker");
             bool? showDiffLines = ReadBool(root, "showDiffLines") ??
                                   ReadBool(root, "show_diff_lines");
             bool? showGitIgnored = ReadBool(root, "showGitIgnored") ??
@@ -170,6 +179,9 @@ public sealed class HexalConfig
                 autoDetectIndentationOnStartup ??=
                     ReadBool(editor, "autoDetectIndentationOnStartup") ??
                     ReadBool(editor, "auto_detect_indentation_on_startup");
+                startupBenchmarker ??=
+                    ReadBool(editor, "startupBenchmarker") ??
+                    ReadBool(editor, "startup_benchmarker");
                 showDiffLines ??= ReadBool(editor, "showDiffLines") ??
                                   ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??= ReadBool(editor, "showGitIgnored") ??
@@ -191,6 +203,7 @@ public sealed class HexalConfig
                 SmartBackspace = smartBackspace ?? true,
                 AutoDetectIndentationOnStartup =
                     autoDetectIndentationOnStartup ?? true,
+                StartupBenchmarker = startupBenchmarker ?? false,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,

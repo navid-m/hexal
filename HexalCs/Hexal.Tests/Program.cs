@@ -983,7 +983,8 @@ internal static class Program
             "display settings have defaults");
         Check(config is not null && !config.TrimTrailingWhitespaceOnSave &&
               config.SmartBackspace &&
-              config.AutoDetectIndentationOnStartup,
+              config.AutoDetectIndentationOnStartup &&
+              !config.StartupBenchmarker,
             "whitespace settings have defaults");
 
         Check(HexalConfig.TryParse(
@@ -1016,6 +1017,20 @@ internal static class Program
             "parse nested auto-detect indentation setting");
         Check(config is not null && !config.AutoDetectIndentationOnStartup,
             "nested auto-detect indentation setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"startupBenchmarker\": true}",
+                "test.hexcfg", out config, out error),
+            "parse startup benchmarker setting");
+        Check(config is not null && config.StartupBenchmarker,
+            "startup benchmarker setting is read");
+
+        Check(HexalConfig.TryParse(
+                "{\"editor\": {\"startup_benchmarker\": true}}",
+                "test.hexcfg", out config, out error),
+            "parse nested startup benchmarker setting");
+        Check(config is not null && config.StartupBenchmarker,
+            "nested startup benchmarker setting is read");
 
         Check(HexalConfig.TryParse(
                 "{\"showDiffLines\": false, \"showGitIgnored\": true, " +

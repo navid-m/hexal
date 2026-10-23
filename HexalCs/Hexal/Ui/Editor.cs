@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using Hexal.Core;
@@ -111,6 +112,7 @@ public sealed partial class Editor
     private Document _document;
     private string _workspaceRoot;
     private readonly bool _openFilePickerOnStart;
+    private StartupBenchmark? _benchmark;
 
     private struct FileStamp
     {
@@ -364,19 +366,35 @@ public sealed partial class Editor
         _document = document;
         _workspaceRoot = ResolveWorkspaceRoot(workspaceRoot);
         _openFilePickerOnStart = openFilePicker;
-        _languages = LanguageRegistry.LoadUserGrammars();
         _config = HexalConfig.LoadDefault(out string configError);
+        if (_config.StartupBenchmarker)
+        {
+            _benchmark = new StartupBenchmark();
+        }
+
         _showDiffLines = _config.ShowDiffLines;
         _showGitIgnored = _config.ShowGitIgnored;
         _searchMatchCase = _config.SearchMatchCaseEnabled;
+
+        long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        _languages = LanguageRegistry.LoadUserGrammars();
+        _benchmark?.AddSince("Internal", "Grammar registry", phaseStart,
+            $"{_languages.Languages.Count} definitions");
+
+        phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         _themes = ThemeRegistry.LoadDefault(out string themeError);
+        _benchmark?.AddSince("Internal", "Theme registry", phaseStart,
+            $"{_themes.Themes.Count} themes");
         _theme = _themes.ActiveTheme;
+
+        phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         RefreshLanguage();
         AutoDetectIndentationOnOpen();
         RefreshFileStamp();
         RefreshDiffLines();
         SnapCursor();
         InitializePanes();
+        _benchmark?.AddSince("Internal", "Editor initialization", phaseStart);
 
         if (_languages.Errors.Count > 0)
         {
@@ -537,6 +555,12 @@ public sealed partial class Editor
         if (_pluginPanelVisible)
         {
             HandlePluginPanelInput(inputEvent);
+            return _running;
+        }
+
+        if (_benchmarkVisible)
+        {
+            HandleStartupBenchmarkInput(inputEvent);
             return _running;
         }
 
@@ -4508,6 +4532,18 @@ public sealed partial class Editor
         }
 
         _config = config;
+        if (config.StartupBenchmarker && _benchmark is null)
+        {
+            _benchmark = new StartupBenchmark();
+            _plugins?.SetBenchmark(_benchmark);
+        }
+        else if (!config.StartupBenchmarker && _benchmark is not null)
+        {
+            _plugins?.SetBenchmark(null);
+            _benchmark = null;
+            _benchmarkVisible = false;
+        }
+
         _showDiffLines = config.ShowDiffLines;
         _showGitIgnored = config.ShowGitIgnored;
         _searchMatchCase = config.SearchMatchCaseEnabled;
@@ -7810,6 +7846,7 @@ public sealed partial class Editor
         RenderPluginManager();
         RenderLspDebug();
         RenderPluginPanel();
+        RenderStartupBenchmark();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

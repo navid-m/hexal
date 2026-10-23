@@ -111,6 +111,7 @@ public sealed class LuaPluginManager : IDisposable
     private long _pendingSince;
     private bool _inEvent;
     private bool _disposed;
+    private StartupBenchmark? _benchmark;
 
     public LuaPluginManager(IEditorApi host)
         : this(host, DefaultPluginDirectory, DefaultStatePath)
@@ -133,6 +134,11 @@ public sealed class LuaPluginManager : IDisposable
     public IReadOnlyList<string> Errors => _errors;
 
     public int PluginCount => _plugins.Count;
+
+    public void SetBenchmark(StartupBenchmark? benchmark)
+    {
+        _benchmark = benchmark;
+    }
 
     public static string DefaultStatePath =>
         Path.Combine(HexalPaths.HexalHomeDirectory, "disabled-plugins");
@@ -739,6 +745,27 @@ public sealed class LuaPluginManager : IDisposable
     /// </summary>
     private void StartPlugin(PluginEntry entry)
     {
+        if (_benchmark is null)
+        {
+            StartPluginCore(entry);
+            return;
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        try
+        {
+            StartPluginCore(entry);
+        }
+        finally
+        {
+            _benchmark.Add("Plugins", entry.Id,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                entry.Enabled ? "started" : entry.Error);
+        }
+    }
+
+    private void StartPluginCore(PluginEntry entry)
+    {
         if (entry.Plugin is not null)
         {
             entry.Enabled = true;
@@ -817,6 +844,26 @@ public sealed class LuaPluginManager : IDisposable
     /// Unregisters a running plugin's resources and releases its Lua state.
     /// </summary>
     private void StopPlugin(PluginEntry entry)
+    {
+        if (_benchmark is null)
+        {
+            StopPluginCore(entry);
+            return;
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        try
+        {
+            StopPluginCore(entry);
+        }
+        finally
+        {
+            _benchmark.Add("Plugins (stop)", entry.Id,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+    }
+
+    private void StopPluginCore(PluginEntry entry)
     {
         LoadedPlugin? plugin = entry.Plugin;
         if (plugin is null)

@@ -412,6 +412,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "trimTrailingWhitespaceOnSave": false,
     "smartBackspace": true,
     "autoDetectIndentationOnStartup": true,
+    "startupBenchmarker": false,
     "showDiffLines": true,
     "showGitIgnored": false,
     "confirmQuitWithoutSaving": true,
@@ -426,6 +427,10 @@ indentation run when only spaces or tabs precede the cursor; set it to `false`
 to delete one character at a time. `autoDetectIndentationOnStartup` is enabled
 by default and infers the indentation style and width whenever a non-empty
 buffer is opened; blank new buffers are left using the language defaults.
+`startupBenchmarker` is disabled by default. When enabled, Hexal records
+startup, plugin load/unload and editor initialization timings, then exposes a
+**Show startup benchmark** entry in the command palette. When disabled the
+benchmarker is never created and no measurements are taken.
 
 `confirmQuitWithoutSaving` controls whether `:q` asks for confirmation when
 there are unsaved changes. When set to `false`, the quit is refused and `:q!`

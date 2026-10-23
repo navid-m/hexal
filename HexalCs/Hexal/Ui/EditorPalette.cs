@@ -72,6 +72,12 @@ public sealed partial class Editor
         AddPaletteCommand("Manage plugins",
             "Enable or disable installed plugins and inspect their details.",
             OpenPluginManager);
+        if (_benchmark is not null)
+        {
+            AddPaletteCommand("Show startup benchmark",
+                "Inspect startup and plugin load/unload timings.",
+                OpenStartupBenchmark);
+        }
         AddPaletteCommand("Format document",
             "Format the current buffer with its language formatter.",
             FormatCurrentDocument);

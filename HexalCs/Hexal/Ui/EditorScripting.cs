@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Hexal.Core;
@@ -36,7 +37,15 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
 
         _plugins = new LuaPluginManager(this);
+        if (_benchmark is not null)
+        {
+            _plugins.SetBenchmark(_benchmark);
+        }
+
+        long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
         _plugins.LoadAll();
+        _benchmark?.AddSince("Plugins", "Load all", phaseStart,
+            $"{_plugins.PluginCount} running, {_plugins.Errors.Count} errors");
 
         if (_plugins.Errors.Count > 0)
         {
@@ -67,8 +76,12 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return;
         }
 
+        long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        int pluginCount = _plugins.PluginCount;
         _plugins.FireEvent("editor_shutdown");
         _plugins.Dispose();
+        _benchmark?.AddSince("Plugins (shutdown)", "Unload all", phaseStart,
+            $"{pluginCount} plugins");
         _plugins = null;
         _lsp.Stop();
         _pluginStatus.Clear();
