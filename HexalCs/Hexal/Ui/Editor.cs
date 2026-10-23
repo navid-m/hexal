@@ -843,12 +843,9 @@ public sealed partial class Editor
             SetMessage($"Reloaded {_document.DisplayName} (changed on disk)");
         }
 
-        FirePluginEvent("buffer_opened", new Dictionary<string, object?>
-        {
-            ["path"] = path,
-            ["id"] = CurrentBufferId,
-            ["reloaded"] = true
-        });
+        Dictionary<string, object?> opened = CurrentBufferData();
+        opened["reloaded"] = true;
+        FirePluginEvent("buffer_opened", opened);
         return true;
     }
 
@@ -4938,12 +4935,9 @@ public sealed partial class Editor
             ? $"Opened {path}:{line + 1}"
             : $"Opened {path}");
 
-        FirePluginEvent("buffer_opened", new Dictionary<string, object?>
-        {
-            ["path"] = path,
-            ["id"] = CurrentBufferId,
-            ["line"] = line
-        });
+        Dictionary<string, object?> opened = CurrentBufferData();
+        opened["line"] = line;
+        FirePluginEvent("buffer_opened", opened);
     }
 
     private void Undo()

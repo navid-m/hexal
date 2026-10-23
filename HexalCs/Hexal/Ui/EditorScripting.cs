@@ -452,6 +452,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
     private bool EnsureLspReady(string feature)
     {
+        if (!_lsp.IsRunning && _language is not null && _plugins is not null)
+        {
+            // Some plugin language servers only register themselves on
+            // buffer_opened. Retry that event lazily so the first LSP action
+            // can start the server even when the open event was missed.
+            FirePluginEvent("buffer_opened", CurrentBufferData());
+        }
+
         if (!_lsp.IsRunning)
         {
             SetError("No LSP configured");
