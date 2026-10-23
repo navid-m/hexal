@@ -1,0 +1,68 @@
+{
+    "id": "wren",
+    "name": "Wren",
+    "indentation": {
+        "style": "spaces",
+        "width": 2,
+        "tabWidth": 4
+    },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [
+        ".wren"
+    ],
+    "keywords": [
+        "as",
+        "class",
+        "construct",
+        "foreign",
+        "import",
+        "static",
+        "super",
+        "this",
+        "var",
+        "in",
+        "is"
+    ],
+    "controlStatements": [
+        "break",
+        "continue",
+        "else",
+        "for",
+        "if",
+        "return",
+        "while"
+    ],
+    "types": [
+        "Bool",
+        "Class",
+        "Fiber",
+        "Fn",
+        "List",
+        "Map",
+        "Null",
+        "Num",
+        "Object",
+        "Range",
+        "Sequence",
+        "String",
+        "System"
+    ],
+    "constants": [
+        "true",
+        "false",
+        "null"
+    ],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": [
+            "\""
+        ],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}

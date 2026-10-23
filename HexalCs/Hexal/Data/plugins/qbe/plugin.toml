@@ -1,0 +1,4 @@
+name = "QBE IR"
+version = "1.0"
+entry = "init.lua"
+description = "Syntax support for QBE intermediate language"
