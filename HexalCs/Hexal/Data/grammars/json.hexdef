@@ -6,7 +6,7 @@
     "autoClose": true,
     "extensions": [
         ".json", ".jsonc", ".jsonl", ".ndjson", ".geojson", ".har",
-        ".webmanifest", ".hexdef"
+        ".webmanifest", ".hexdef", ".hexcfg"
     ],
     "keywords": [],
     "controlStatements": [],
