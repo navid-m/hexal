@@ -172,7 +172,8 @@ dismiss it, `/` to search across files, or `f` to open the file picker.
 `y` copies the current selection to the system clipboard and returns to
 NORMAL mode; `p` pastes the clipboard at the cursor (replacing the selection
 when one is active) and `P` pastes it on new lines below the cursor's line.
-Both pickers filter as you type; use Up/Down (or
+Press `S` to pick a symbol from the current file using the language server's
+document symbols. Both pickers filter as you type; use Up/Down (or
 PageUp/PageDown) to select and Enter to open the result. File pickers start
 from the current working directory and skip common build and VCS directories.
 Search results open the file at the matching line.

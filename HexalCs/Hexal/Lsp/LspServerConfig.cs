@@ -60,6 +60,19 @@ public sealed record LspLocation(
     int Line,
     int Character);
 
+/// <summary>
+/// A symbol returned by <c>textDocument/documentSymbol</c>. Positions use the
+/// LSP coordinate system: zero-based lines and UTF-16 code units.
+/// </summary>
+public sealed record LspDocumentSymbol(
+    string Name,
+    string Detail,
+    int Kind,
+    string Uri,
+    int Line,
+    int Character,
+    int Depth);
+
 public enum LspEventKind
 {
     Started,
@@ -71,7 +84,8 @@ public enum LspEventKind
     Definition,
     CodeActions,
     CodeActionResolved,
-    WorkspaceDiagnostics
+    WorkspaceDiagnostics,
+    DocumentSymbols
 }
 
 public sealed class LspEvent
@@ -90,6 +104,8 @@ public sealed class LspEvent
         Array.Empty<LspCodeAction>();
     public IReadOnlyList<LspDocumentDiagnostics> DocumentDiagnostics { get; init; } =
         Array.Empty<LspDocumentDiagnostics>();
+    public IReadOnlyList<LspDocumentSymbol> DocumentSymbols { get; init; } =
+        Array.Empty<LspDocumentSymbol>();
 }
 
 public static class ExecutableFinder

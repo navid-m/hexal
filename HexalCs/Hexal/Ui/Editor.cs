@@ -66,6 +66,7 @@ public sealed partial class Editor
         ('P', "Paste on a new line"),
         ('K', "LSP hover"),
         ('A', "LSP code actions"),
+        ('S', "Document symbols"),
         ('D', "Workspace diagnostics"),
         ('d', "Document diagnostics")
     };
@@ -174,6 +175,7 @@ public sealed partial class Editor
     private bool _hoverRequestPending;
     private bool _definitionRequestPending;
     private bool _codeActionRequestPending;
+    private bool _symbolRequestPending;
 
     private sealed class Selection
     {
@@ -994,6 +996,7 @@ public sealed partial class Editor
                 _document.BreakUndoGroup();
                 _hoverRequestPending = false;
                 _codeActionRequestPending = false;
+                _symbolRequestPending = false;
                 ClearMessage();
                 return;
             case Key.Delete:
@@ -2257,6 +2260,10 @@ public sealed partial class Editor
             case 'A':
             case 'a':
                 ShowCodeActions();
+                return;
+            case 'S':
+            case 's':
+                ShowDocumentSymbols();
                 return;
             case 'D':
                 ShowProblems(workspace: true);

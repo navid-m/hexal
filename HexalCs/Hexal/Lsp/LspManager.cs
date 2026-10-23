@@ -588,6 +588,32 @@ public sealed class LspManager : IDisposable
     }
 
     /// <summary>
+    /// Requests the symbol outline for a document. Servers may answer with
+    /// hierarchical DocumentSymbol objects or flat SymbolInformation objects.
+    /// </summary>
+    public bool RequestDocumentSymbols(string documentPath)
+    {
+        lock (_stateLock)
+        {
+            if (!CanRequestForPathLocked(documentPath))
+            {
+                return false;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["textDocument"] = new JsonObject
+                {
+                    ["uri"] = _documentUri
+                }
+            };
+
+            SendRequestLocked("textDocument/documentSymbol", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Requests code actions for the cursor position. Diagnostics for the
     /// current line are passed as context, as required by the specification.
     /// </summary>
@@ -1301,6 +1327,20 @@ public sealed class LspManager : IDisposable
                 return;
             }
 
+            case "textDocument/documentSymbol":
+            {
+                List<LspDocumentSymbol> symbols = ParseDocumentSymbols(result,
+                    _documentUri);
+                Enqueue(new LspEvent
+                {
+                    Kind = LspEventKind.DocumentSymbols,
+                    ServerName = serverName,
+                    Method = method,
+                    DocumentSymbols = symbols
+                });
+                return;
+            }
+
             case "textDocument/codeAction":
             case "codeAction/resolve":
             {
@@ -1491,6 +1531,107 @@ public sealed class LspManager : IDisposable
                 }
                 break;
         }
+    }
+
+    private static List<LspDocumentSymbol> ParseDocumentSymbols(
+        JsonElement result, string documentUri)
+    {
+        var symbols = new List<LspDocumentSymbol>();
+        if (result.ValueKind == JsonValueKind.Array)
+        {
+            ParseDocumentSymbolArray(result, documentUri, symbols, 0);
+        }
+        return symbols;
+    }
+
+    private static void ParseDocumentSymbolArray(JsonElement array,
+        string documentUri, List<LspDocumentSymbol> symbols, int depth)
+    {
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            string name = item.TryGetProperty("name", out JsonElement nameElement) &&
+                          nameElement.ValueKind == JsonValueKind.String
+                ? nameElement.GetString() ?? string.Empty
+                : string.Empty;
+            if (name.Length == 0)
+            {
+                continue;
+            }
+
+            string detail =
+                item.TryGetProperty("detail", out JsonElement detailElement) &&
+                detailElement.ValueKind == JsonValueKind.String
+                    ? detailElement.GetString() ?? string.Empty
+                    : string.Empty;
+            int kind = item.TryGetProperty("kind", out JsonElement kindElement) &&
+                       kindElement.ValueKind == JsonValueKind.Number
+                ? kindElement.GetInt32()
+                : 0;
+
+            string uri = documentUri;
+            int line = 0;
+            int character = 0;
+            if (item.TryGetProperty("location", out JsonElement location) &&
+                location.ValueKind == JsonValueKind.Object)
+            {
+                if (location.TryGetProperty("uri", out JsonElement uriElement) &&
+                    uriElement.ValueKind == JsonValueKind.String)
+                {
+                    uri = uriElement.GetString() ?? documentUri;
+                }
+
+                if (location.TryGetProperty("range", out JsonElement range))
+                {
+                    (line, character) = ParseRangeStart(range);
+                }
+            }
+            else
+            {
+                JsonElement range;
+                if (!item.TryGetProperty("selectionRange", out range) &&
+                    !item.TryGetProperty("range", out range))
+                {
+                    continue;
+                }
+
+                (line, character) = ParseRangeStart(range);
+            }
+
+            symbols.Add(new LspDocumentSymbol(name, detail, kind, uri, line,
+                character, depth));
+
+            if (item.TryGetProperty("children", out JsonElement children) &&
+                children.ValueKind == JsonValueKind.Array)
+            {
+                ParseDocumentSymbolArray(children, uri, symbols, depth + 1);
+            }
+        }
+    }
+
+    private static (int Line, int Character) ParseRangeStart(JsonElement range)
+    {
+        if (range.ValueKind != JsonValueKind.Object ||
+            !range.TryGetProperty("start", out JsonElement start) ||
+            start.ValueKind != JsonValueKind.Object)
+        {
+            return (0, 0);
+        }
+
+        int line = start.TryGetProperty("line", out JsonElement lineElement) &&
+                   lineElement.ValueKind == JsonValueKind.Number
+            ? lineElement.GetInt32()
+            : 0;
+        int character =
+            start.TryGetProperty("character", out JsonElement characterElement) &&
+            characterElement.ValueKind == JsonValueKind.Number
+                ? characterElement.GetInt32()
+                : 0;
+        return (line, character);
     }
 
     private static List<LspLocation> ParseLocations(JsonElement result)

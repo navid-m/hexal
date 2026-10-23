@@ -382,6 +382,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                         }
                     }
                     break;
+                case LspEventKind.DocumentSymbols:
+                    if (!_symbolRequestPending)
+                    {
+                        break;
+                    }
+                    _symbolRequestPending = false;
+                    OpenDocumentSymbolPicker(lspEvent.DocumentSymbols);
+                    break;
                 case LspEventKind.WorkspaceDiagnostics:
                     if (_pickerKind == PickerKind.Problems && _problemsWorkspace)
                     {
@@ -417,6 +425,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _hoverRequestPending = false;
         _definitionRequestPending = false;
         _codeActionRequestPending = false;
+        _symbolRequestPending = false;
     }
 
     private void NotifyLspSaved()
@@ -544,6 +553,112 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
         _codeActionRequestPending = true;
         SetMessage("Requesting code actions...");
+    }
+
+    private void ShowDocumentSymbols()
+    {
+        if (!EnsureLspReady("document symbols"))
+        {
+            return;
+        }
+
+        if (!_lsp.RequestDocumentSymbols(_document.Path!))
+        {
+            SetError("No LSP configured");
+            return;
+        }
+
+        _symbolRequestPending = true;
+        SetMessage("Requesting document symbols...");
+    }
+
+    private void OpenDocumentSymbolPicker(
+        IReadOnlyList<LspDocumentSymbol> symbols)
+    {
+        if (symbols.Count == 0)
+        {
+            SetMessage("No symbols found.");
+            return;
+        }
+
+        var labels = new List<string>(symbols.Count);
+        foreach (LspDocumentSymbol symbol in symbols)
+        {
+            int indent = Math.Min(symbol.Depth, 12) * 2;
+            string label = new string(' ', indent) +
+                           $"{SymbolKindName(symbol.Kind)} {symbol.Name}";
+            if (symbol.Detail.Length > 0)
+            {
+                label += $"  {symbol.Detail}";
+            }
+            labels.Add(label);
+        }
+
+        OpenPluginPicker("Symbols", labels, index =>
+        {
+            if (index is null || index.Value < 0 ||
+                index.Value >= symbols.Count)
+            {
+                SetMessage("Symbol picker cancelled.");
+                return;
+            }
+
+            LspDocumentSymbol symbol = symbols[index.Value];
+            string path = LspManager.UriToPath(symbol.Uri);
+            if (string.IsNullOrEmpty(path))
+            {
+                SetError("The language server returned an invalid symbol location.");
+                return;
+            }
+
+            long column = LspColumnToByteOffset(path, symbol.Line,
+                symbol.Character);
+            ClearMessage();
+            if (_document.Path is not null && SamePath(_document.Path, path))
+            {
+                RecordJump(_cursor);
+                MoveToLineColumn(symbol.Line, column);
+            }
+            else
+            {
+                RecordJump(_cursor);
+                RequestOpen(path, force: false, symbol.Line, column);
+            }
+        });
+    }
+
+    private static string SymbolKindName(int kind)
+    {
+        return kind switch
+        {
+            1 => "File",
+            2 => "Module",
+            3 => "Namespace",
+            4 => "Package",
+            5 => "Class",
+            6 => "Method",
+            7 => "Property",
+            8 => "Field",
+            9 => "Constructor",
+            10 => "Enum",
+            11 => "Interface",
+            12 => "Function",
+            13 => "Variable",
+            14 => "Constant",
+            15 => "String",
+            16 => "Number",
+            17 => "Boolean",
+            18 => "Array",
+            19 => "Object",
+            20 => "Key",
+            21 => "Null",
+            22 => "EnumMember",
+            23 => "Struct",
+            24 => "Event",
+            25 => "Operator",
+            26 => "TypeParameter",
+            _ => "Symbol"
+        };
     }
 
     private void ShowProblems(bool workspace)

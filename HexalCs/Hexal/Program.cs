@@ -239,6 +239,7 @@ internal static class Program
               Space P          Paste the system clipboard on a new line
               Space K          Show LSP hover information
               Space A          Show and apply LSP code actions
+              Space S          Pick a symbol in the current file
               Space D          Show workspace diagnostics
               Space d          Show diagnostics for the current file
 

@@ -40,6 +40,7 @@ internal static class Program
         TestLspPositions();
         TestLspDebugReport();
         TestLspStartsForNewFile();
+        TestLspDocumentSymbols();
         TestLanguageGrammars();
         TestThemes();
         TestPluginConfigStore();
@@ -1231,6 +1232,121 @@ internal static class Program
             "new-file LSP initialize count", "1");
         CheckEqual(manager.ServerName, "FakeNew", "new-file LSP name", "FakeNew");
         manager.Stop();
+    }
+
+    private static void TestLspDocumentSymbols()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("symbols.lua");
+        Check(WriteBytes(path, "local Widget = {}\nfunction Widget:Run() end\n"u8),
+            "write symbols document");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        Check(manager.TryStart(new LspServerConfig
+        {
+            Name = "Symbols",
+            Transport = transport,
+            LanguageId = "lua"
+        }, path, "local Widget = {}\n", directory.Path("."), out string error),
+            $"symbols LSP started ({error})");
+
+        transport.Incoming.Enqueue(
+            """{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        manager.Pump();
+        Check(manager.IsInitialized, "symbols LSP initialized");
+
+        Check(manager.RequestDocumentSymbols(path), "request document symbols");
+        string request = transport.Sent.Last(message =>
+            message.Contains("textDocument/documentSymbol", StringComparison.Ordinal));
+        int requestId;
+        using (System.Text.Json.JsonDocument document =
+               System.Text.Json.JsonDocument.Parse(request))
+        {
+            requestId = document.RootElement.GetProperty("id").GetInt32();
+        }
+
+        transport.Incoming.Enqueue($$$$$"""
+            {"jsonrpc":"2.0","id":{{{{{requestId}}}}},"result":[
+              {"name":"Widget","detail":"table","kind":5,
+               "range":{"start":{"line":0,"character":0},"end":{"line":1,"character":1}},
+               "selectionRange":{"start":{"line":0,"character":6},"end":{"line":0,"character":12}},
+               "children":[
+                 {"name":"Run","detail":"method","kind":6,
+                  "range":{"start":{"line":1,"character":0},"end":{"line":1,"character":20}},
+                  "selectionRange":{"start":{"line":1,"character":15},"end":{"line":1,"character":18}}}
+               ]}
+            ]}
+            """);
+        manager.Pump();
+
+        bool seen = false;
+        while (manager.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (lspEvent.Kind != LspEventKind.DocumentSymbols)
+            {
+                continue;
+            }
+
+            seen = true;
+            CheckEqual(lspEvent.DocumentSymbols.Count, 2,
+                "document symbol count", "2");
+            CheckEqual(lspEvent.DocumentSymbols[0].Name, "Widget",
+                "document symbol name", "Widget");
+            CheckEqual(lspEvent.DocumentSymbols[0].Line, 0,
+                "document symbol line", "0");
+            CheckEqual(lspEvent.DocumentSymbols[0].Character, 6,
+                "document symbol character", "6");
+            CheckEqual(lspEvent.DocumentSymbols[0].Depth, 0,
+                "document symbol depth", "0");
+            CheckEqual(lspEvent.DocumentSymbols[1].Name, "Run",
+                "nested symbol name", "Run");
+            CheckEqual(lspEvent.DocumentSymbols[1].Line, 1,
+                "nested symbol line", "1");
+            CheckEqual(lspEvent.DocumentSymbols[1].Depth, 1,
+                "nested symbol depth", "1");
+        }
+        Check(seen, "document symbol event received");
+
+        Check(manager.RequestDocumentSymbols(path), "request flat symbols");
+        request = transport.Sent.Last(message =>
+            message.Contains("textDocument/documentSymbol", StringComparison.Ordinal));
+        using (System.Text.Json.JsonDocument document =
+               System.Text.Json.JsonDocument.Parse(request))
+        {
+            requestId = document.RootElement.GetProperty("id").GetInt32();
+        }
+
+        transport.Incoming.Enqueue($$$$$"""
+            {"jsonrpc":"2.0","id":{{{{{requestId}}}}},"result":[
+              {"name":"main","kind":12,
+               "location":{"uri":"file:///tmp/symbols.lua",
+                 "range":{"start":{"line":3,"character":4},"end":{"line":3,"character":8}}}}
+            ]}
+            """);
+        manager.Pump();
+
+        seen = false;
+        while (manager.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (lspEvent.Kind != LspEventKind.DocumentSymbols)
+            {
+                continue;
+            }
+
+            seen = true;
+            CheckEqual(lspEvent.DocumentSymbols.Count, 1,
+                "flat symbol count", "1");
+            CheckEqual(lspEvent.DocumentSymbols[0].Name, "main",
+                "flat symbol name", "main");
+            CheckEqual(lspEvent.DocumentSymbols[0].Line, 3,
+                "flat symbol line", "3");
+            CheckEqual(lspEvent.DocumentSymbols[0].Character, 4,
+                "flat symbol character", "4");
+            CheckEqual(lspEvent.DocumentSymbols[0].Uri, "file:///tmp/symbols.lua",
+                "flat symbol uri", "file:///tmp/symbols.lua");
+        }
+        Check(seen, "flat document symbol event received");
     }
 
     private static void TestLanguageGrammars()
