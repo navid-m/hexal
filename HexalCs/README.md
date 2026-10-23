@@ -149,7 +149,9 @@ only that row.
 | `u` / `Ctrl+R` | Undo / redo |
 | `:` | Open the Ex command line |
 | `Ctrl+P` | Open the command palette |
-| `/` | Search inside the current file (case insensitive) |
+| `/` | Search inside the current file (literal) |
+| `\` | Search inside the current file with a regular expression |
+| `'` | Regex search and replace inside the current file |
 | `.` | Select every match of a search term, then edit them together (NORMAL or SELECT) |
 | `Space` | Open the space menu (bottom-right) |
 | `Space` `/` | Search across project files |
@@ -195,11 +197,24 @@ start. `:rcfg` also reloads themes.
 ### In-file search
 
 Press `/` in NORMAL mode to open the find box. Type a query and press
-`Enter` to finish editing it; all case-insensitive matches are highlighted
-as you type and the first match at or after the cursor is selected. Press
+`Enter` to finish editing it; all matches are highlighted as you type (case
+insensitive by default; `:smc` makes them case-sensitive) and
+the first match at or after the cursor is selected. Press
 `n` for the next match and `p` for the previous match (wrapping at the ends).
 `Esc` closes find mode. `Up`/`Down` and `Ctrl+N`/`Ctrl+P` also move between
 matches while the query is being edited.
+
+Press `\` in NORMAL mode to open the same find box using a .NET regular
+expression instead of literal text. Matching is performed per line. Matches are
+highlighted as the expression is edited; an invalid expression or a pattern
+that times out is reported in the box. Search navigation is identical to `/`.
+
+Press `'` in NORMAL mode for regex search and replace. The compact box has a
+`Find` row and a `Replace` row. Type the expression, then press `Tab` (or
+`Enter`) to move to the replacement. Replacement text supports .NET
+substitutions such as `$1` and `${name}`. Press `Enter` to replace the current
+match and advance, or `Ctrl+A` to replace all matches in one undoable edit.
+`Up`/`Down` navigate matches and `Esc` closes the box.
 
 Press `.` in NORMAL mode to open the same find box in multi-cursor mode.
 Typing highlights every match as usual. Press `Enter` to close the box and turn

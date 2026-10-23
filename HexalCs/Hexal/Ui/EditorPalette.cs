@@ -357,7 +357,8 @@ public sealed partial class Editor
     {
         ClearMessage();
         SetMessage(
-            "Ctrl+P palette | i insert | Esc normal | / find | . find all | Ctrl+B sidebar | " +
+            "Ctrl+P palette | i insert | Esc normal | / find | \\ regex | ' regex replace | " +
+            ". find all | Ctrl+B sidebar | " +
             "Ctrl+C comment | < > unindent/indent | Space+X cut | " +
             ":w :wq :q :e :fmt :cfg :s :t :gi :gdl :smc :vs :hs :cb :adi | u/Ctrl+R undo");
     }

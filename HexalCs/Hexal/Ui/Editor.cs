@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Hexal.Core;
 using Hexal.Languages;
 using Hexal.Lsp;
@@ -196,7 +197,8 @@ public sealed partial class Editor
     private readonly record struct FindMatch(
         long Start,
         long End,
-        long Line);
+        long Line,
+        string Replacement = "");
 
     private readonly struct HoverSegment
     {
@@ -223,9 +225,15 @@ public sealed partial class Editor
     private bool _findActive;
     private bool _findEditing;
     private bool _findMultiCursor;
+    private bool _findRegex;
+    private bool _findReplace;
+    private bool _findEditingReplacement;
+    private string _findError = string.Empty;
     private List<Selection>? _findSavedSelections;
     private StringBuilder _findQuery = new();
     private int _findQueryCursor;
+    private StringBuilder _findReplacement = new();
+    private int _findReplacementCursor;
     private List<(long Start, long End)> _findScope = new();
     private List<FindMatch> _findMatches = new();
     private int _findMatchIndex = -1;
@@ -979,6 +987,12 @@ public sealed partial class Editor
                 return;
             case '/':
                 OpenFind();
+                return;
+            case '\\':
+                OpenFind(regex: true);
+                return;
+            case '\'':
+                OpenFind(regex: true, replace: true);
                 return;
             case '.':
                 OpenFind(multiCursor: true);
@@ -2223,13 +2237,20 @@ public sealed partial class Editor
         }
     }
 
-    private void OpenFind(bool multiCursor = false)
+    private void OpenFind(bool multiCursor = false, bool regex = false,
+        bool replace = false)
     {
         _findActive = true;
         _findEditing = true;
         _findMultiCursor = multiCursor;
+        _findRegex = regex;
+        _findReplace = replace && regex;
+        _findEditingReplacement = false;
+        _findError = string.Empty;
         _findQuery.Clear();
         _findQueryCursor = 0;
+        _findReplacement.Clear();
+        _findReplacementCursor = 0;
         _findMatches.Clear();
         _findMatchIndex = -1;
         _findScope.Clear();
@@ -2257,9 +2278,15 @@ public sealed partial class Editor
         _findActive = false;
         _findEditing = false;
         _findMultiCursor = false;
+        _findRegex = false;
+        _findReplace = false;
+        _findEditingReplacement = false;
+        _findError = string.Empty;
         _findSavedSelections = null;
         _findQuery.Clear();
         _findQueryCursor = 0;
+        _findReplacement.Clear();
+        _findReplacementCursor = 0;
         _findScope.Clear();
         _findMatches.Clear();
         _findMatchIndex = -1;
@@ -2338,6 +2365,27 @@ public sealed partial class Editor
         return candidate >= 0 && end <= _findScope[candidate].End;
     }
 
+    private StringBuilder ActiveFindField =>
+        _findReplace && _findEditingReplacement ? _findReplacement : _findQuery;
+
+    private int ActiveFindCursor
+    {
+        get => _findReplace && _findEditingReplacement
+            ? _findReplacementCursor
+            : _findQueryCursor;
+        set
+        {
+            if (_findReplace && _findEditingReplacement)
+            {
+                _findReplacementCursor = value;
+            }
+            else
+            {
+                _findQueryCursor = value;
+            }
+        }
+    }
+
     private void HandleFind(InputEvent inputEvent)
     {
         if (inputEvent.Key == Key.Escape)
@@ -2381,9 +2429,27 @@ public sealed partial class Editor
             return;
         }
 
+        if ((inputEvent.Key is Key.Tab or Key.BackTab) && _findReplace)
+        {
+            _findEditingReplacement = !_findEditingReplacement;
+            return;
+        }
+
         switch (inputEvent.Key)
         {
             case Key.Enter:
+                if (_findReplace)
+                {
+                    if (!_findEditingReplacement)
+                    {
+                        _findEditingReplacement = true;
+                        return;
+                    }
+
+                    ReplaceCurrentFindMatch();
+                    return;
+                }
+
                 if (_findMultiCursor)
                 {
                     ApplyMultiCursorFind();
@@ -2398,37 +2464,45 @@ public sealed partial class Editor
                 FindNext();
                 return;
             case Key.Backspace:
-                if (_findQueryCursor > 0)
+            {
+                StringBuilder buffer = ActiveFindField;
+                int cursor = ActiveFindCursor;
+                if (cursor > 0)
                 {
-                    string text = _findQuery.ToString();
-                    int previous = UnicodeUtil.PreviousBoundary(text, _findQueryCursor);
-                    _findQuery.Remove(previous, _findQueryCursor - previous);
-                    _findQueryCursor = previous;
+                    string text = buffer.ToString();
+                    int previous = UnicodeUtil.PreviousBoundary(text, cursor);
+                    buffer.Remove(previous, cursor - previous);
+                    ActiveFindCursor = previous;
                     RebuildFindMatches();
                 }
                 return;
+            }
             case Key.Delete:
-                if (_findQueryCursor < _findQuery.Length)
+            {
+                StringBuilder buffer = ActiveFindField;
+                int cursor = ActiveFindCursor;
+                if (cursor < buffer.Length)
                 {
-                    string text = _findQuery.ToString();
-                    int next = UnicodeUtil.NextBoundary(text, _findQueryCursor);
-                    _findQuery.Remove(_findQueryCursor, next - _findQueryCursor);
+                    string text = buffer.ToString();
+                    int next = UnicodeUtil.NextBoundary(text, cursor);
+                    buffer.Remove(cursor, next - cursor);
                     RebuildFindMatches();
                 }
                 return;
+            }
             case Key.Left:
-                _findQueryCursor = UnicodeUtil.PreviousBoundary(_findQuery.ToString(),
-                    _findQueryCursor);
+                ActiveFindCursor = UnicodeUtil.PreviousBoundary(
+                    ActiveFindField.ToString(), ActiveFindCursor);
                 return;
             case Key.Right:
-                _findQueryCursor = UnicodeUtil.NextBoundary(_findQuery.ToString(),
-                    _findQueryCursor);
+                ActiveFindCursor = UnicodeUtil.NextBoundary(
+                    ActiveFindField.ToString(), ActiveFindCursor);
                 return;
             case Key.Home:
-                _findQueryCursor = 0;
+                ActiveFindCursor = 0;
                 return;
             case Key.End:
-                _findQueryCursor = _findQuery.Length;
+                ActiveFindCursor = ActiveFindField.Length;
                 return;
         }
 
@@ -2448,6 +2522,10 @@ public sealed partial class Editor
             {
                 FindPrevious();
             }
+            else if (_findReplace && codePoint is 'a' or 'A')
+            {
+                ReplaceAllFindMatches();
+            }
             return;
         }
 
@@ -2457,15 +2535,84 @@ public sealed partial class Editor
         }
 
         string inserted = inputEvent.Character.ToString();
-        _findQuery.Insert(_findQueryCursor, inserted);
-        _findQueryCursor += inserted.Length;
+        StringBuilder field = ActiveFindField;
+        int fieldCursor = ActiveFindCursor;
+        field.Insert(fieldCursor, inserted);
+        ActiveFindCursor = fieldCursor + inserted.Length;
         RebuildFindMatches();
+    }
+
+    private void ReplaceCurrentFindMatch()
+    {
+        if (_findError.Length > 0)
+        {
+            return;
+        }
+
+        if (_findMatches.Count == 0)
+        {
+            SetMessage("No matches to replace.");
+            return;
+        }
+
+        int index = _findMatchIndex >= 0 && _findMatchIndex < _findMatches.Count
+            ? _findMatchIndex
+            : 0;
+        FindMatch match = _findMatches[index];
+        byte[] replacement = Encoding.UTF8.GetBytes(match.Replacement);
+
+        _document.BeginCompositeEdit();
+        _document.Replace(match.Start, match.End - match.Start, replacement);
+        _document.EndCompositeEdit();
+        _document.BreakUndoGroup();
+
+        _cursor = match.Start + replacement.Length;
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
+        _preferredColumnValid = false;
+        SnapCursor();
+        RebuildFindMatches();
+        SetMessage($"Replaced 1 match ({_findMatches.Count} remaining).");
+    }
+
+    private void ReplaceAllFindMatches()
+    {
+        if (_findError.Length > 0)
+        {
+            return;
+        }
+
+        if (_findMatches.Count == 0)
+        {
+            SetMessage("No matches to replace.");
+            return;
+        }
+
+        int count = _findMatches.Count;
+        _document.BeginCompositeEdit();
+        for (int i = _findMatches.Count - 1; i >= 0; --i)
+        {
+            FindMatch match = _findMatches[i];
+            byte[] replacement = Encoding.UTF8.GetBytes(match.Replacement);
+            _document.Replace(match.Start, match.End - match.Start, replacement);
+        }
+        _document.EndCompositeEdit();
+        _document.BreakUndoGroup();
+
+        _cursor = _findMatches[0].Start;
+        _selectionAnchor = _cursor;
+        _selectionLinewise = false;
+        _preferredColumnValid = false;
+        SnapCursor();
+        RebuildFindMatches();
+        SetMessage($"Replaced {count} match{(count == 1 ? string.Empty : "es")}.");
     }
 
     private void RebuildFindMatches()
     {
         _findMatches.Clear();
         _findMatchIndex = -1;
+        _findError = string.Empty;
 
         string query = _findQuery.ToString();
         if (query.Length == 0)
@@ -2473,6 +2620,35 @@ public sealed partial class Editor
             return;
         }
 
+        if (_findRegex)
+        {
+            RebuildRegexFindMatches(query);
+        }
+        else
+        {
+            RebuildLiteralFindMatches(query);
+        }
+
+        if (_findMatches.Count == 0)
+        {
+            return;
+        }
+
+        int selected = 0;
+        for (int i = 0; i < _findMatches.Count; ++i)
+        {
+            if (_findMatches[i].Start >= _cursor)
+            {
+                selected = i;
+                break;
+            }
+        }
+
+        SelectFindMatch(selected);
+    }
+
+    private void RebuildLiteralFindMatches(string query)
+    {
         long total = _document.LineCount;
         for (long line = 0; line < total; ++line)
         {
@@ -2519,23 +2695,78 @@ public sealed partial class Editor
                 break;
             }
         }
+    }
 
-        if (_findMatches.Count == 0)
+    private void RebuildRegexFindMatches(string pattern)
+    {
+        Regex regex;
+        try
         {
+            RegexOptions options = RegexOptions.CultureInvariant;
+            if (!_searchMatchCase)
+            {
+                options |= RegexOptions.IgnoreCase;
+            }
+            regex = new Regex(pattern, options, TimeSpan.FromMilliseconds(100));
+        }
+        catch (ArgumentException ex)
+        {
+            _findError = ex.Message;
             return;
         }
 
-        int selected = 0;
-        for (int i = 0; i < _findMatches.Count; ++i)
+        string replacementPattern = _findReplacement.ToString();
+        long total = _document.LineCount;
+        for (long line = 0; line < total; ++line)
         {
-            if (_findMatches[i].Start >= _cursor)
+            int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            string text = Encoding.UTF8.GetString(_lineBuffer, 0, length);
+            long lineStart = _document.LineStart(line);
+
+            try
             {
-                selected = i;
-                break;
+                for (Match match = regex.Match(text); match.Success;
+                     match = match.NextMatch())
+                {
+                    long start = lineStart +
+                        Encoding.UTF8.GetByteCount(text.AsSpan(0, match.Index));
+                    long end = start + Encoding.UTF8.GetByteCount(
+                        text.AsSpan(match.Index, match.Length));
+
+                    string replacement = string.Empty;
+                    if (_findReplace)
+                    {
+                        try
+                        {
+                            replacement = match.Result(replacementPattern);
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            _findError = $"invalid replacement: {ex.Message}";
+                            _findMatches.Clear();
+                            return;
+                        }
+                    }
+
+                    if (!IsInFindScope(start, end))
+                    {
+                        continue;
+                    }
+
+                    _findMatches.Add(new FindMatch(start, end, line, replacement));
+                    if (_findMatches.Count >= MaxFindMatches)
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                _findError = "regular expression timed out";
+                _findMatches.Clear();
+                return;
             }
         }
-
-        SelectFindMatch(selected);
     }
 
     /// <summary>
@@ -7052,51 +7283,99 @@ public sealed partial class Editor
             return;
         }
 
-        int height = 4;
+        int height = _findReplace ? 6 : 4;
         int width = Math.Min(_columns - 2, 72);
-        if (width < 20)
+        if (width < 20 || available < height + 1)
         {
             return;
         }
 
         int x = (_columns - width) / 2;
         int y = Math.Max(0, available - height);
-        string title = !_findMultiCursor
-            ? "Find"
-            : _findScope.Count > 0
+        string title;
+        if (_findReplace)
+        {
+            title = "Regex replace";
+        }
+        else if (_findRegex)
+        {
+            title = "Regex find";
+        }
+        else if (_findMultiCursor)
+        {
+            title = _findScope.Count > 0
                 ? "Find in selection (multi-cursor)"
                 : "Find (multi-cursor)";
+        }
+        else
+        {
+            title = "Find";
+        }
         DrawBox(x, y, width, height, title);
 
         var promptStyle = _theme.AccentStyle;
+        var mutedStyle = _theme.MutedStyle;
         var queryStyle = _theme.TextStyle;
         var statusStyle = _theme.AccentStyle;
 
-        _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
-
         string query = _findQuery.ToString();
-        int queryWidth = Math.Max(0, width - 5);
-        _screen.PutString(x + 4, y + 1, query, queryStyle, queryWidth);
+        string replacement = _findReplacement.ToString();
 
-        if (_findEditing)
+        if (!_findReplace)
         {
-            long queryColumn = UnicodeUtil.VisualColumn(query, _findQueryCursor, 1);
-            if (queryColumn < queryWidth)
+            _screen.PutString(x + 2, y + 1, ">", promptStyle, width - 4);
+            int queryWidth = Math.Max(0, width - 5);
+            _screen.PutString(x + 4, y + 1, query, queryStyle, queryWidth);
+            if (_findEditing)
             {
-                int cursorX = x + 4 + (int)queryColumn;
-                if (cursorX < x + width - 1)
+                RenderFindCursor(x + 4, y + 1, query, _findQueryCursor, queryWidth);
+            }
+        }
+        else
+        {
+            const int labelWidth = 9;
+            int fieldX = x + 2 + labelWidth;
+            int fieldWidth = Math.Max(0, width - labelWidth - 4);
+
+            Style findLabelStyle = _findEditingReplacement
+                ? mutedStyle
+                : promptStyle;
+            Style replaceLabelStyle = _findEditingReplacement
+                ? promptStyle
+                : mutedStyle;
+
+            _screen.PutString(x + 2, y + 1, "Find", findLabelStyle, labelWidth);
+            _screen.PutString(fieldX, y + 1, query, queryStyle, fieldWidth);
+            _screen.PutString(x + 2, y + 2, "Replace", replaceLabelStyle,
+                labelWidth);
+            _screen.PutString(fieldX, y + 2, replacement, queryStyle, fieldWidth);
+
+            if (_findEditing)
+            {
+                if (_findEditingReplacement)
                 {
-                    Style cursorStyle = _screen.At(cursorX, y + 1).Style;
-                    cursorStyle.Reverse = true;
-                    _screen.ApplyStyle(cursorX, y + 1, cursorStyle);
+                    RenderFindCursor(fieldX, y + 2, replacement,
+                        _findReplacementCursor, fieldWidth);
+                }
+                else
+                {
+                    RenderFindCursor(fieldX, y + 1, query, _findQueryCursor,
+                        fieldWidth);
                 }
             }
         }
 
         string status;
-        if (query.Length == 0)
+        if (_findError.Length > 0)
         {
-            status = "Type to search";
+            status = _findError;
+            statusStyle = _theme.ErrorStyle;
+        }
+        else if (query.Length == 0)
+        {
+            status = _findRegex
+                ? "Type a regular expression"
+                : "Type to search";
         }
         else if (_findMatches.Count == 0)
         {
@@ -7105,15 +7384,57 @@ public sealed partial class Editor
         else
         {
             int position = Math.Max(0, _findMatchIndex) + 1;
-            string enterHint = _findMultiCursor
-                ? "Enter: select all"
-                : "Enter: navigate";
-            status = _findEditing
-                ? $"{position}/{_findMatches.Count} matches  {enterHint}  Esc: cancel"
-                : $"{position}/{_findMatches.Count} matches  n: next  p: previous  Esc: exit";
+            if (_findReplace)
+            {
+                status = $"{position}/{_findMatches.Count} matches";
+            }
+            else
+            {
+                string enterHint = _findMultiCursor
+                    ? "Enter: select all"
+                    : "Enter: navigate";
+                status = _findEditing
+                    ? $"{position}/{_findMatches.Count} matches  {enterHint}  Esc: cancel"
+                    : $"{position}/{_findMatches.Count} matches  n: next  p: previous  Esc: exit";
+            }
         }
 
-        _screen.PutString(x + 2, y + 2, status, statusStyle, width - 4);
+        if (_findReplace)
+        {
+            _screen.PutString(x + 2, y + 3, status, statusStyle, width - 4);
+            string hint = _findError.Length > 0
+                ? "Esc: close"
+                : "Tab: switch  Enter: replace  Ctrl+A: replace all  Esc: close";
+            _screen.PutString(x + 2, y + 4, hint, mutedStyle, width - 4);
+        }
+        else
+        {
+            _screen.PutString(x + 2, y + 2, status, statusStyle, width - 4);
+        }
+    }
+
+    private void RenderFindCursor(int x, int y, string text, int cursor, int width)
+    {
+        if (width <= 0)
+        {
+            return;
+        }
+
+        long column = UnicodeUtil.VisualColumn(text, cursor, 1);
+        if (column >= width)
+        {
+            return;
+        }
+
+        int cursorX = x + (int)column;
+        if (cursorX >= x + width || cursorX >= _columns)
+        {
+            return;
+        }
+
+        Style cursorStyle = _screen.At(cursorX, y).Style;
+        cursorStyle.Reverse = true;
+        _screen.ApplyStyle(cursorX, y, cursorStyle);
     }
 
     private void RenderPicker()
