@@ -156,11 +156,7 @@ internal static class Program
                 entries = new[] { match };
             }
 
-            LanguageHealthTable.Write(
-                entries,
-                Console.Out,
-                useColor: !Console.IsOutputRedirected
-            );
+            LanguageHealthTable.Write(entries, Console.Out, useColor: !Console.IsOutputRedirected);
             return 0;
         }
         catch (Exception ex)
@@ -244,19 +240,14 @@ internal static class Program
     private static void PrintHelp()
     {
         Console.Out.Write(
-            """
-            Hexal - modal text editor
+            $"""
+            Hexal v{Version}
+            Modal text editing redefined
 
             Usage:
               hexal [options] [file]
               hexal [options] [directory]
               hexal install-plugin <name>
-
-            Passing a directory opens the file picker rooted at that directory
-            and scopes file search to it for the rest of the session.
-
-            install-plugin downloads the named folder from the central plugin
-            repository configured by centralRepositoryUrl in .hexcfg.
 
             Options:
               -h, --help        Show this help message and exit
@@ -264,60 +255,7 @@ internal static class Program
               --health [lang]   Show language support health and exit
               --                Treat the remaining arguments as file names
 
-            Editor commands:
-              :w [file]        Save, optionally as a new file
-              :wq              Save and quit
-              :q[!]            Quit (asks before discarding changes)
-              :e[!] <file>     Open a file
-              :lang <id>       Set the active language grammar
-              :fmt             Format the current buffer
-              :cw              Remove trailing whitespace from every line
-              :cfg             Open the configuration file
-              :rcfg            Reload configuration and grammars
-              :help            Show a short key reminder
-              :debug-lsp, :dl  Inspect LSP traffic and diagnostics
-              :debug [exe]     Start an experimental DAP debug session
-              :dbg-cont        Continue the stopped debuggee
-              :dbg-next        Step over
-              :dbg-step        Step in
-              :dbg-out         Step out
-              :dbg-stop        Stop the debug session
-              :dbg-sv          Show scopes, variables and watches
-              :dbg-watch <expr> Watch an expression
-              :debug-dap, :dd  Inspect DAP traffic and state
-
-            Modes and keys:
-              i / I            Enter INSERT mode
-              Ctrl+Space       Request LSP completions in INSERT mode
-              Ctrl+E           Toggle a breakpoint on the current line
-              Esc              Return to NORMAL mode
-              h j k l          Move left / down / up / right
-              arrows           Move (Home/End/PageUp/PageDown supported)
-              gg / ge          Go to first / last line
-              gp               Go to the previous location
-              x / X            Select line; repeat to extend by one line
-              v / V            Enter SELECT mode
-              %                Select the whole buffer
-              d / D, Delete    Delete the character or selection
-              u / Ctrl+R       Undo / redo
-              :                Enter command mode
-              Ctrl+P           Open the command palette
-              /                Search inside the current file
-              .                Select all matches for multi-cursor editing
-              Space            Open the space menu
-              Space /          Search across files
-              Space f          Open the file picker
-              Space y          Yank the selection to the system clipboard
-              Space p          Paste the system clipboard on the current line
-              Space P          Paste the system clipboard on a new line
-              Space K          Show LSP hover information
-              Space A          Show and apply LSP code actions
-              Space S          Pick a symbol in the current file
-              Space D          Show workspace diagnostics
-              Space d          Show diagnostics for the current file
-
             Relative file names are resolved from the current working directory.
-
             """
         );
     }
