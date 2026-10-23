@@ -534,6 +534,12 @@ public sealed partial class Editor
             return _running;
         }
 
+        if (_pluginPanelVisible)
+        {
+            HandlePluginPanelInput(inputEvent);
+            return _running;
+        }
+
         if (_aboutVisible)
         {
             HandleAboutInput(inputEvent);
@@ -7803,6 +7809,7 @@ public sealed partial class Editor
         RenderAbout();
         RenderPluginManager();
         RenderLspDebug();
+        RenderPluginPanel();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

@@ -12,6 +12,30 @@ public readonly record struct PluginSelection(
     string Text,
     bool Linewise);
 
+public readonly record struct PluginPanelSegment(string Text, string Style);
+
+public sealed class PluginPanelLine
+{
+    public IReadOnlyList<PluginPanelSegment> Segments { get; init; } =
+        Array.Empty<PluginPanelSegment>();
+
+    public bool Selectable { get; init; } = true;
+}
+
+public sealed class PluginPanelOptions
+{
+    public string Title { get; init; } = "Plugin";
+
+    public string Footer { get; init; } = string.Empty;
+
+    public bool Selectable { get; init; } = true;
+
+    public long Selected { get; init; }
+
+    public IReadOnlyList<PluginPanelLine> Lines { get; init; } =
+        Array.Empty<PluginPanelLine>();
+}
+
 /// <summary>
 /// The narrow surface a script host is allowed to touch. Keeping Lua away from
 /// editor internals makes ownership, validation and UI-thread rules explicit.
@@ -20,6 +44,8 @@ public readonly record struct PluginSelection(
 public interface IEditorApi
 {
     string CurrentBufferId { get; }
+
+    string? WorkspaceRoot { get; }
 
     string GetText();
 
@@ -42,6 +68,24 @@ public interface IEditorApi
     void RequestPrompt(string label, Action<string?> callback);
 
     void RequestSelect(string title, IReadOnlyList<string> items, Action<int?> callback);
+
+    int OpenPluginPanel(PluginPanelOptions options,
+        Func<string, long, bool>? onKey, string pluginId);
+
+    void SetPluginPanelLines(int panelId,
+        IReadOnlyList<PluginPanelLine> lines);
+
+    void SetPluginPanelTitle(int panelId, string title);
+
+    void SetPluginPanelFooter(int panelId, string footer);
+
+    void SetPluginPanelSelected(int panelId, long selected);
+
+    void SetPluginPanelSelectable(int panelId, bool selectable);
+
+    void ClosePluginPanel(int panelId);
+
+    void ClosePluginPanels(string pluginId);
 
     bool StartLsp(LspServerConfig config, out string error);
 

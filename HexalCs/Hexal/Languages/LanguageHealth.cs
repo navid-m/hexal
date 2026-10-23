@@ -162,6 +162,40 @@ public static class LanguageHealth
 
         public string CurrentBufferId => string.Empty;
 
+        public string? WorkspaceRoot => null;
+
+        public int OpenPluginPanel(PluginPanelOptions options,
+            Func<string, long, bool>? onKey, string pluginId) => 0;
+
+        public void SetPluginPanelLines(int panelId,
+            IReadOnlyList<PluginPanelLine> lines)
+        {
+        }
+
+        public void SetPluginPanelTitle(int panelId, string title)
+        {
+        }
+
+        public void SetPluginPanelFooter(int panelId, string footer)
+        {
+        }
+
+        public void SetPluginPanelSelected(int panelId, long selected)
+        {
+        }
+
+        public void SetPluginPanelSelectable(int panelId, bool selectable)
+        {
+        }
+
+        public void ClosePluginPanel(int panelId)
+        {
+        }
+
+        public void ClosePluginPanels(string pluginId)
+        {
+        }
+
         public string GetText() => string.Empty;
 
         public string? GetLine(long line, out string error)

@@ -45,6 +45,8 @@ internal static class Program
         TestPluginConfigStore();
         TestPluginMetadataAndToggle();
         TestPluginReload();
+        TestPluginProcessAndPanel();
+        TestGitLogPlugin();
         TestLuaLspRuntime();
         TestHexalPaths();
 
@@ -1540,6 +1542,206 @@ internal static class Program
         Check(!manager.HasCommand("second"), "reload all old command removed");
     }
 
+    private static void TestPluginProcessAndPanel()
+    {
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "api");
+        Directory.CreateDirectory(plugin);
+
+        string processCall = OperatingSystem.IsWindows()
+            ? "local result = hexal.exec.run(\"cmd\", { \"/c\", \"echo\", \"hello\" })"
+            : "local result = hexal.exec.run(\"echo\", { \"hello\" })";
+
+        File.WriteAllText(System.IO.Path.Combine(plugin, "plugin.toml"), """
+            name = "API"
+            version = "1.0"
+            """, new UTF8Encoding(false));
+        File.WriteAllText(System.IO.Path.Combine(plugin, "init.lua"), $$"""
+            {{processCall}}
+            assert(result.ok, result.error)
+            assert(result.stdout:find("hello", 1, true) ~= nil, result.stdout)
+
+            local panel = hexal.ui.panel({
+                title = "Test",
+                lines = {
+                    { segments = { { text = "one", style = "accent" } } },
+                    { segments = { { text = "two", style = "diff_added" } },
+                      selectable = false },
+                },
+                selected = 1,
+            }, function(key, selected)
+                if key == "enter" then
+                    return true
+                end
+                return false
+            end)
+
+            panel:set_title("Changed")
+            panel:set_footer("footer")
+            panel:set_selectable(true)
+            panel:set_selected(2)
+            panel:set_lines({
+                { segments = { { text = "three", style = "muted" } } },
+            })
+            panel:close()
+            hexal.ui.message("PROCESS_PANEL_OK")
+            """, new UTF8Encoding(false));
+
+        var host = new FakeHost();
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+
+        if (manager.Errors.Count > 0)
+        {
+            Console.Error.WriteLine(string.Join("\n", manager.Errors));
+        }
+        CheckEqual(manager.Errors.Count, 0, "plugin API errors", "0");
+        Check(host.Messages.Contains("PROCESS_PANEL_OK"),
+            "plugin process and panel API completed");
+        CheckEqual(host.PanelLines.Count, 1, "plugin panel line update", "1");
+        CheckEqual(host.PanelLines[0].Segments[0].Text, "three",
+            "plugin panel segment text", "three");
+    }
+
+    private static void TestGitLogPlugin()
+    {
+        string source = System.IO.Path.Combine(AppContext.BaseDirectory,
+            "data", "plugins", "gitlog");
+        Check(Directory.Exists(source), "bundled git log plugin exists");
+        if (!Directory.Exists(source))
+        {
+            return;
+        }
+
+        using var directory = new TempDir();
+        string repo = directory.Path("repo");
+        Directory.CreateDirectory(repo);
+        if (!RunCommand("git", repo, "init", "-q"))
+        {
+            Console.Error.WriteLine("git unavailable; skipping git log integration test");
+            return;
+        }
+
+        RunCommand("git", repo, "config", "user.email", "tests@example.com");
+        RunCommand("git", repo, "config", "user.name", "Hexal Tests");
+
+        string tracked = System.IO.Path.Combine(repo, "file.txt");
+        File.WriteAllText(tracked, "one\ntwo\nthree\n", new UTF8Encoding(false));
+        Check(RunCommand("git", repo, "add", "file.txt"),
+            "git add first commit");
+        Check(RunCommand("git", repo, "commit", "-qm", "first commit"),
+            "git create first commit");
+
+        File.WriteAllText(tracked, "one\nTHREE\n", new UTF8Encoding(false));
+        Check(RunCommand("git", repo, "add", "file.txt"),
+            "git add second commit");
+        Check(RunCommand("git", repo, "commit", "-qm", "second commit"),
+            "git create second commit");
+        RunCommand("git", repo, "tag", "v1.0");
+        RunCommand("git", repo, "branch", "feature");
+
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "gitlog");
+        Directory.CreateDirectory(plugin);
+        foreach (string file in Directory.GetFiles(source))
+        {
+            File.Copy(file, System.IO.Path.Combine(plugin,
+                System.IO.Path.GetFileName(file)));
+        }
+
+        var host = new FakeHost { WorkspaceRoot = repo };
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+
+        if (manager.Errors.Count > 0)
+        {
+            Console.Error.WriteLine(string.Join("\n", manager.Errors));
+        }
+        CheckEqual(manager.Errors.Count, 0, "git log plugin errors", "0");
+        Check(manager.HasCommand("gl"), "git log registers :gl");
+        Check(manager.TryExecuteCommand("gl", Array.Empty<string>(),
+                out string error),
+            $"run git log command ({error})");
+        CheckEqual(error, string.Empty, "git log command error", "empty");
+        Check(host.PanelLines.Count > 0, "git log opens a panel");
+
+        bool sawTag = false;
+        bool sawBranch = false;
+        bool sawAuthor = false;
+        foreach (PluginPanelLine line in host.PanelLines)
+        {
+            string text = string.Concat(line.Segments.Select(segment => segment.Text));
+            sawTag |= text.Contains("v1.0", StringComparison.Ordinal);
+            sawBranch |= text.Contains("feature", StringComparison.Ordinal);
+            sawAuthor |= text.Contains("Hexal Tests", StringComparison.Ordinal);
+        }
+        Check(sawTag, "git log shows tags");
+        Check(sawBranch, "git log shows branches");
+        Check(sawAuthor, "git log shows authors");
+
+        Check(host.PanelKeyHandler is not null,
+            "git log panel has a key handler");
+        if (host.PanelKeyHandler is not null)
+        {
+            Check(host.PanelKeyHandler("enter", 1), "git log opens a commit diff");
+
+            bool added = false;
+            bool deleted = false;
+            foreach (PluginPanelLine line in host.PanelLines)
+            {
+                foreach (PluginPanelSegment segment in line.Segments)
+                {
+                    added |= string.Equals(segment.Style, "diff_added",
+                        StringComparison.OrdinalIgnoreCase);
+                    deleted |= string.Equals(segment.Style, "diff_deleted",
+                        StringComparison.OrdinalIgnoreCase);
+                }
+            }
+
+            Check(added, "git diff highlights insertions");
+            Check(deleted, "git diff highlights deletions");
+        }
+    }
+
+    private static bool RunCommand(string command, string directory,
+        params string[] arguments)
+    {
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = command,
+                WorkingDirectory = directory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var process = System.Diagnostics.Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+
+            process.StandardOutput.ReadToEnd();
+            process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            return process.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
+                                   InvalidOperationException or IOException or
+                                   UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static void TestLuaLspRuntime()
     {
         using var directory = new TempDir();
@@ -1788,6 +1990,51 @@ internal static class Program
         public List<string> Messages { get; } = new();
 
         public string CurrentBufferId => "[No Name]";
+
+        public string? WorkspaceRoot { get; set; }
+
+        public int PanelId { get; private set; }
+
+        public IReadOnlyList<PluginPanelLine> PanelLines { get; private set; } =
+            Array.Empty<PluginPanelLine>();
+
+        public Func<string, long, bool>? PanelKeyHandler { get; private set; }
+
+        public int OpenPluginPanel(PluginPanelOptions options,
+            Func<string, long, bool>? onKey, string pluginId)
+        {
+            PanelId = 1;
+            PanelLines = options.Lines;
+            PanelKeyHandler = onKey;
+            return PanelId;
+        }
+
+        public void SetPluginPanelLines(int panelId,
+            IReadOnlyList<PluginPanelLine> lines) => PanelLines = lines;
+
+        public void SetPluginPanelTitle(int panelId, string title)
+        {
+        }
+
+        public void SetPluginPanelFooter(int panelId, string footer)
+        {
+        }
+
+        public void SetPluginPanelSelected(int panelId, long selected)
+        {
+        }
+
+        public void SetPluginPanelSelectable(int panelId, bool selectable)
+        {
+        }
+
+        public void ClosePluginPanel(int panelId)
+        {
+        }
+
+        public void ClosePluginPanels(string pluginId)
+        {
+        }
 
         public string GetText() => string.Empty;
 

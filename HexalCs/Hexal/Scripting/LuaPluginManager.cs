@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Hexal.Lsp;
@@ -854,6 +855,7 @@ public sealed class LuaPluginManager : IDisposable
 
         LuaTable editor = NewModule(lua, root, "editor");
         editor["get_current_buffer"] = new Func<string>(() => _host.CurrentBufferId);
+        editor["get_workspace_root"] = new Func<string?>(() => _host.WorkspaceRoot);
         editor["get_text"] = new Func<string>(_host.GetText);
         editor["get_line"] = new Func<long, object?>(line =>
         {
@@ -1039,6 +1041,52 @@ public sealed class LuaPluginManager : IDisposable
             _host.SetPluginStatus(key, text?.ToString());
             return true;
         });
+        ui["panel"] = new Func<LuaTable, LuaFunction?, LuaTable>((options, onKey) =>
+        {
+            PluginPanelOptions parsed = ParsePanelOptions(options);
+            int panelId = _host.OpenPluginPanel(parsed, (key, selected) =>
+            {
+                if (onKey is null)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    object[] result = onKey.Call(key, selected + 1);
+                    return result.Length > 0 && result[0] is bool handled && handled;
+                }
+                catch (Exception ex)
+                {
+                    _host.ReportPluginError(plugin.Id,
+                        $"panel key handler failed: {ex.Message}");
+                    return false;
+                }
+            }, plugin.Id);
+
+            LuaTable panel = NewTable(lua);
+            panel["id"] = panelId;
+            panel["set_lines"] = new Action<object?, LuaTable>((_, lines) =>
+                _host.SetPluginPanelLines(panelId, ParsePanelLines(lines)));
+            panel["set_title"] = new Action<object?, string>((_, title) =>
+                _host.SetPluginPanelTitle(panelId, title ?? string.Empty));
+            panel["set_footer"] = new Action<object?, string>((_, footer) =>
+                _host.SetPluginPanelFooter(panelId, footer ?? string.Empty));
+            panel["set_selected"] = new Action<object?, object?>((_, selected) =>
+                _host.SetPluginPanelSelected(panelId,
+                    ToLong(selected, 1) - 1));
+            panel["set_selectable"] = new Action<object?, object?>((_, selectable) =>
+                _host.SetPluginPanelSelectable(panelId,
+                    selectable is bool flag ? flag : true));
+            panel["close"] = new Action<object?>(_ =>
+                _host.ClosePluginPanel(panelId));
+            return panel;
+        });
+
+        LuaTable process = NewModule(lua, root, "exec");
+        internalApi["process_run"] =
+            new Func<string, LuaTable?, LuaTable?, LuaTable>((command, args, options) =>
+                RunProcess(plugin, command, args, options));
 
         LuaTable events = NewModule(lua, root, "events");
         events["on"] = new Func<string, LuaFunction, long>((eventName, callback) =>
@@ -1225,6 +1273,8 @@ public sealed class LuaPluginManager : IDisposable
 
     private void CleanupPlugin(string pluginId)
     {
+        _host.ClosePluginPanels(pluginId);
+
         foreach (string name in _commands
                      .Where(pair => string.Equals(pair.Value.PluginId, pluginId,
                          StringComparison.Ordinal))
@@ -1384,6 +1434,240 @@ public sealed class LuaPluginManager : IDisposable
                 '>' or '|' ? '_' : character);
         }
         return builder.Length == 0 ? "plugin" : builder.ToString();
+    }
+
+    private static PluginPanelOptions ParsePanelOptions(LuaTable options)
+    {
+        string title = options["title"]?.ToString() ?? "Plugin";
+        string footer = options["footer"]?.ToString() ?? string.Empty;
+        bool selectable = options["selectable"] is bool flag ? flag : true;
+        long selected = ToLong(options["selected"], 1) - 1;
+        IReadOnlyList<PluginPanelLine> lines = options["lines"] is LuaTable table
+            ? ParsePanelLines(table)
+            : Array.Empty<PluginPanelLine>();
+
+        return new PluginPanelOptions
+        {
+            Title = title,
+            Footer = footer,
+            Selectable = selectable,
+            Selected = Math.Max(0, selected),
+            Lines = lines
+        };
+    }
+
+    private static List<PluginPanelLine> ParsePanelLines(LuaTable lines)
+    {
+        var result = new List<PluginPanelLine>();
+        foreach (object? item in LuaArray(lines))
+        {
+            result.Add(ParsePanelLine(item));
+        }
+        return result;
+    }
+
+    private static PluginPanelLine ParsePanelLine(object? item)
+    {
+        if (item is string text)
+        {
+            return new PluginPanelLine
+            {
+                Segments = new[] { new PluginPanelSegment(text, "text") }
+            };
+        }
+
+        if (item is not LuaTable table)
+        {
+            return new PluginPanelLine
+            {
+                Segments = new[]
+                {
+                    new PluginPanelSegment(item?.ToString() ?? string.Empty, "text")
+                }
+            };
+        }
+
+        bool selectable = table["selectable"] is bool flag ? flag : true;
+        var segments = new List<PluginPanelSegment>();
+        if (table["segments"] is LuaTable segmentTable)
+        {
+            AppendPanelSegments(segments, segmentTable);
+        }
+        else if (table["text"] is not null)
+        {
+            AppendPanelSegment(segments, table);
+        }
+        else
+        {
+            AppendPanelSegments(segments, table);
+        }
+
+        return new PluginPanelLine
+        {
+            Segments = segments,
+            Selectable = selectable
+        };
+    }
+
+    private static void AppendPanelSegments(List<PluginPanelSegment> segments,
+        LuaTable table)
+    {
+        foreach (object? item in LuaArray(table))
+        {
+            AppendPanelSegment(segments, item);
+        }
+    }
+
+    private static void AppendPanelSegment(List<PluginPanelSegment> segments,
+        object? item)
+    {
+        string text;
+        string style = "text";
+        if (item is LuaTable table)
+        {
+            text = table["text"]?.ToString() ?? string.Empty;
+            style = table["style"]?.ToString() ?? "text";
+        }
+        else
+        {
+            text = item?.ToString() ?? string.Empty;
+        }
+
+        if (text.Length > 0)
+        {
+            segments.Add(new PluginPanelSegment(text, style));
+        }
+    }
+
+    private LuaTable RunProcess(LoadedPlugin plugin, string command,
+        LuaTable? args, LuaTable? options)
+    {
+        LuaTable result = NewTable(plugin.Lua);
+        result["ok"] = false;
+        result["code"] = 0L;
+        result["stdout"] = string.Empty;
+        result["stderr"] = string.Empty;
+        result["error"] = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            result["error"] = "empty command";
+            return result;
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = command,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        if (args is not null)
+        {
+            foreach (object? argument in LuaArray(args))
+            {
+                startInfo.ArgumentList.Add(argument?.ToString() ?? string.Empty);
+            }
+        }
+
+        string? directory = options?["cwd"]?.ToString();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            directory = _host.WorkspaceRoot;
+        }
+
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            if (!Directory.Exists(directory))
+            {
+                result["error"] = $"working directory not found: {directory}";
+                return result;
+            }
+            startInfo.WorkingDirectory = directory;
+        }
+
+        int timeoutMs = (int)Math.Clamp(
+            ToLong(options?["timeout"], 15000), 100, 120_000);
+
+        try
+        {
+            using var process = new Process { StartInfo = startInfo };
+            if (!process.Start())
+            {
+                result["error"] = $"cannot start '{command}'";
+                return result;
+            }
+
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+
+            using var cancellation = new CancellationTokenSource(timeoutMs);
+            try
+            {
+                process.WaitForExitAsync(cancellation.Token)
+                    .GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // Process teardown is best effort.
+                }
+
+                result["error"] = $"process timed out after {timeoutMs} ms";
+                return result;
+            }
+
+            string stdout = stdoutTask.GetAwaiter().GetResult();
+            string stderr = stderrTask.GetAwaiter().GetResult();
+            result["ok"] = process.ExitCode == 0;
+            result["code"] = (long)process.ExitCode;
+            result["stdout"] = stdout;
+            result["stderr"] = stderr;
+            if (process.ExitCode != 0)
+            {
+                string detail = stderr.Trim();
+                result["error"] = detail.Length > 0
+                    ? detail
+                    : $"process exited with code {process.ExitCode}";
+            }
+            return result;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
+                                   InvalidOperationException or IOException or
+                                   UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            result["error"] = ex.Message;
+            return result;
+        }
+    }
+
+    private static long ToLong(object? value, long fallback = 0)
+    {
+        if (value is null)
+        {
+            return fallback;
+        }
+
+        try
+        {
+            return Convert.ToInt64(value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidCastException or
+                                   OverflowException)
+        {
+            return fallback;
+        }
     }
 
     private static LuaTable NewTable(Lua lua)
@@ -1720,6 +2004,11 @@ public sealed class LuaPluginManager : IDisposable
             end
             K.unmap = function(keys, mode)
                 return H.keymap_unmap(keys, mode or "normal")
+            end
+
+            local P = hexal.exec
+            P.run = function(command, args, options)
+                return H.process_run(command, args or {}, options or {})
             end
 
             local CFG = hexal.config
