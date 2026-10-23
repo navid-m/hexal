@@ -27,8 +27,8 @@ public sealed partial class Editor
         AddPaletteCommand("Search across files",
             "Search file contents in the workspace.",
             () => OpenPicker(PickerKind.Search));
-        AddPaletteCommand("Open config file",
-            "Open ~/.hexal/.hexcfg and create it when missing.",
+        AddPaletteCommand("Open active .hexcfg",
+            "Open the active Hexal configuration, creating it with the default schema when missing.",
             OpenConfigFile);
         AddPaletteCommand("Open ~/.hexal directory",
             "Browse the Hexal home directory in the file picker.",
