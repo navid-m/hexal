@@ -12,12 +12,18 @@ public sealed partial class Editor
 
     private static readonly string[] SidebarFileMenuItems =
     {
-        "Open", "Rename", "Duplicate", "Copy to...", "Delete"
+        "Open", "Rename", "Duplicate", "Copy to...", "Move to...", "Delete"
     };
 
     private static readonly string[] SidebarFolderMenuItems =
     {
-        "Expand/Collapse", "Rename", "Duplicate", "Copy to...", "Delete"
+        "Expand/Collapse", "Rename", "Duplicate", "Copy to...", "Move to...",
+        "Delete"
+    };
+
+    private static readonly string[] SidebarMenuHotkeys =
+    {
+        "O", "R", "D", "T", "M", "d"
     };
 
     private sealed class SidebarNode
@@ -390,10 +396,33 @@ public sealed partial class Editor
                 return;
         }
 
-        if (inputEvent.Key == Key.Character && !inputEvent.Ctrl &&
-            !inputEvent.Alt && inputEvent.Character.Value is 'c' or 'C')
+        if (inputEvent.Key != Key.Character || inputEvent.Ctrl ||
+            inputEvent.Alt)
+        {
+            return;
+        }
+
+        char character = (char)inputEvent.Character.Value;
+        if (character is 'c' or 'C')
         {
             _sidebarMenuVisible = false;
+            return;
+        }
+
+        int hotkeyIndex = character switch
+        {
+            'o' or 'O' => 0,
+            'r' or 'R' => 1,
+            'D' => 2,
+            'T' => 3,
+            'M' => 4,
+            'd' => 5,
+            _ => -1
+        };
+        if (hotkeyIndex >= 0 && hotkeyIndex < items.Length)
+        {
+            _sidebarMenuSelected = hotkeyIndex;
+            ActivateSidebarMenuItem();
         }
     }
 
@@ -453,6 +482,9 @@ public sealed partial class Editor
                 BeginSidebarCopy(node);
                 return;
             case 4:
+                BeginSidebarMove(node);
+                return;
+            case 5:
                 RequestDeleteSidebarNode(node);
                 return;
         }
@@ -603,6 +635,181 @@ public sealed partial class Editor
         ExpandSidebarToPath(destination);
         RefreshSidebar(destination);
         SetMessage($"Copied to {Path.GetFileName(destination)}");
+    }
+
+    private void BeginSidebarMove(SidebarNode node)
+    {
+        _sidebarFocused = _sidebarVisible;
+        string source = node.Path;
+        bool isDirectory = node.IsDirectory;
+        List<string> folders = CollectSidebarMoveFolders(node);
+        string root = SidebarFullPath(ProjectRoot());
+        var labels = new List<string>(folders.Count);
+        foreach (string folder in folders)
+        {
+            string relative = Path.GetRelativePath(root, folder);
+            labels.Add(relative == "." ? "./ (project root)" : relative +
+                Path.DirectorySeparatorChar);
+        }
+
+        OpenPluginPicker("Move to folder", labels, index =>
+        {
+            _sidebarFocused = _sidebarVisible;
+            if (index is null)
+            {
+                SetMessage("Move cancelled.");
+                RefreshSidebar(source);
+                return;
+            }
+
+            if (index.Value < 0 || index.Value >= folders.Count)
+            {
+                return;
+            }
+
+            CompleteSidebarMove(source, isDirectory, folders[index.Value]);
+        });
+        SetMessage($"Moving {source}...");
+    }
+
+    private List<string> CollectSidebarMoveFolders(SidebarNode source)
+    {
+        string root = SidebarFullPath(ProjectRoot());
+        var result = new List<string> { root };
+        GitIgnore? gitIgnore = _showGitIgnored ? null : new GitIgnore(root);
+        AddSidebarMoveFolders(root, source, result, gitIgnore);
+        return result;
+    }
+
+    private static void AddSidebarMoveFolders(string directory, SidebarNode source,
+        List<string> folders, GitIgnore? gitIgnore)
+    {
+        string[] directories;
+        try
+        {
+            directories = Directory.GetDirectories(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException)
+        {
+            return;
+        }
+
+        Array.Sort(directories, SidebarPathComparison);
+        foreach (string child in directories)
+        {
+            try
+            {
+                FileAttributes attributes = File.GetAttributes(child);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                       NotSupportedException or ArgumentException)
+            {
+                continue;
+            }
+
+            string name = Path.GetFileName(child);
+            if (name.Length == 0)
+            {
+                continue;
+            }
+
+            if (gitIgnore is not null &&
+                (GitIgnore.IsBuiltInIgnoredDirectory(name) ||
+                 gitIgnore.IsIgnored(child, isDirectory: true)))
+            {
+                continue;
+            }
+
+            if (source.IsDirectory &&
+                (SamePath(child, source.Path) || IsPathInside(source.Path, child)))
+            {
+                continue;
+            }
+
+            folders.Add(child);
+            AddSidebarMoveFolders(child, source, folders, gitIgnore);
+        }
+    }
+
+    private void CompleteSidebarMove(string source, bool isDirectory,
+        string destinationFolder)
+    {
+        _sidebarFocused = _sidebarVisible;
+        string sourceFull = SidebarFullPath(source);
+        string folderFull;
+        try
+        {
+            folderFull = Path.GetFullPath(destinationFolder);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or
+                                   PathTooLongException)
+        {
+            SetError($"Invalid destination: {ex.Message}");
+            RefreshSidebar(source);
+            return;
+        }
+
+        if (!Directory.Exists(folderFull))
+        {
+            SetError($"Destination folder does not exist: '{folderFull}'");
+            RefreshSidebar(source);
+            return;
+        }
+
+        if (isDirectory &&
+            (SamePath(folderFull, sourceFull) ||
+             IsPathInside(sourceFull, folderFull)))
+        {
+            SetError("Cannot move a folder inside itself.");
+            RefreshSidebar(source);
+            return;
+        }
+
+        string target = Path.Combine(folderFull, Path.GetFileName(source));
+        if (SamePath(target, sourceFull))
+        {
+            SetMessage("Already in that folder.");
+            RefreshSidebar(source);
+            return;
+        }
+
+        if (File.Exists(target) || Directory.Exists(target))
+        {
+            SetError($"'{Path.GetFileName(target)}' already exists in that folder.");
+            RefreshSidebar(source);
+            return;
+        }
+
+        try
+        {
+            if (isDirectory)
+            {
+                Directory.Move(source, target);
+                UpdateSidebarExpandedAfterRename(source, target);
+            }
+            else
+            {
+                File.Move(source, target);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                                   NotSupportedException or ArgumentException or
+                                   PathTooLongException)
+        {
+            SetError($"Move failed: {ex.Message}");
+            RefreshSidebar(source);
+            return;
+        }
+
+        UpdateOpenDocumentPathAfterRename(source, target, isDirectory);
+        ExpandSidebarToPath(target);
+        RefreshSidebar(target);
+        SetMessage($"Moved {Path.GetFileName(source)} to {folderFull}");
     }
 
     private void DuplicateSidebarNode(SidebarNode node)
@@ -1153,7 +1360,7 @@ public sealed partial class Editor
         int width = 4;
         foreach (string item in items)
         {
-            width = Math.Max(width, item.Length + 4);
+            width = Math.Max(width, item.Length + 7);
         }
 
         int rows = TextRows();
@@ -1181,7 +1388,12 @@ public sealed partial class Editor
                 : itemStyle;
             _screen.Fill(x + 1, screenRow, width - 2, 1, ' ', style);
             _screen.PutString(x + 2, screenRow, items[index], style,
-                width - 4);
+                width - 7);
+            if (index < SidebarMenuHotkeys.Length)
+            {
+                _screen.PutString(x + width - 3, screenRow,
+                    SidebarMenuHotkeys[index], style, 2);
+            }
         }
     }
 }
