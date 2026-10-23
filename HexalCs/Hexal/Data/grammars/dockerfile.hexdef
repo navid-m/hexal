@@ -12,6 +12,10 @@
         ".dockerfile",
         ".containerfile"
     ],
+    "fileNames": [
+        "Dockerfile",
+        "Containerfile"
+    ],
     "keywords": [
         "ADD",
         "ARG",

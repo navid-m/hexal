@@ -1,0 +1,34 @@
+{
+    "id": "elm",
+    "name": "Elm",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [".elm"],
+    "keywords": [
+        "alias", "as", "case", "command", "effect", "else", "exposing",
+        "if", "import", "in", "infix", "infixl", "infixr", "let", "module",
+        "of", "port", "program", "subscription", "then", "type", "where"
+    ],
+    "controlStatements": [
+        "case", "else", "if", "in", "let", "of", "then"
+    ],
+    "types": [
+        "Array", "Bool", "Char", "Cmd", "Dict", "Float", "Html", "Int",
+        "List", "Maybe", "Never", "Order", "Platform", "Result", "Set",
+        "String", "Sub", "Svg", "Task"
+    ],
+    "constants": ["Err", "False", "Just", "Nothing", "Ok", "True"],
+    "comments": {
+        "line": "--",
+        "blockStart": "{-",
+        "blockEnd": "-}"
+    },
+    "strings": {
+        "quoteCharacters": ["\"\"\"", "\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": ["let", "case", "of", "if", "then", "else"],
+    "unindentBefore": ["in", "else"]
+}

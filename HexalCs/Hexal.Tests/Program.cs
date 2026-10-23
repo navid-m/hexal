@@ -1774,6 +1774,7 @@ internal static class Program
             "extension detection");
 
         var bundled = LanguageRegistry.LoadUserGrammars();
+        Check(bundled.Errors.Count == 0, "bundled grammars load without errors");
         Check(bundled.Find("ruby") is not null, "bundled ruby grammar loads");
         Check(bundled.Find("rust") is not null, "bundled rust grammar loads");
         Check(ReferenceEquals(bundled.Detect("main.rs"), bundled.Find("rust")),
@@ -1782,6 +1783,91 @@ internal static class Program
             "bundled lua unindents end");
         Check(bundled.Find("ruby")?.IsUnindentKeyword("end") == true,
             "bundled ruby unindents end");
+
+        string[] addedLanguages =
+        {
+            "nix", "perl", "raku", "julia", "fsharp", "blade", "jinja",
+            "nunjucks", "gotempl", "meson", "matlab", "godot-tscn", "rebol",
+            "red", "diff", "mlir", "elm", "git-commit", "graphql", "haskell",
+            "scheme", "supercollider", "ocaml"
+        };
+        foreach (string addedLanguage in addedLanguages)
+        {
+            Check(bundled.Find(addedLanguage) is not null,
+                $"bundled {addedLanguage} grammar loads");
+        }
+
+        LanguageDefinition? csharpLanguage = bundled.Find("csharp");
+        Check(csharpLanguage?.Formatter?.Command == "dotnet" &&
+              csharpLanguage.Formatter.Arguments.Count == 4 &&
+              csharpLanguage.Formatter.Arguments[0] == "csharpier" &&
+              csharpLanguage.Formatter.Arguments[1] == "format" &&
+              csharpLanguage.Formatter.Arguments[2] == "--stdin-path" &&
+              csharpLanguage.Formatter.Arguments[3] == "{path}" &&
+              csharpLanguage.Formatter.UsesStdin &&
+              !csharpLanguage.Formatter.WritesFile,
+            "csharpier formats C# through stdin/stdout");
+
+        Check(ReferenceEquals(bundled.Detect("file.fs"),
+                bundled.Find("fsharp")), "fsharp owns .fs");
+        Check(ReferenceEquals(bundled.Detect("shader.glsl"),
+                bundled.Find("glsl")), "glsl detection still works");
+        Check(ReferenceEquals(bundled.Detect("view.blade.php"),
+                bundled.Find("blade")), "compound blade extension detection");
+        Check(ReferenceEquals(bundled.Detect("COMMIT_EDITMSG"),
+                bundled.Find("git-commit")), "git commit file name detection");
+        Check(ReferenceEquals(bundled.Detect("meson.build"),
+                bundled.Find("meson")), "meson file name detection");
+        Check(ReferenceEquals(bundled.Detect("script.nix"),
+                bundled.Find("nix")), "nix extension detection");
+        Check(ReferenceEquals(bundled.Detect("Dockerfile"),
+                bundled.Find("dockerfile")), "Dockerfile file name detection");
+        Check(ReferenceEquals(bundled.Detect("/repo/Containerfile"),
+                bundled.Find("dockerfile")), "Containerfile file name detection");
+
+        var diffTokens = new List<SyntaxToken>();
+        LanguageDefinition? dockerfileLanguage = bundled.Find("dockerfile");
+        Check(dockerfileLanguage is not null, "dockerfile language available");
+        if (dockerfileLanguage is not null)
+        {
+            diffTokens.Clear();
+            SyntaxHighlighter.GetLineTokens(dockerfileLanguage,
+                "FROM alpine:3.20"u8, false, diffTokens, out _);
+            Check(diffTokens.Count >= 1 &&
+                  diffTokens[0].Kind == SyntaxTokenKind.Keyword &&
+                  diffTokens[0].Start == 0 && diffTokens[0].Length == 4,
+                "dockerfile instructions are highlighted");
+        }
+        LanguageDefinition? diffLanguage = bundled.Find("diff");
+        Check(diffLanguage is not null, "diff language available");
+        if (diffLanguage is not null)
+        {
+            diffTokens.Clear();
+            SyntaxHighlighter.GetLineTokens(diffLanguage, "+added"u8, false,
+                diffTokens, out _);
+            Check(diffTokens.Count == 1 &&
+                  diffTokens[0].Kind == SyntaxTokenKind.Added,
+                "diff added line is highlighted");
+            diffTokens.Clear();
+            SyntaxHighlighter.GetLineTokens(diffLanguage, "-removed"u8, false,
+                diffTokens, out _);
+            Check(diffTokens.Count == 1 &&
+                  diffTokens[0].Kind == SyntaxTokenKind.Deleted,
+                "diff deleted line is highlighted");
+        }
+
+        LanguageDefinition? commitLanguage = bundled.Find("git-commit");
+        Check(commitLanguage is not null, "git commit language available");
+        if (commitLanguage is not null)
+        {
+            diffTokens.Clear();
+            SyntaxHighlighter.GetLineTokens(commitLanguage,
+                "feat: add some thing"u8, false, diffTokens, out _);
+            Check(diffTokens.Count == 1 &&
+                  diffTokens[0].Kind == SyntaxTokenKind.Keyword &&
+                  diffTokens[0].Start == 0 && diffTokens[0].Length == 5,
+                "git commit prefix including colon is highlighted");
+        }
 
         string sourcePath = directory.Path("sample.tst");
         const string source = "fn main() {\n  let x = 42;\n  // comment\n  /* block\n     still */\n  int y = true;\n}\n";

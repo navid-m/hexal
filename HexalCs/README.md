@@ -348,6 +348,8 @@ Canonical schema:
     "id": "cpp",
     "name": "C++",
     "extensions": [".cpp", ".cc", ".hpp", ".h"],
+    "fileNames": [],
+    "linePatterns": [],
     "keywords": ["class", "struct", "namespace", "template"],
     "controlStatements": ["if", "else", "for", "while", "return"],
     "types": ["int", "char", "bool", "void"],
@@ -392,6 +394,16 @@ Canonical schema:
 }
 ```
 
+- `extensions` are matched case-insensitively as file-name suffixes. The
+  longest matching suffix wins, so compound extensions such as `.blade.php`
+  take precedence over `.php`. `fileNames` matches exact names first and is
+  used for files such as `COMMIT_EDITMSG`, `meson.build` and `meson_options.txt`.
+- `linePatterns` is optional. Each entry has a regular-expression `pattern`
+  and a `kind`, and the first matching pattern highlights its match before the
+  normal lexer runs. Supported kinds are `keyword`, `control`, `type`,
+  `constant`, `string`, `comment`, `number`, `added` and `deleted`. The bundled
+  diff grammar uses `added`/`deleted` for lines beginning with `+` and `-`, and
+  the git-commit grammar highlights conventional `type:` prefixes.
 - `comments.blockStart` and `comments.blockEnd` must be supplied together.
 - `lineComment` and `blockComment: { "start": ..., "end": ... }` are accepted
   as aliases when `comments` is absent.
@@ -412,7 +424,8 @@ Canonical schema:
   (tabs or spaces, plus the indent width) to that document without rewriting
   its contents.
 - Highlight categories are keyword, control statement, type, constant, string,
-  comment, and number. Default text uses the terminal foreground.
+  comment, number, added and deleted. Default text uses the terminal
+  foreground.
 - `debugger` is optional. `debugger.adapter` names the DAP executable found in
   `PATH` (for example `lldb-dap`, `codelldb`, `netcoredbg` or `dlv`).
   `debugger.arguments` is an optional argument list passed to the adapter.
@@ -659,7 +672,7 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | C++ | `.h`, `.cpp`, `.hpp` | `clangd` |
 | Python | `.py` | `pyright-langserver`, `ty`, `mypy`, `mypy-language-server` |
 | Cython | `.pyx` | `cython-lsp`, `pyright-langserver`, `ty`, `mypy` |
-| GLSL | `.gdshader`, `.shader`, `.fs`, `.vs`, `.glsl` | `glsl_analyzer`, `glsl-language-server` |
+| GLSL | `.gdshader`, `.shader`, `.vs`, `.glsl` | `glsl_analyzer`, `glsl-language-server` |
 | Shell Script | `.sh`, `.bash`, `.zsh`, `.ksh`, `.dash`, `.ash`, and shell rc files | `bash-language-server` |
 | Git Ignore | `.gitignore`, `.npmignore`, `.dockerignore`, and similar ignore files | none (syntax highlighting only) |
 | PowerShell | `.ps1`, `.psm1`, `.psd1`, `.ps1xml`, `.pssc`, `.psrc` | `powershell-language-server`, PowerShell Editor Services |

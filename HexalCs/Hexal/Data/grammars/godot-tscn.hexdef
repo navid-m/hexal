@@ -1,0 +1,32 @@
+{
+    "id": "godot-tscn",
+    "name": "Godot Scene",
+    "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": false,
+    "extensions": [".tscn", ".tres", ".escn"],
+    "keywords": [
+        "gd_scene", "gd_resource", "ext_resource", "sub_resource", "node",
+        "connection", "resource", "editable", "instance", "instance_placeholder",
+        "owner", "parent", "type", "name", "groups", "script", "format",
+        "load_steps", "uid", "path", "id", "signal", "method", "binds",
+        "flags", "from", "to", "unbinds"
+    ],
+    "controlStatements": [],
+    "types": [
+        "Node", "Node2D", "Node3D", "Control", "SceneTree", "Resource",
+        "Script", "PackedScene", "Texture2D", "Sprite2D", "Sprite3D",
+        "AnimationPlayer", "CollisionShape2D", "CollisionShape3D",
+        "CharacterBody2D", "CharacterBody3D", "RigidBody2D", "RigidBody3D",
+        "Area2D", "Area3D", "Camera2D", "Camera3D", "CanvasLayer"
+    ],
+    "constants": ["false", "null", "true"],
+    "comments": {
+        "line": ";"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true
+}

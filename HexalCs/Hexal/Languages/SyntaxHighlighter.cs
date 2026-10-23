@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.RegularExpressions;
 using Hexal.Core;
 
 namespace Hexal.Languages;
@@ -156,6 +158,13 @@ public sealed class SyntaxHighlighter
         bool inBlock = startInBlock;
         int offset = 0;
 
+        if (!inBlock && language.LineHighlights.Count > 0 &&
+            TryTokenizeLineHighlights(language, text, tokens))
+        {
+            endInBlock = false;
+            return;
+        }
+
         while (offset < text.Length)
         {
             if (inBlock)
@@ -264,6 +273,35 @@ public sealed class SyntaxHighlighter
         }
 
         endInBlock = inBlock;
+    }
+
+    private static bool TryTokenizeLineHighlights(
+        LanguageDefinition language, ReadOnlySpan<byte> text,
+        List<SyntaxToken>? tokens)
+    {
+        if (text.IsEmpty)
+        {
+            return false;
+        }
+
+        string line = Encoding.UTF8.GetString(text);
+        foreach (LineHighlightPattern rule in language.LineHighlights)
+        {
+            Match match = rule.Pattern.Match(line);
+            if (!match.Success || match.Length == 0)
+            {
+                continue;
+            }
+
+            int start = Encoding.UTF8.GetByteCount(
+                line.AsSpan(0, match.Index));
+            int length = Encoding.UTF8.GetByteCount(
+                line.AsSpan(match.Index, match.Length));
+            AddToken(tokens, start, length, rule.Kind);
+            return true;
+        }
+
+        return false;
     }
 
     private static void AddToken(List<SyntaxToken>? tokens, int start, int length,

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Hexal.Core;
 using Hexal.Dap;
 
@@ -15,13 +16,18 @@ public enum SyntaxTokenKind
     Constant,
     StringLiteral,
     Comment,
-    Number
+    Number,
+    Added,
+    Deleted
 }
 
 public readonly record struct SyntaxToken(int Start, int Length, SyntaxTokenKind Kind)
 {
     public int End => Start + Length;
 }
+
+public readonly record struct LineHighlightPattern(
+    Regex Pattern, SyntaxTokenKind Kind);
 
 /// <summary>
 /// Default indentation preferences declared by a language definition. The
@@ -45,6 +51,7 @@ public sealed class LanguageDefinition
     private readonly HashSet<string> _constants;
 
     private LanguageDefinition(string id, string name, List<string> extensions,
+        List<string> fileNames, List<LineHighlightPattern> lineHighlights,
         HashSet<string> keywords, HashSet<string> controlStatements,
         HashSet<string> types, HashSet<string> constants, string? lineComment,
         string? blockCommentStart, string? blockCommentEnd,
@@ -57,6 +64,8 @@ public sealed class LanguageDefinition
         Id = id;
         Name = name;
         Extensions = extensions;
+        FileNames = fileNames;
+        LineHighlights = lineHighlights;
         _keywords = keywords;
         _controlStatements = controlStatements;
         _types = types;
@@ -92,6 +101,20 @@ public sealed class LanguageDefinition
     public string Name { get; }
 
     public IReadOnlyList<string> Extensions { get; }
+
+    /// <summary>
+    /// Exact file names (for example <c>meson.build</c> or
+    /// <c>COMMIT_EDITMSG</c>) that select this language regardless of
+    /// extension.
+    /// </summary>
+    public IReadOnlyList<string> FileNames { get; }
+
+    /// <summary>
+    /// Optional regular expressions applied to the start of each line before
+    /// the normal lexer. The first matching pattern highlights its match with
+    /// the configured token kind.
+    /// </summary>
+    public IReadOnlyList<LineHighlightPattern> LineHighlights { get; }
 
     public string? LineComment { get; }
 
@@ -262,6 +285,69 @@ public sealed class LanguageDefinition
                 if (!extensions.Contains(value, StringComparer.OrdinalIgnoreCase))
                 {
                     extensions.Add(value.ToLowerInvariant());
+                }
+            }
+
+            var fileNames = new List<string>();
+            foreach (string fileName in ReadStringArray(root, "fileNames")
+                         .Concat(ReadStringArray(root, "file_names")))
+            {
+                string value = fileName.Trim();
+                if (value.Length > 0 &&
+                    !fileNames.Contains(value, StringComparer.OrdinalIgnoreCase))
+                {
+                    fileNames.Add(value);
+                }
+            }
+
+            var lineHighlights = new List<LineHighlightPattern>();
+            if (root.TryGetProperty("linePatterns", out JsonElement linePatterns))
+            {
+                if (linePatterns.ValueKind != JsonValueKind.Array)
+                {
+                    error = "linePatterns must be an array";
+                    return false;
+                }
+
+                int index = 0;
+                foreach (JsonElement linePattern in linePatterns.EnumerateArray())
+                {
+                    if (linePattern.ValueKind != JsonValueKind.Object)
+                    {
+                        error = $"linePatterns[{index}] must be a JSON object";
+                        return false;
+                    }
+
+                    string pattern = GetString(linePattern, "pattern")?.Trim() ??
+                                     string.Empty;
+                    if (pattern.Length == 0)
+                    {
+                        error = $"linePatterns[{index}].pattern is required";
+                        return false;
+                    }
+
+                    string kindName = GetString(linePattern, "kind")?.Trim() ??
+                                      string.Empty;
+                    if (!TryReadTokenKind(kindName, out SyntaxTokenKind kind))
+                    {
+                        error = $"linePatterns[{index}].kind is invalid";
+                        return false;
+                    }
+
+                    Regex regex;
+                    try
+                    {
+                        regex = new Regex(pattern,
+                            RegexOptions.CultureInvariant);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        error = $"linePatterns[{index}].pattern is invalid: {ex.Message}";
+                        return false;
+                    }
+
+                    lineHighlights.Add(new LineHighlightPattern(regex, kind));
+                    ++index;
                 }
             }
 
@@ -489,11 +575,12 @@ public sealed class LanguageDefinition
                 blockEnd = null;
             }
 
-            definition = new LanguageDefinition(id, name, extensions, keywords,
-                controlStatements, types, constants, lineComment, blockStart,
-                blockEnd, quoteCharacters, escapeCharacter, highlightNumbers,
-                formatter, formatOnSave, indentation, autoIndent, autoClose,
-                traditionalMarkupLanguage, indentAfter, unindentBefore, debugger);
+            definition = new LanguageDefinition(id, name, extensions, fileNames,
+                lineHighlights, keywords, controlStatements, types, constants,
+                lineComment, blockStart, blockEnd, quoteCharacters,
+                escapeCharacter, highlightNumbers, formatter, formatOnSave,
+                indentation, autoIndent, autoClose, traditionalMarkupLanguage,
+                indentAfter, unindentBefore, debugger);
             return true;
         }
         catch (JsonException ex)
@@ -511,6 +598,47 @@ public sealed class LanguageDefinition
     private static byte[]? Encode(string? value)
     {
         return string.IsNullOrEmpty(value) ? null : Encoding.UTF8.GetBytes(value);
+    }
+
+    private static bool TryReadTokenKind(string name, out SyntaxTokenKind kind)
+    {
+        switch (name.Trim().ToLowerInvariant())
+        {
+            case "keyword":
+                kind = SyntaxTokenKind.Keyword;
+                return true;
+            case "control":
+            case "controlstatement":
+            case "control_statement":
+                kind = SyntaxTokenKind.ControlStatement;
+                return true;
+            case "type":
+                kind = SyntaxTokenKind.Type;
+                return true;
+            case "constant":
+                kind = SyntaxTokenKind.Constant;
+                return true;
+            case "string":
+            case "stringliteral":
+            case "string_literal":
+                kind = SyntaxTokenKind.StringLiteral;
+                return true;
+            case "comment":
+                kind = SyntaxTokenKind.Comment;
+                return true;
+            case "number":
+                kind = SyntaxTokenKind.Number;
+                return true;
+            case "added":
+                kind = SyntaxTokenKind.Added;
+                return true;
+            case "deleted":
+                kind = SyntaxTokenKind.Deleted;
+                return true;
+            default:
+                kind = SyntaxTokenKind.Default;
+                return false;
+        }
     }
 
     private static string? GetString(JsonElement element, string property)

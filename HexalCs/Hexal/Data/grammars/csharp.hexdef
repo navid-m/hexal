@@ -35,6 +35,18 @@
         "escapeCharacter": "\\"
     },
     "numbers": true,
+    "formatter": {
+        "command": "dotnet",
+        "arguments": [
+            "csharpier",
+            "format",
+            "--stdin-path",
+            "{path}"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 30000
+    },
     "debugger": {
         "adapter": "netcoredbg",
         "arguments": [

@@ -13,6 +13,9 @@ public sealed class LanguageRegistry
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, LanguageDefinition> _byExtension =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LanguageDefinition> _byFileName =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _orderedExtensions = new();
     private readonly List<string> _errors = new();
 
     public IReadOnlyList<string> Errors => _errors;
@@ -105,6 +108,20 @@ public sealed class LanguageRegistry
 
             _byId.Add(language.Id, language);
 
+            foreach (string fileName in language.FileNames)
+            {
+                if (_byFileName.TryGetValue(fileName,
+                        out LanguageDefinition? existing))
+                {
+                    HexalPaths.Log(
+                        $"Grammar warning: file name '{fileName}' belongs to " +
+                        $"'{existing.Id}'; ignoring duplicate from '{language.Id}'");
+                    continue;
+                }
+
+                _byFileName.Add(fileName, language);
+            }
+
             foreach (string extension in language.Extensions)
             {
                 if (_byExtension.TryGetValue(extension, out LanguageDefinition? existing))
@@ -118,8 +135,14 @@ public sealed class LanguageRegistry
                     continue;
                 }
                 _byExtension.Add(extension, language);
+                _orderedExtensions.Add(extension);
             }
         }
+
+        // Prefer the most specific suffix so compound extensions such as
+        // .blade.php win over .php.
+        _orderedExtensions.Sort((left, right) =>
+            right.Length.CompareTo(left.Length));
     }
 
     public LanguageDefinition? Find(string id)
@@ -134,23 +157,34 @@ public sealed class LanguageRegistry
             return null;
         }
 
-        string extension;
+        string fileName;
         try
         {
-            extension = Path.GetExtension(path);
+            fileName = Path.GetFileName(path);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
         {
             return null;
         }
 
-        if (extension.Length == 0)
+        if (fileName.Length == 0)
         {
             return null;
         }
 
-        return _byExtension.TryGetValue(extension, out LanguageDefinition? language)
-            ? language
-            : null;
+        if (_byFileName.TryGetValue(fileName, out LanguageDefinition? byName))
+        {
+            return byName;
+        }
+
+        foreach (string extension in _orderedExtensions)
+        {
+            if (fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            {
+                return _byExtension[extension];
+            }
+        }
+
+        return null;
     }
 }

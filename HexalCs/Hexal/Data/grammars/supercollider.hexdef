@@ -1,0 +1,36 @@
+{
+    "id": "supercollider",
+    "name": "SuperCollider",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [".scd", ".schelp"],
+    "keywords": [
+        "arg", "class", "classvar", "const", "do", "else", "for", "forBy",
+        "if", "inf", "nil", "pi", "super", "this", "thisProcess",
+        "thisThread", "true", "false", "var", "while"
+    ],
+    "controlStatements": [
+        "case", "collect", "detect", "do", "for", "forBy", "if", "inject",
+        "reject", "select", "switch", "while"
+    ],
+    "types": [
+        "Array", "Boolean", "Buffer", "Bus", "Class", "Dictionary", "Event",
+        "Float", "Function", "Group", "Integer", "List", "Method", "Nil",
+        "Node", "Object", "Routine", "Server", "String", "Symbol", "Synth",
+        "Task"
+    ],
+    "constants": ["false", "inf", "nil", "pi", "true"],
+    "comments": {
+        "line": "//",
+        "blockStart": "/*",
+        "blockEnd": "*/"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": ["{", "[", "(", "if", "for", "while"],
+    "unindentBefore": ["}", "]", ")"]
+}
