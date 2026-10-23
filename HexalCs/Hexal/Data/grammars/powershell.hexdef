@@ -1,0 +1,42 @@
+{
+    "id": "powershell",
+    "name": "PowerShell",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "extensions": [
+        ".ps1", ".psm1", ".psd1", ".ps1xml", ".pssc", ".psrc"
+    ],
+    "keywords": [
+        "begin", "class", "data", "define", "dynamicparam", "end", "enum",
+        "filter", "function", "hidden", "param", "process", "static",
+        "using", "var", "workflow"
+    ],
+    "controlStatements": [
+        "break", "catch", "continue", "do", "else", "elseif", "exit",
+        "finally", "for", "foreach", "from", "if", "in", "return",
+        "switch", "throw", "trap", "try", "until", "while"
+    ],
+    "types": [
+        "array", "bool", "boolean", "byte", "char", "datetime", "decimal",
+        "double", "float", "guid", "hashtable", "int", "int16", "int32",
+        "int64", "long", "object", "ordered", "parameter", "psobject",
+        "pscustomobject", "regex", "sbyte", "scriptblock", "short",
+        "single", "string", "timespan", "type", "uint", "uint16",
+        "uint32", "uint64", "ulong", "ushort", "void", "xml"
+    ],
+    "constants": [
+        "true", "false", "null", "args", "Error", "ExecutionContext",
+        "HOME", "Host", "input", "LASTEXITCODE", "Matches", "MyInvocation",
+        "PID", "PSCmdlet", "PSCommandPath", "PSItem", "PSScriptRoot",
+        "PSVersionTable", "PWD", "this"
+    ],
+    "comments": {
+        "line": "#",
+        "blockStart": "<#",
+        "blockEnd": "#>"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "`"
+    },
+    "numbers": true
+}

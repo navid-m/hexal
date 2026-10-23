@@ -1,0 +1,43 @@
+{
+    "id": "fish",
+    "name": "Fish Shell",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+    "extensions": [".fish"],
+    "keywords": [
+        "abbr", "alias", "argparse", "bg", "bind", "block", "builtin",
+        "cd", "command", "commandline", "complete", "contains", "count",
+        "dirh", "dirs", "disown", "echo", "emit", "eval", "exec", "fg",
+        "fish", "fish_add_path", "fish_breakpoint_prompt",
+        "fish_command_not_found", "fish_config", "fish_git_prompt",
+        "fish_greeting", "fish_hg_prompt", "fish_indent",
+        "fish_is_root_user", "fish_job_summary", "fish_key_reader",
+        "fish_mode_prompt", "fish_opt", "fish_prompt", "fish_right_prompt",
+        "fish_status_to_signal", "fish_svn_prompt", "fish_title",
+        "fish_update_completions", "fish_vcs_prompt", "funced", "funcsave",
+        "functions", "history", "isatty", "jobs", "math", "mimedb",
+        "nextd", "path", "popd", "prevd", "printf", "prompt_pwd", "psub",
+        "pushd", "pwd", "random", "read", "realpath", "set", "set_color",
+        "source", "status", "string", "suspend", "test", "time", "trap",
+        "type", "ulimit", "umask", "vared", "wait"
+    ],
+    "controlStatements": [
+        "and", "begin", "break", "case", "continue", "else", "end", "for",
+        "function", "if", "in", "not", "or", "return", "switch", "while"
+    ],
+    "types": [],
+    "constants": ["true", "false"],
+    "comments": {
+        "line": "#"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "formatter": {
+        "command": "fish_indent",
+        "arguments": [],
+        "input": "stdin",
+        "output": "stdout"
+    }
+}

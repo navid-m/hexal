@@ -24,8 +24,8 @@ architecture and observable behaviour as the C++ MVP:
 - **Lua plugins** through an isolated NLua state and the documented
   `hexal.*` API modules
 - **Bundled grammars and LSP plugins** for Lua, Go, XML, C#, C, C++, Python,
-  Cython, and GLSL; the first language server found in `PATH` is started
-  automatically
+  Cython, GLSL, Shell Script, Git Ignore, PowerShell, JSON, and Fish Shell; the
+  first language server found in `PATH` is started automatically
 
 ## Why this stack
 
@@ -480,6 +480,15 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | Python | `.py` | `pyright-langserver`, `ty`, `mypy`, `mypy-language-server` |
 | Cython | `.pyx` | `cython-lsp`, `pyright-langserver`, `ty`, `mypy` |
 | GLSL | `.gdshader`, `.shader`, `.fs`, `.vs`, `.glsl` | `glsl_analyzer`, `glsl-language-server` |
+| Shell Script | `.sh`, `.bash`, `.zsh`, `.ksh`, `.dash`, `.ash`, and shell rc files | `bash-language-server` |
+| Git Ignore | `.gitignore`, `.npmignore`, `.dockerignore`, and similar ignore files | none (syntax highlighting only) |
+| PowerShell | `.ps1`, `.psm1`, `.psd1`, `.ps1xml`, `.pssc`, `.psrc` | `powershell-language-server`, PowerShell Editor Services |
+| JSON | `.json`, `.jsonc`, `.jsonl`, `.ndjson`, `.geojson`, `.har`, `.webmanifest` | `vscode-json-languageserver` |
+| Fish Shell | `.fish` | `fish-lsp` |
+
+PowerShell Editor Services is launched through `pwsh` rather than as a
+standalone executable. Set `bundlePath` to the extracted PSES directory in
+`~/.hexal/plugin-config/powershell.json` to enable it.
 
 The LSP client runs asynchronously over stdio with JSON-RPC framing. It performs
 `initialize`, opens the document, sends debounced full-document changes and

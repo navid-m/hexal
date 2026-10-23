@@ -1,0 +1,4 @@
+name = "Git Ignore"
+version = "1.0"
+entry = "init.lua"
+description = "Syntax support for .gitignore files"

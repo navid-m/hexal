@@ -1,0 +1,3 @@
+-- Git ignore files have no language server. Syntax highlighting, comment
+-- handling and the gitignore language mode are provided by the bundled
+-- gitignore grammar.

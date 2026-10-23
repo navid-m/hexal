@@ -1,0 +1,17 @@
+{
+    "id": "gitignore",
+    "name": "Git Ignore",
+    "indentation": { "style": "spaces", "width": 4, "tabWidth": 8 },
+    "extensions": [
+        ".gitignore", ".npmignore", ".dockerignore", ".eslintignore",
+        ".prettierignore", ".stylelintignore", ".vscodeignore", ".ignore"
+    ],
+    "keywords": [],
+    "controlStatements": [],
+    "types": [],
+    "constants": [],
+    "comments": {
+        "line": "#"
+    },
+    "numbers": false
+}
