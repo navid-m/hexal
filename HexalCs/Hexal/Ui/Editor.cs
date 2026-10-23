@@ -2227,10 +2227,7 @@ public sealed partial class Editor
             }
             else if (kind == PromptKind.SidebarDelete)
             {
-                string path = _pendingSidebarDeletePath;
-                bool isDirectory = _pendingSidebarDeleteDirectory;
-                ClearPendingSidebarDelete();
-                DeleteSidebarPath(path, isDirectory);
+                DeleteSidebarPaths();
             }
             return;
         }
@@ -7204,8 +7201,9 @@ public sealed partial class Editor
                 PromptKind.Quit => "Unsaved changes. Quit without saving? (y/N)",
                 PromptKind.Open =>
                     $"Unsaved changes. Discard and open '{_pendingOpen}'? (y/N)",
-                PromptKind.SidebarDelete =>
-                    $"Delete '{Path.GetFileName(_pendingSidebarDeletePath)}'? (y/N)",
+                PromptKind.SidebarDelete => _pendingSidebarDeletes.Count == 1
+                    ? $"Delete '{Path.GetFileName(_pendingSidebarDeletes[0].Path)}'? (y/N)"
+                    : $"Delete {_pendingSidebarDeletes.Count} selected items? (y/N)",
                 _ => string.Empty
             };
 

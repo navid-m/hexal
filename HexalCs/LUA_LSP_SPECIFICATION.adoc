@@ -1,4 +1,3 @@
-
 = Hexal Lua Language Server API
 :doctype: book
 :toc: left
