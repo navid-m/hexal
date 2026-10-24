@@ -774,6 +774,9 @@ internal sealed partial class WindowsTerminal : ITerminal
         result.Character = new Rune(character);
         result.Ctrl = ctrl;
         result.Alt = alt;
+        // The produced character already reflects Shift. Keep the flag clear
+        // so a normal uppercase command is not mistaken for a modifier chord.
+        result.Shift = false;
         return result;
     }
 
