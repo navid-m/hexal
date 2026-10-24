@@ -855,7 +855,89 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         OpenPicker(PickerKind.Problems);
     }
 
-    private void ShowHoverPopup(string text)
+    private void ShowLineDiagnostic()
+    {
+        if (_document.Path is null)
+        {
+            SetError("Diagnostics require a file-backed buffer");
+            return;
+        }
+
+        if (!_lsp.IsRunning)
+        {
+            SetError("No LSP configured");
+            return;
+        }
+
+        int line = (int)CursorLine();
+        List<LspDiagnostic> diagnostics = _lsp
+            .SnapshotDiagnosticsForPath(_document.Path)
+            .Where(diagnostic =>
+            {
+                int endLine = diagnostic.EndLine >= 0 ? diagnostic.EndLine : diagnostic.Line;
+                return line >= diagnostic.Line && line <= endLine;
+            })
+            .OrderBy(diagnostic => DiagnosticSeverityRank(diagnostic.Severity))
+            .ThenBy(diagnostic => diagnostic.Column)
+            .ToList();
+
+        if (diagnostics.Count == 0)
+        {
+            SetMessage("No diagnostics on this line.");
+            return;
+        }
+
+        var text = new StringBuilder();
+        foreach (LspDiagnostic diagnostic in diagnostics)
+        {
+            if (text.Length > 0)
+            {
+                text.AppendLine();
+                text.AppendLine();
+            }
+
+            if (diagnostics.Count > 1)
+            {
+                text.Append(DiagnosticSeverityName(diagnostic.Severity));
+                text.Append(" (");
+                text.Append((diagnostic.Line + 1).ToString(CultureInfo.InvariantCulture));
+                text.Append(':');
+                text.Append((diagnostic.Column + 1).ToString(CultureInfo.InvariantCulture));
+                text.Append(')');
+                if (diagnostic.Source.Length > 0)
+                {
+                    text.Append(" [");
+                    text.Append(diagnostic.Source);
+                    text.Append(']');
+                }
+                text.AppendLine();
+            }
+
+            text.Append(
+                diagnostic.Message.Length > 0 ? diagnostic.Message : "(no diagnostic message)"
+            );
+        }
+
+        string title = diagnostics.Count == 1
+            ? DiagnosticSeverityName(diagnostics[0].Severity)
+            : $"Diagnostics ({diagnostics.Count})";
+        ShowHoverPopup(text.ToString(), title);
+    }
+
+    private static int DiagnosticSeverityRank(int severity) =>
+        severity is >= 1 and <= 4 ? severity : 5;
+
+    private static string DiagnosticSeverityName(int severity) =>
+        severity switch
+        {
+            1 => "Error",
+            2 => "Warning",
+            3 => "Information",
+            4 => "Hint",
+            _ => "Diagnostic",
+        };
+
+    private void ShowHoverPopup(string text, string title = "Hover")
     {
         _hoverLines.Clear();
 
@@ -924,7 +1006,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return;
         }
 
-        _hoverTitle = "Hover";
+        _hoverTitle = title;
         _hoverTop = 0;
         _hoverVisible = true;
         ClearMessage();

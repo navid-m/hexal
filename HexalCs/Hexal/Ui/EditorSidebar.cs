@@ -341,9 +341,16 @@ public sealed partial class Editor
             }
             else if (character == ' ')
             {
-                ActivateSelectedSidebarNode();
+                FocusEditorAndOpenSpaceMenu();
             }
         }
+    }
+
+    private void FocusEditorAndOpenSpaceMenu()
+    {
+        _sidebarMenuVisible = false;
+        _sidebarFocused = false;
+        OpenSpaceMenu();
     }
 
     private void MoveSidebarSelection(int delta, bool wrap, bool extend = false)
@@ -642,6 +649,12 @@ public sealed partial class Editor
         if (character is 'c' or 'C')
         {
             _sidebarMenuVisible = false;
+            return;
+        }
+
+        if (character == ' ')
+        {
+            FocusEditorAndOpenSpaceMenu();
             return;
         }
 

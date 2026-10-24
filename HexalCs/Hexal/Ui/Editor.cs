@@ -73,6 +73,7 @@ public sealed partial class Editor
         ('S', "Document symbols"),
         ('D', "Workspace diagnostics"),
         ('d', "Document diagnostics"),
+        ('Z', "Diagnostic on this line"),
         ('b', "Toggle breakpoint"),
     };
 
@@ -2693,6 +2694,10 @@ public sealed partial class Editor
                 return;
             case 'd':
                 ShowProblems(workspace: false);
+                return;
+            case 'z':
+            case 'Z':
+                ShowLineDiagnostic();
                 return;
             case 'b':
             case 'B':

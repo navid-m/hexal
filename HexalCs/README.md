@@ -190,10 +190,11 @@ when one is active) and `P` pastes it on new lines below the cursor's line.
 Press `.` for literal cross-file find/replace or `\` for regex cross-file
 find/replace; both accept a wildcard such as `*`, `*.cs`, or
 `./src/*.txt`. Press `S` to pick a symbol from the current file using the
-language server's document symbols. Both pickers filter as you type; use Up/Down (or
-PageUp/PageDown) to select and Enter to open the result. File pickers start
-from the current working directory and skip common build and VCS directories.
-Search results open the file at the matching line.
+language server's document symbols. Press `Z` to open a modal with every
+language-server diagnostic on the current line. Both pickers filter as you
+type; use Up/Down (or PageUp/PageDown) to select and Enter to open the result.
+File pickers start from the current working directory and skip common build and
+VCS directories. Search results open the file at the matching line.
 
 ### Command palette
 

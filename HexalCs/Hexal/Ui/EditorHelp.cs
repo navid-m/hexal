@@ -78,6 +78,14 @@ public sealed partial class Editor
         Entry("Space f", "Open the file picker");
         Blank();
 
+        Section("Language server");
+        Entry("Space K", "Show hover information at the cursor");
+        Entry("Space A", "List code actions at the cursor");
+        Entry("Space S", "Pick a symbol from the current document");
+        Entry("Space d / Space D", "Show document / workspace diagnostics");
+        Entry("Space Z", "Show the diagnostic on the current line");
+        Blank();
+
         Section("Git");
         Entry(":gi", "Toggle git-ignored files in the sidebar and pickers");
         Entry(":gdl", "Toggle added/deleted/modified gutter markers");
@@ -88,7 +96,8 @@ public sealed partial class Editor
         Entry("C", "Open the context menu for the selected item(s)");
         Entry("Ctrl+Left / Ctrl+Right", "Shrink / grow the sidebar");
         Entry("Shift+Up / Shift+Down", "Extend the multi-selection");
-        Entry("Enter / Space", "Open a file or expand/collapse a folder");
+        Entry("Enter", "Open a file or expand/collapse a folder");
+        Entry("Space", "Leave the sidebar and open the Space menu");
         Entry("O X E", "Menu: open, new folder, new file");
         Entry("R D F", "Menu: rename, duplicate, format");
         Entry("I", "Menu: diff (exactly two files selected)");
