@@ -8719,7 +8719,7 @@ public sealed partial class Editor
         {
             diagnostic = $"\u25CF {diagnosticCount}";
             diagnosticWidth = (int)UnicodeUtil.ColumnWidth(diagnostic);
-            diagnosticX = rightX - diagnosticWidth - 1;
+            diagnosticX = rightX - diagnosticWidth - 3;
             if (diagnosticX < 1)
             {
                 diagnostic = string.Empty;
