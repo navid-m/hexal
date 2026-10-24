@@ -2288,6 +2288,20 @@ internal static class Program
             "eel2",
             "dotenv",
             "scar",
+            "make",
+            "tcl",
+            "tsx",
+            "jsx",
+            "vue",
+            "qml",
+            "twig",
+            "svelte",
+            "racket",
+            "awk",
+            "scss",
+            "fortran",
+            "lisp",
+            "xsd",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -2392,6 +2406,62 @@ internal static class Program
         Check(
             ReferenceEquals(bundled.Detect("/repo/Containerfile"), bundled.Find("dockerfile")),
             "Containerfile file name detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("Makefile"), bundled.Find("make")),
+            "Makefile file name detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("script.tcl"), bundled.Find("tcl")),
+            "tcl extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("component.tsx"), bundled.Find("tsx")),
+            "tsx extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("component.jsx"), bundled.Find("jsx")),
+            "jsx extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("app.vue"), bundled.Find("vue")),
+            "vue extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("view.qml"), bundled.Find("qml")),
+            "qml extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("page.twig"), bundled.Find("twig")),
+            "twig extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("App.svelte"), bundled.Find("svelte")),
+            "svelte extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("main.rkt"), bundled.Find("racket")),
+            "racket extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("program.awk"), bundled.Find("awk")),
+            "awk extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("styles.scss"), bundled.Find("scss")),
+            "scss extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("solver.f90"), bundled.Find("fortran")),
+            "fortran extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("core.lisp"), bundled.Find("lisp")),
+            "lisp extension detection"
+        );
+        Check(
+            ReferenceEquals(bundled.Detect("schema.xsd"), bundled.Find("xsd")),
+            "xsd extension detection"
         );
 
         var healthOutput = new StringWriter();

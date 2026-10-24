@@ -4,7 +4,7 @@
     "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
     "autoIndent": true,
     "autoClose": true,
-    "extensions": [".scm", ".ss", ".sls", ".sld", ".rkt"],
+    "extensions": [".scm", ".ss", ".sls", ".sld"],
     "keywords": [
         "and", "apply", "begin", "call-with-current-continuation",
         "call-with-values", "call/cc", "case", "cond", "define",

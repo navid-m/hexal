@@ -707,6 +707,20 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | Fish Shell | `.fish` | `fish-lsp` |
 | Ruby | `.rb`, `.rake`, `.gemspec`, `.ru` | `ruby-lsp`, `solargraph` |
 | Rust | `.rs` | `rust-analyzer` |
+| Makefile | `.mk`, `.mak`, `.make`, `Makefile`, `GNUmakefile` | `make-ls`, `makefile-lsp`, `autotools-language-server` |
+| Tcl | `.tcl`, `.tk`, `.itcl`, `.tm`, `.irule`, `.iapp` | `tclsp`, `tcl-lsp` |
+| TSX | `.tsx` | `typescript-language-server`, `vtsls`, `biome` |
+| JSX | `.jsx` | `typescript-language-server`, `vtsls`, `biome` |
+| Vue | `.vue` | `vue-language-server` |
+| QML | `.qml`, `.qmltypes`, `.qmlproject` | `qmlls` |
+| Twig | `.twig`, `.twig.html` | `twiggy-language-server` |
+| Svelte | `.svelte`, `.svelte.js`, `.svelte.ts` | `svelteserver`, `svelte-language-server` |
+| Racket | `.rkt`, `.rktl`, `.rktd`, `.scrbl` | `racket -l racket-langserver` |
+| AWK | `.awk`, `.gawk` | `awk-language-server` |
+| SCSS | `.scss` | `vscode-css-language-server` |
+| Fortran | `.f`, `.f77`, `.f90`, `.f95`, `.f03`, `.f08`, `.for` | `fortls` |
+| Common Lisp | `.lisp`, `.lsp`, `.cl`, `.asd` | `cl-lsp` |
+| XML Schema | `.xsd` | `lemminx`, `xml-language-server` |
 
 PowerShell Editor Services is launched through `pwsh` rather than as a
 standalone executable. Set `bundlePath` to the extracted PSES directory in

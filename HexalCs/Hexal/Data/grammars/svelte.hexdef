@@ -1,0 +1,50 @@
+{
+    "id": "svelte",
+    "name": "Svelte",
+    "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "traditionalMarkupLanguage": true,
+    "extensions": [".svelte", ".svelte.js", ".svelte.ts"],
+    "keywords": [
+        "each", "await", "then", "catch", "html", "debug", "snippet",
+        "render", "const", "let", "export", "import", "from", "as",
+        "class", "extends", "function", "return", "if", "else", "for",
+        "while", "do", "switch", "case", "default", "break", "continue",
+        "throw", "try", "finally", "new", "this", "typeof", "instanceof",
+        "in", "of", "async", "yield", "true", "false", "null",
+        "undefined", "$state", "$derived", "$effect", "$props",
+        "$bindable", "$inspect", "$host"
+    ],
+    "controlStatements": [
+        "if", "else", "each", "then", "catch", "await", "for", "while",
+        "switch", "case", "default", "break", "continue", "return",
+        "throw", "try", "finally"
+    ],
+    "types": ["Component", "SvelteComponent", "Snippet", "SnippetReturn", "Props"],
+    "constants": ["true", "false", "null", "undefined", "NaN", "Infinity"],
+    "comments": {
+        "blockStart": "<!--",
+        "blockEnd": "-->"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'", "`"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": [
+        "{#if", "{#each", "{#await", "{#key", "{#snippet", "<script",
+        "<style", "<svelte:"
+    ],
+    "unindentBefore": [
+        "{/if", "{/each", "{/await", "{/key", "{/snippet", "</script",
+        "</style"
+    ],
+    "formatter": {
+        "command": "prettier",
+        "arguments": ["--stdin-filepath", "{path}"],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
+    }
+}

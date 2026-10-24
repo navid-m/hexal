@@ -1,0 +1,40 @@
+{
+    "id": "make",
+    "name": "Makefile",
+    "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
+    "autoIndent": true,
+    "autoClose": true,
+    "extensions": [".mk", ".mak", ".make", ".makefile"],
+    "fileNames": [
+        "Makefile", "makefile", "GNUmakefile", "BSDmakefile",
+        "Makefile.am", "Makefile.in", "makefile.am", "makefile.in"
+    ],
+    "keywords": [
+        "define", "endef", "include", "-include", "sinclude", "export",
+        "unexport", "override", "private", "vpath", "undefine", "ifeq",
+        "ifneq", "ifdef", "ifndef", "else", "endif", "wildcard", "patsubst",
+        "subst", "strip", "findstring", "filter", "filter-out", "sort",
+        "word", "wordlist", "words", "firstword", "lastword", "dir",
+        "notdir", "suffix", "basename", "addsuffix", "addprefix", "join",
+        "realpath", "abspath", "shell", "call", "eval", "origin", "flavor",
+        "foreach", "if", "or", "and", "value", "error", "warning", "info",
+        "file", "let", "intcmp"
+    ],
+    "controlStatements": [
+        "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif", "define",
+        "endef", "include", "-include", "sinclude", "export", "unexport",
+        "override", "vpath", "undefine"
+    ],
+    "types": [],
+    "constants": ["true", "false"],
+    "comments": {
+        "line": "#"
+    },
+    "strings": {
+        "quoteCharacters": ["\"", "'"],
+        "escapeCharacter": "\\"
+    },
+    "numbers": true,
+    "indentAfter": ["define"],
+    "unindentBefore": ["endef"]
+}
