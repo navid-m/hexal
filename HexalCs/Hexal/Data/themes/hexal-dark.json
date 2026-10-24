@@ -11,6 +11,7 @@
         "error": "#f7768e",
         "warning": "#e0af68",
         "success": "#9ece6a",
+        "gitModified": "#2ac3de",
         "alert": { "fg": "#ffffff", "bg": "#bb3b5a" },
         "selection": { "fg": "#ffffff", "bg": "#2f5d8a" },
         "status": { "fg": "#f2f5fa", "bg": "#2b4f73" },

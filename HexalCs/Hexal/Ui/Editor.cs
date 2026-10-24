@@ -5371,6 +5371,10 @@ public sealed partial class Editor
 
                 RefreshFileStamp();
                 RefreshDiffLines();
+                if (_sidebarVisible)
+                {
+                    RefreshSidebarGitStatus(force: true);
+                }
                 SetMessage($"Wrote {result.Path} ({_document.LineCount} lines)");
                 FirePluginEvent(
                     "buffer_saved",

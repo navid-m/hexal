@@ -37,6 +37,11 @@ public sealed class Theme
     public uint DiffDeleted { get; set; } = 1;
     public uint DiffModified { get; set; } = 4;
 
+    /// <summary>
+    /// Marker colour for files and folders modified in the Git working tree.
+    /// </summary>
+    public uint GitModified { get; set; } = 14;
+
     public uint AlertForeground { get; set; } = 15;
     public uint AlertBackground { get; set; } = 5;
 
@@ -208,6 +213,14 @@ public sealed class Theme
             Bold = true,
         };
 
+    public Style GitModifiedStyle =>
+        new()
+        {
+            Fg = GitModified,
+            Bg = Background,
+            Bold = true,
+        };
+
     public Style SyntaxStyle(uint foreground) => new() { Fg = foreground, Bg = Background };
 
     public static Theme CreateDefault() => new();
@@ -274,6 +287,12 @@ public sealed class Theme
                 result.Error = ReadColor(colors, "error", result.Error, ref error);
                 result.Warning = ReadColor(colors, "warning", result.Warning, ref error);
                 result.Success = ReadColor(colors, "success", result.Success, ref error);
+                result.GitModified = ReadColor(
+                    colors,
+                    "gitModified",
+                    result.GitModified,
+                    ref error
+                );
 
                 (result.AlertForeground, result.AlertBackground) = ReadPair(
                     colors,

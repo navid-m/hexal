@@ -1252,6 +1252,7 @@ internal static class Program
             config is not null
                 && config.ShowDiffLines
                 && !config.ShowGitIgnored
+                && config.ShowModifiedIndicators
                 && !config.WordWrap
                 && config.ConfirmQuitWithoutSaving
                 && !config.SearchMatchCaseEnabled,
@@ -1260,6 +1261,17 @@ internal static class Program
         Check(
             config is not null && config.KeepSidebarFocusOnOpen,
             "sidebar focus setting defaults on"
+        );
+        Check(
+            HexalConfig.TryParse(
+                "{\"showModifiedIndicators\": false}",
+                "test.hexcfg",
+                out config,
+                out error
+            )
+                && config is not null
+                && !config.ShowModifiedIndicators,
+            "modified indicators can be disabled"
         );
         Check(
             config is not null

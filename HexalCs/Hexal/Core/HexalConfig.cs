@@ -24,6 +24,7 @@ public sealed class HexalConfig
             "debugAdapter": true,
             "showDiffLines": true,
             "showGitIgnored": false,
+            "showModifiedIndicators": true,
             "wordWrap": false,
             "keepSidebarFocusOnOpen": true,
             "confirmQuitWithoutSaving": true,
@@ -81,6 +82,12 @@ public sealed class HexalConfig
     public bool ShowDiffLines { get; init; } = true;
 
     public bool ShowGitIgnored { get; init; }
+
+    /// <summary>
+    /// When true, the sidebar marks Git-modified and renamed files and their
+    /// parent folders with an M.
+    /// </summary>
+    public bool ShowModifiedIndicators { get; init; } = true;
 
     /// <summary>
     /// When true, long editor lines are softly wrapped at the pane width.
@@ -212,6 +219,9 @@ public sealed class HexalConfig
                 ReadBool(root, "showDiffLines") ?? ReadBool(root, "show_diff_lines");
             bool? showGitIgnored =
                 ReadBool(root, "showGitIgnored") ?? ReadBool(root, "show_git_ignored");
+            bool? showModifiedIndicators =
+                ReadBool(root, "showModifiedIndicators")
+                ?? ReadBool(root, "show_modified_indicators");
             bool? wordWrap = ReadBool(root, "wordWrap") ?? ReadBool(root, "word_wrap");
             bool? keepSidebarFocusOnOpen =
                 ReadBool(root, "keepSidebarFocusOnOpen")
@@ -253,6 +263,9 @@ public sealed class HexalConfig
                     ReadBool(editor, "showDiffLines") ?? ReadBool(editor, "show_diff_lines");
                 showGitIgnored ??=
                     ReadBool(editor, "showGitIgnored") ?? ReadBool(editor, "show_git_ignored");
+                showModifiedIndicators ??=
+                    ReadBool(editor, "showModifiedIndicators")
+                    ?? ReadBool(editor, "show_modified_indicators");
                 wordWrap ??= ReadBool(editor, "wordWrap") ?? ReadBool(editor, "word_wrap");
                 keepSidebarFocusOnOpen ??=
                     ReadBool(editor, "keepSidebarFocusOnOpen")
@@ -280,6 +293,7 @@ public sealed class HexalConfig
                 DebugAdapter = debugAdapter ?? true,
                 ShowDiffLines = showDiffLines ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
+                ShowModifiedIndicators = showModifiedIndicators ?? true,
                 WordWrap = wordWrap ?? false,
                 KeepSidebarFocusOnOpen = keepSidebarFocusOnOpen ?? true,
                 ConfirmQuitWithoutSaving = confirmQuitWithoutSaving ?? true,

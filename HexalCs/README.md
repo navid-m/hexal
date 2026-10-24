@@ -489,6 +489,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "debugAdapter": true,
     "showDiffLines": true,
     "showGitIgnored": false,
+    "showModifiedIndicators": true,
     "wordWrap": false,
     "keepSidebarFocusOnOpen": true,
     "confirmQuitWithoutSaving": true,
@@ -524,8 +525,11 @@ must be used instead, matching Helix's behaviour.
 
 `showDiffLines` controls the Git diff markers in the line-number gutter. They
 are enabled by default and use green for added lines, red for deleted lines and
-blue for modified lines. `showGitIgnored` controls whether files excluded by
-`.gitignore` appear in the sidebar, file picker and cross-file search.
+blue for modified lines. The sidebar also marks modified and renamed files with
+an `M` at its right edge, including parent folders that contain such files.
+`showModifiedIndicators` controls those markers and defaults to `true`.
+`showGitIgnored` controls whether files excluded by `.gitignore` appear in the
+sidebar, file picker and cross-file search.
 `keepSidebarFocusOnOpen` is enabled by default and keeps keyboard focus in the
 sidebar after opening a file; press `Ctrl+B` to close the sidebar and return to
 the buffer. Set it to `false` to move focus to the opened buffer immediately.
@@ -561,7 +565,7 @@ Malformed theme files are logged and skipped.
 
 Colours can be an ANSI palette index (`0`-`255`), a name such as `"bright-cyan"`
 or `"black"`, or a `"#RRGGBB"` true-colour value. Missing entries inherit the
-default palette.
+default palette. `gitModified` controls the sidebar's Git status marker.
 
 ```json
 {
@@ -577,6 +581,7 @@ default palette.
         "error": "#bf616a",
         "warning": "#ebcb8b",
         "success": "#a3be8c",
+        "gitModified": "#88c0d0",
         "alert": { "fg": "#eceff4", "bg": "#bf616a" },
         "selection": { "fg": "#eceff4", "bg": "#5e81ac" },
         "status": { "fg": "#eceff4", "bg": "#4c566a" },

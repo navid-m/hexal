@@ -101,6 +101,10 @@ public sealed partial class Editor
     private const int MinEditorWidthBesideSidebar = 16;
     private readonly List<SidebarNode> _sidebarNodes = new();
     private readonly HashSet<string> _sidebarExpanded = new(SidebarPathComparison);
+    private readonly HashSet<string> _sidebarGitModifiedFiles = new(SidebarPathComparison);
+    private readonly HashSet<string> _sidebarGitModifiedDirectories = new(SidebarPathComparison);
+    private long _sidebarGitStatusAt = long.MinValue / 2;
+    private const int SidebarGitStatusCacheMs = 500;
     private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes = new();
     private string _pendingSidebarDiff = string.Empty;
     private string _pendingSidebarDiffLabel = string.Empty;
@@ -210,7 +214,7 @@ public sealed partial class Editor
 
     private int SidebarListRows()
     {
-        return Math.Max(1, TextRows() - 1);
+        return Math.Max(1, TextRows());
     }
 
     private void ToggleSidebar()
@@ -2107,6 +2111,7 @@ public sealed partial class Editor
     private void RefreshSidebar(string? selectPath)
     {
         string? selectedPath = selectPath ?? SelectedSidebarNode?.Path;
+        RefreshSidebarGitStatus();
         _sidebarNodes.Clear();
         GitIgnore? gitIgnore = _showGitIgnored ? null : new GitIgnore(ProjectRoot());
         AddSidebarDirectory(ProjectRoot(), 0, root: true, gitIgnore);
@@ -2126,6 +2131,53 @@ public sealed partial class Editor
 
         _sidebarSelectionAnchor = _sidebarSelected;
         EnsureSidebarSelectionVisible();
+    }
+
+    private void RefreshSidebarGitStatus(bool force = false)
+    {
+        if (!_config.ShowModifiedIndicators)
+        {
+            _sidebarGitModifiedFiles.Clear();
+            _sidebarGitModifiedDirectories.Clear();
+            return;
+        }
+
+        long now = Environment.TickCount64;
+        if (!force && now - _sidebarGitStatusAt < SidebarGitStatusCacheMs)
+        {
+            return;
+        }
+        _sidebarGitStatusAt = now;
+
+        _sidebarGitModifiedFiles.Clear();
+        _sidebarGitModifiedDirectories.Clear();
+
+        string root = SidebarFullPath(ProjectRoot());
+        foreach (string path in GitStatus.LoadModifiedPaths(root))
+        {
+            string fullPath = SidebarFullPath(path);
+            if (!SamePath(fullPath, root) && !IsPathInside(root, fullPath))
+            {
+                continue;
+            }
+
+            _sidebarGitModifiedFiles.Add(fullPath);
+            string? parent = Path.GetDirectoryName(fullPath);
+            while (
+                !string.IsNullOrEmpty(parent)
+                && !SamePath(parent, root)
+                && IsPathInside(root, parent)
+            )
+            {
+                _sidebarGitModifiedDirectories.Add(parent);
+                string? next = Path.GetDirectoryName(parent);
+                if (string.Equals(parent, next, StringComparison.Ordinal))
+                {
+                    break;
+                }
+                parent = next;
+            }
+        }
     }
 
     private void AddSidebarDirectory(string directory, int depth, bool root, GitIgnore? gitIgnore)
@@ -2369,7 +2421,7 @@ public sealed partial class Editor
             return;
         }
 
-        int row = inputEvent.MouseY - 1;
+        int row = inputEvent.MouseY;
         if (row < 0)
         {
             return;
@@ -2402,35 +2454,22 @@ public sealed partial class Editor
         }
 
         var background = _theme.BaseStyle;
-        var headerStyle = _sidebarFocused ? _theme.AccentStyle : _theme.MutedStyle;
-        var borderStyle = _theme.BorderStyle;
+        var borderStyle = _sidebarFocused ? _theme.AccentStyle : _theme.BorderStyle;
         _screen.Fill(0, 0, width, rows, ' ', background);
-
-        _screen.Fill(0, 0, width, 1, ' ', headerStyle);
 
         for (int row = 0; row < rows; ++row)
         {
             _screen.Put(width - 1, row, '\u2502', borderStyle);
         }
 
-        if (_sidebarFormatOperation is { } formatOperation)
-        {
-            RenderSidebarFormatProgress(width, formatOperation);
-        }
-
         if (_sidebarNodes.Count == 0)
         {
             var emptyStyle = _theme.MutedStyle;
-            _screen.PutString(1, 1, "No files", emptyStyle, width - 2);
+            _screen.PutString(1, 0, "No files", emptyStyle, width - 2);
             return;
         }
 
         EnsureSidebarSelectionVisible();
-        if (_sidebarFormatOperation is null && SidebarSelectionCount > 1 && width > 2)
-        {
-            _screen.PutString(1, 0, $"{SidebarSelectionCount} selected", headerStyle, width - 2);
-        }
-
         int listRows = SidebarListRows();
         var selectedStyle = _theme.SelectedItemStyle;
         var folderStyle = _theme.SyntaxStyle(_theme.Accent);
@@ -2445,12 +2484,16 @@ public sealed partial class Editor
             }
 
             SidebarNode node = _sidebarNodes[index];
-            int screenRow = 1 + row;
+            int screenRow = row;
             bool selected = index >= SidebarSelectionStart && index <= SidebarSelectionEnd;
             Style style =
                 selected ? selectedStyle
                 : node.IsDirectory ? folderStyle
                 : fileStyle;
+            bool modified =
+                node.IsDirectory
+                    ? _sidebarGitModifiedDirectories.Contains(node.Path)
+                    : _sidebarGitModifiedFiles.Contains(node.Path);
 
             if (selected)
             {
@@ -2464,8 +2507,28 @@ public sealed partial class Editor
             int nameX = indent + 2;
             if (nameX < width - 1)
             {
-                _screen.PutString(nameX, screenRow, node.Name, style, width - nameX - 1);
+                int nameWidth = width - nameX - 1;
+                if (modified)
+                {
+                    nameWidth = Math.Max(0, nameWidth - 2);
+                }
+                _screen.PutString(nameX, screenRow, node.Name, style, nameWidth);
             }
+
+            if (modified && width > 3)
+            {
+                Style markerStyle = _theme.GitModifiedStyle;
+                if (selected)
+                {
+                    markerStyle.Bg = _theme.SelectionBackground;
+                }
+                _screen.Put(width - 3, screenRow, 'M', markerStyle);
+            }
+        }
+
+        if (_sidebarFormatOperation is { } formatOperation)
+        {
+            RenderSidebarFormatProgress(width, formatOperation);
         }
     }
 
