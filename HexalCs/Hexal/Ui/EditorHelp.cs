@@ -140,7 +140,7 @@ public sealed partial class Editor
         Entry(":help", "Open this help window");
         Blank();
 
-        Text("Tip: most commands accept lowercase or uppercase names, but arguments");
+        Text("NOTE: The majority of commands accept lowercase or uppercase names, but arguments");
         Text("keep their exact spelling (for example :E MyFile.cs).");
         return lines.ToArray();
     }
