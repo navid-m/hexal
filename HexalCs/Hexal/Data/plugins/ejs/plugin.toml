@@ -1,0 +1,6 @@
+name = "EJS"
+version = "1.0"
+entry = "init.lua"
+description = "Syntax support for Embedded JavaScript templates"
+lazy = true
+language = "ejs"

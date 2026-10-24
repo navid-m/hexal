@@ -1,0 +1,3 @@
+-- EJS has no widely available standalone language server. Syntax
+-- highlighting, HTML tag closing and indentation are provided by the
+-- bundled EJS grammar.

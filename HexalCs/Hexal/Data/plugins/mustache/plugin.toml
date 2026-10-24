@@ -1,0 +1,6 @@
+name = "Mustache"
+version = "1.0"
+entry = "init.lua"
+description = "Syntax support for Mustache templates"
+lazy = true
+language = "mustache"

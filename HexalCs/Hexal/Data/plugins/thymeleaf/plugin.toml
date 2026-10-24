@@ -1,0 +1,6 @@
+name = "Thymeleaf"
+version = "1.0"
+entry = "init.lua"
+description = "Syntax support for Thymeleaf templates"
+lazy = true
+language = "thymeleaf"

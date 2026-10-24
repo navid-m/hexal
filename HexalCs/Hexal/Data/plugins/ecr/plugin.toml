@@ -1,0 +1,6 @@
+name = "ECR"
+version = "1.0"
+entry = "init.lua"
+description = "Syntax support for Embedded Crystal templates"
+lazy = true
+language = "ecr"
