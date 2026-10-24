@@ -15,8 +15,6 @@ local function ensure_server(event)
     end
     active_buffer = buffer
 
-    -- Prefer OmniSharp when it is installed. hexal.lsp.start returns false
-    -- without starting anything when the executable is not in PATH.
     if hexal.lsp.start({
         name = "OmniSharp",
         command = "OmniSharp",
@@ -26,8 +24,6 @@ local function ensure_server(event)
         return
     end
 
-    -- Fall back to the built-in Lua C# language server. The server is created
-    -- once and reattached to each new buffer without rebuilding its analysis.
     if builtin_server == nil then
         builtin_server = require("cs_server").create()
     elseif builtin_server then
