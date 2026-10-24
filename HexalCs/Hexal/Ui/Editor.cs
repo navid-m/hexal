@@ -650,7 +650,7 @@ public sealed partial class Editor
             return _running;
         }
 
-        if (_pluginPanelVisible)
+        if (_pluginPanelVisible && _mode != Mode.PluginPrompt)
         {
             HandlePluginPanelInput(inputEvent);
             return _running;

@@ -274,7 +274,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:hs` | Split the focused pane horizontally, stacked |
 | `:cb` | Close the focused pane; with one pane, use `:q`/`:q!` to quit |
 | `:adi` | Detect and apply the current buffer's indentation style |
-| `:pt` | Show a Unicode tree of non-ignored workspace files |
+| `:pt` | Browse, search and open non-ignored workspace files as a tree |
 | `:ww` | Toggle soft word wrap and persist the setting to `.hexcfg` |
 | `:help` | Open the scrollable keybinding and command reference |
 | `:help` | Show a short key reminder |
@@ -632,8 +632,10 @@ Plugin commands are callable through the Ex prompt (`:Hello`). Keymaps accept
 space-separated sequences, mode names `normal`, `insert`, or `select`, and
 single-key/chord tokens such as `f`, `space`, `esc`, `ctrl+p`, or `alt+x`.
 
-The bundled `projtree` plugin registers `:pt`, which opens a scrollable Unicode
-tree of the workspace's non-ignored files.
+The bundled `projtree` plugin registers `:pt`, which opens a scrollable,
+color-coded Unicode tree of the workspace's non-ignored files. Press `/` to
+filter the tree, `Enter` on a directory to collapse or expand it, or `Enter` on
+a file to open it in the active buffer.
 
 Implemented API modules:
 

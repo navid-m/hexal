@@ -1138,7 +1138,18 @@ public sealed class LuaPluginManager : IDisposable
                     return error.Length == 0;
                 }
 
-                _host.ShowMessage($"unknown plugin command '{name}'", true);
+                // Plugins may also invoke built-in Ex commands, for example
+                // hexal.commands.execute("e", { path }).
+                if (_host.ExecuteCommand(name, values, out error))
+                {
+                    if (error.Length > 0)
+                    {
+                        _host.ShowMessage(error, true);
+                    }
+                    return error.Length == 0;
+                }
+
+                _host.ShowMessage($"unknown command '{name}'", true);
                 return false;
             }
         );

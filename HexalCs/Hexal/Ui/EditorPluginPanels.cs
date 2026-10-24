@@ -477,6 +477,48 @@ public sealed partial class Editor
             "diff_added" => _theme.DiffAddedStyle,
             "diff_deleted" => _theme.DiffDeletedStyle,
             "diff_modified" => _theme.DiffModifiedStyle,
+            "keyword" => new Style
+            {
+                Fg = _theme.Keyword,
+                Bg = _theme.Background,
+                Bold = true,
+            },
+            "control" => new Style
+            {
+                Fg = _theme.ControlStatement,
+                Bg = _theme.Background,
+                Bold = true,
+            },
+            "type" => new Style
+            {
+                Fg = _theme.Type,
+                Bg = _theme.Background,
+                Bold = true,
+            },
+            "constant" => new Style
+            {
+                Fg = _theme.Constant,
+                Bg = _theme.Background,
+                Bold = true,
+            },
+            "string" => new Style
+            {
+                Fg = _theme.StringLiteral,
+                Bg = _theme.Background,
+                Bold = true,
+            },
+            "number" => new Style
+            {
+                Fg = _theme.Number,
+                Bg = _theme.Background,
+                Bold = true,
+            },
+            "comment" => new Style
+            {
+                Fg = _theme.Comment,
+                Bg = _theme.Background,
+                Dim = true,
+            },
             _ => _theme.TextStyle,
         };
     }
