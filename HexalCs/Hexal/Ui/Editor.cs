@@ -136,7 +136,7 @@ public sealed partial class Editor
         ["w"] = "Write the current buffer to disk, optionally to a new path.",
         ["wq"] = "Write the current buffer, then quit when saving finishes.",
         ["q"] = "Quit the editor; use :q! to discard unsaved changes.",
-        ["fmt"] = "Format the current buffer with its language formatter.",
+        ["fmt"] = "Format the buffer, or just the active selection, with the language formatter.",
         ["fmta"] = "Format all non-ignored workspace files with the given extension.",
         ["cw"] = "Remove trailing spaces and tabs from every line.",
         ["cfg"] = "Open (or create) the Hexal configuration file.",
@@ -335,6 +335,7 @@ public sealed partial class Editor
     private int _commandCursor;
     private readonly List<string> _commandHistory = new();
     private int _commandHistoryIndex = -1;
+    private bool _commandFromSelect;
 
     private bool _completionVisible;
     private CompletionKind _completionKind;
@@ -422,6 +423,12 @@ public sealed partial class Editor
         public bool SaveAfter;
         public bool QuitAfter;
         public List<FormatSelectionSnapshot> Selections = new();
+        public bool SelectionOnly;
+        public long RangeStart;
+        public long RangeEnd;
+        public bool RangeEndsWithNewline;
+        public bool RangeLinewise;
+        public string IndentPrefix = string.Empty;
     }
 
     private SaveOperation? _saveOperation;
@@ -1183,6 +1190,7 @@ public sealed partial class Editor
                 OpenSpaceMenu();
                 return;
             case ':':
+                _commandFromSelect = false;
                 _mode = Mode.Command;
                 _commandLine.Clear();
                 _commandCursor = 0;
@@ -1409,6 +1417,15 @@ public sealed partial class Editor
             case ' ':
                 OpenSpaceMenu();
                 return;
+            case ':':
+                _commandFromSelect = true;
+                _mode = Mode.Command;
+                _commandLine.Clear();
+                _commandCursor = 0;
+                _commandHistoryIndex = -1;
+                _document.BreakUndoGroup();
+                ClearMessage();
+                return;
             case '%':
                 SelectAll();
                 return;
@@ -1583,7 +1600,8 @@ public sealed partial class Editor
                     CloseCompletion();
                     return;
                 }
-                _mode = Mode.Normal;
+                _mode = _commandFromSelect ? Mode.Select : Mode.Normal;
+                _commandFromSelect = false;
                 CloseCompletion();
                 _commandLine.Clear();
                 _commandCursor = 0;
@@ -1717,7 +1735,9 @@ public sealed partial class Editor
         CloseCompletion();
 
         string line = _commandLine.ToString();
-        _mode = Mode.Normal;
+        bool fromSelect = _commandFromSelect;
+        _commandFromSelect = false;
+        _mode = fromSelect ? Mode.Select : Mode.Normal;
         _commandLine.Clear();
         _commandCursor = 0;
         _commandHistoryIndex = -1;
@@ -4959,7 +4979,8 @@ public sealed partial class Editor
             return;
         }
 
-        StartFormat(formatter, savePath: null, quitAfter: false, saveAfter);
+        bool selectionOnly = !saveAfter && _mode == Mode.Select;
+        StartFormat(formatter, savePath: null, quitAfter: false, saveAfter, selectionOnly);
     }
 
     private bool ShouldFormatOnSave() => _language?.FormatOnSave ?? _config.FormatOnSave;
@@ -4974,7 +4995,8 @@ public sealed partial class Editor
         FormatterConfig formatter,
         string? savePath,
         bool quitAfter,
-        bool saveAfter
+        bool saveAfter,
+        bool selectionOnly = false
     )
     {
         if (_formatOperation is not null)
@@ -4984,7 +5006,34 @@ public sealed partial class Editor
         }
 
         string? path = savePath ?? _document.Path;
-        byte[] input = _document.Text();
+        long rangeStart = 0;
+        long rangeEnd = 0;
+        bool rangeEndsWithNewline = true;
+        bool rangeLinewise = false;
+        string indentPrefix = string.Empty;
+        byte[] input;
+
+        if (selectionOnly)
+        {
+            (rangeStart, rangeEnd) = SelectionRange();
+            if (rangeEnd <= rangeStart)
+            {
+                selectionOnly = false;
+                input = _document.Text();
+            }
+            else
+            {
+                rangeLinewise = _selectionLinewise;
+                byte[] selected = _document.Range(rangeStart, rangeEnd - rangeStart);
+                rangeEndsWithNewline = EndsWithLineBreak(selected);
+                input = RemoveCommonIndent(selected, out indentPrefix);
+            }
+        }
+        else
+        {
+            input = _document.Text();
+        }
+
         Document document = _document;
         long revision = document.Revision;
         List<FormatSelectionSnapshot> selections = CaptureFormatSelections();
@@ -5007,6 +5056,12 @@ public sealed partial class Editor
             SaveAfter = saveAfter,
             QuitAfter = quitAfter,
             Selections = selections,
+            SelectionOnly = selectionOnly,
+            RangeStart = rangeStart,
+            RangeEnd = rangeEnd,
+            RangeEndsWithNewline = rangeEndsWithNewline,
+            RangeLinewise = rangeLinewise,
+            IndentPrefix = indentPrefix,
         };
 
         string name = Path.GetFileName(formatter.Command);
@@ -5014,7 +5069,235 @@ public sealed partial class Editor
         {
             name = formatter.Command;
         }
-        SetMessage($"Formatting with {name} ...");
+        SetMessage(selectionOnly ? $"Formatting selection with {name} ..." : $"Formatting with {name} ...");
+    }
+
+    private static bool EndsWithLineBreak(ReadOnlySpan<byte> text) =>
+        !text.IsEmpty && text[^1] is (byte)'\n' or (byte)'\r';
+
+    /// <summary>
+    /// Removes the indentation shared by every non-blank line in a formatted
+    /// selection. The formatter sees the selected code as if it started at the
+    /// left margin, and the prefix is restored to its output afterwards.
+    /// </summary>
+    private static byte[] RemoveCommonIndent(byte[] text, out string prefix)
+    {
+        prefix = string.Empty;
+        if (text.Length == 0)
+        {
+            return text;
+        }
+
+        int common = int.MaxValue;
+        int firstIndentStart = 0;
+        int lineStart = 0;
+
+        while (lineStart <= text.Length)
+        {
+            int lineEnd = Array.IndexOf(text, (byte)'\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = text.Length;
+            }
+
+            int contentEnd = lineEnd;
+            if (contentEnd > lineStart && text[contentEnd - 1] == (byte)'\r')
+            {
+                --contentEnd;
+            }
+
+            int indentEnd = lineStart;
+            while (
+                indentEnd < contentEnd
+                && text[indentEnd] is (byte)' ' or (byte)'\t'
+            )
+            {
+                ++indentEnd;
+            }
+
+            if (indentEnd < contentEnd)
+            {
+                int indentLength = indentEnd - lineStart;
+                if (common == int.MaxValue)
+                {
+                    common = indentLength;
+                    firstIndentStart = lineStart;
+                }
+                else
+                {
+                    int compare = Math.Min(common, indentLength);
+                    int match = 0;
+                    while (
+                        match < compare
+                        && text[firstIndentStart + match] == text[lineStart + match]
+                    )
+                    {
+                        ++match;
+                    }
+                    common = match;
+                }
+
+                if (common == 0)
+                {
+                    return text;
+                }
+            }
+
+            if (lineEnd >= text.Length)
+            {
+                break;
+            }
+            lineStart = lineEnd + 1;
+        }
+
+        if (common == int.MaxValue || common == 0)
+        {
+            return text;
+        }
+
+        prefix = Encoding.UTF8.GetString(text, firstIndentStart, common);
+        var result = new ByteBuffer(text.Length);
+        lineStart = 0;
+
+        while (lineStart <= text.Length)
+        {
+            int lineEnd = Array.IndexOf(text, (byte)'\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = text.Length;
+            }
+
+            int contentEnd = lineEnd;
+            if (contentEnd > lineStart && text[contentEnd - 1] == (byte)'\r')
+            {
+                --contentEnd;
+            }
+
+            bool nonBlank = false;
+            for (int offset = lineStart; offset < contentEnd; ++offset)
+            {
+                if (text[offset] is not ((byte)' ' or (byte)'\t'))
+                {
+                    nonBlank = true;
+                    break;
+                }
+            }
+
+            int remove = 0;
+            if (nonBlank && contentEnd - lineStart >= common)
+            {
+                bool matches = true;
+                for (int offset = 0; offset < common; ++offset)
+                {
+                    if (text[lineStart + offset] != text[firstIndentStart + offset])
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches)
+                {
+                    remove = common;
+                }
+            }
+
+            result.Append(text.AsSpan(lineStart + remove, lineEnd - lineStart - remove));
+            if (lineEnd >= text.Length)
+            {
+                break;
+            }
+
+            result.Append((byte)'\n');
+            lineStart = lineEnd + 1;
+        }
+
+        return result.ToArray();
+    }
+
+    private byte[] PrepareSelectionOutput(FormatOperation operation, byte[] output)
+    {
+        byte[] eol = _document.Eol == "\r\n" ? CrLf : Lf;
+        byte[] normalized = NormalizePastedText(output);
+        int length = normalized.Length;
+
+        if (operation.RangeEndsWithNewline)
+        {
+            if (
+                length > 0
+                && normalized[length - 1] != (byte)'\n'
+                && normalized[length - 1] != (byte)'\r'
+            )
+            {
+                byte[] withEol = new byte[length + eol.Length];
+                normalized.AsSpan(0, length).CopyTo(withEol);
+                eol.CopyTo(withEol.AsSpan(length));
+                normalized = withEol;
+                length = normalized.Length;
+            }
+        }
+        else
+        {
+            while (length > 0)
+            {
+                if (normalized[length - 1] == (byte)'\n')
+                {
+                    --length;
+                    if (length > 0 && normalized[length - 1] == (byte)'\r')
+                    {
+                        --length;
+                    }
+                }
+                else if (normalized[length - 1] == (byte)'\r')
+                {
+                    --length;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        return ReindentSelection(normalized.AsSpan(0, length), operation.IndentPrefix);
+    }
+
+    private static byte[] ReindentSelection(ReadOnlySpan<byte> text, string prefix)
+    {
+        if (text.IsEmpty || prefix.Length == 0)
+        {
+            return text.ToArray();
+        }
+
+        byte[] indent = Encoding.UTF8.GetBytes(prefix);
+        var result = new ByteBuffer(text.Length + indent.Length * 4);
+        bool lineStart = true;
+
+        for (int index = 0; index < text.Length; ++index)
+        {
+            if (lineStart)
+            {
+                bool empty =
+                    text[index] == (byte)'\n'
+                    || (
+                        text[index] == (byte)'\r'
+                        && index + 1 < text.Length
+                        && text[index + 1] == (byte)'\n'
+                    );
+                if (!empty)
+                {
+                    result.Append(indent);
+                }
+                lineStart = false;
+            }
+
+            result.Append(text[index]);
+            if (text[index] == (byte)'\n')
+            {
+                lineStart = true;
+            }
+        }
+
+        return result.ToArray();
     }
 
     private List<FormatSelectionSnapshot> CaptureFormatSelections()
@@ -5167,6 +5450,12 @@ public sealed partial class Editor
 
     private void ApplyFormattedOutput(FormatOperation operation, byte[] output)
     {
+        if (operation.SelectionOnly)
+        {
+            ApplyFormattedSelection(operation, output);
+            return;
+        }
+
         List<Selection> selections = RestoreFormatSelections(operation.Selections);
 
         _document.BeginCompositeEdit();
@@ -5184,6 +5473,52 @@ public sealed partial class Editor
         }
 
         SetMessage($"Formatted {_document.DisplayName}");
+    }
+
+    private void ApplyFormattedSelection(FormatOperation operation, byte[] output)
+    {
+        byte[] replacement = PrepareSelectionOutput(operation, output);
+        long start = Math.Clamp(operation.RangeStart, 0, _document.Size);
+        long end = Math.Clamp(operation.RangeEnd, start, _document.Size);
+
+        _document.BeginCompositeEdit();
+        _document.Replace(start, end - start, replacement);
+        _document.EndCompositeEdit();
+
+        long cursor = start + replacement.Length;
+        if (operation.RangeLinewise && cursor > start)
+        {
+            long endLine = _document.LineOfOffset(cursor);
+            long endLineStart = _document.LineStart(endLine);
+            if (cursor == endLineStart && endLine > 0)
+            {
+                cursor = _document.LineEnd(endLine - 1);
+            }
+        }
+
+        SetSelections(
+            new[]
+            {
+                new Selection
+                {
+                    Cursor = cursor,
+                    Anchor = start,
+                    Linewise = operation.RangeLinewise,
+                    PreferredColumnValid = false,
+                },
+            }
+        );
+        _document.BreakUndoGroup();
+
+        _lspDirty = _lsp.IsRunning;
+        _lspDirtySince = Environment.TickCount64;
+
+        if (_plugins is not null && _plugins.HasSubscribers("buffer_changed"))
+        {
+            FirePluginEvent("buffer_changed", CurrentBufferData());
+        }
+
+        SetMessage($"Formatted selection in {_document.DisplayName}");
     }
 
     private void OpenConfigFile()
@@ -7754,7 +8089,8 @@ public sealed partial class Editor
 
     private void RenderSelection(long firstLine, int rows, int gutter)
     {
-        if (_mode != Mode.Select || rows <= 0 || _columns <= _editorLeft + gutter)
+        bool selecting = _mode == Mode.Select || (_mode == Mode.Command && _commandFromSelect);
+        if (!selecting || rows <= 0 || _columns <= _editorLeft + gutter)
         {
             return;
         }
