@@ -132,5 +132,15 @@
         "input": "stdin",
         "output": "stdout",
         "timeout": 15000
+    },
+    "fallbackFormatter": {
+        "command": "fourmolu",
+        "arguments": [
+            "--stdin-input-file",
+            "{path}"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
     }
 }

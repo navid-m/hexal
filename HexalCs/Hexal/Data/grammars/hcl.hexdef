@@ -93,5 +93,15 @@
         "input": "stdin",
         "output": "stdout",
         "timeout": 15000
+    },
+    "fallbackFormatter": {
+        "command": "tofu",
+        "arguments": [
+            "fmt",
+            "-"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
     }
 }

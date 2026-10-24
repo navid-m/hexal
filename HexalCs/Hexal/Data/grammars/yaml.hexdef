@@ -48,5 +48,15 @@
         "input": "stdin",
         "output": "stdout",
         "timeout": 15000
+    },
+    "fallbackFormatter": {
+        "command": "prettier",
+        "arguments": [
+            "--stdin-filepath",
+            "{path}"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
     }
 }

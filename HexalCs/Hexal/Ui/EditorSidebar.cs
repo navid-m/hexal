@@ -1593,13 +1593,14 @@ public sealed partial class Editor
         {
             token.ThrowIfCancellationRequested();
             LanguageDefinition? language = languages.Detect(file);
-            if (language?.Formatter is null)
+            FormatterConfig? formatter = language?.ResolveFormatter();
+            if (formatter is null)
             {
                 ++result.Skipped;
                 continue;
             }
 
-            jobs.Add((file, language.Formatter));
+            jobs.Add((file, formatter));
         }
 
         Volatile.Write(ref operation.Total, jobs.Count);

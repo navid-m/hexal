@@ -149,13 +149,14 @@ public sealed partial class Editor
             }
 
             LanguageDefinition? language = languages.Detect(path);
-            if (language?.Formatter is null)
+            FormatterConfig? formatter = language?.ResolveFormatter();
+            if (formatter is null)
             {
                 ++result.Skipped;
                 continue;
             }
 
-            jobs.Add((path, language.Formatter));
+            jobs.Add((path, formatter));
         }
 
         Volatile.Write(ref operation.Total, jobs.Count);

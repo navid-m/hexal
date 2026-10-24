@@ -52,5 +52,15 @@
             "cwd": "${workspace}",
             "justMyCode": true
         }
+    },
+    "fallbackFormatter": {
+        "command": "ruff",
+        "arguments": [
+            "format",
+            "-"
+        ],
+        "input": "stdin",
+        "output": "stdout",
+        "timeout": 15000
     }
 }

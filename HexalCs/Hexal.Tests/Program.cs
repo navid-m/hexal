@@ -2188,6 +2188,89 @@ internal static class Program
             LanguageDefinition.TryParse(
                 """
                 {
+                    "id": "fallback",
+                    "formatter": {
+                        "command": "dotnet"
+                    },
+                    "fallbackFormatter": {
+                        "command": "hexal-missing-formatter"
+                    },
+                    "fallbackLsp": {
+                        "name": "ccls",
+                        "command": "ccls",
+                        "arguments": ["--init={workspace}"],
+                        "languageId": "c"
+                    }
+                }
+                """,
+                "fallback.hexdef",
+                out LanguageDefinition? fallbackDefinition,
+                out parseError
+            ),
+            "parse fallback grammar fields"
+        );
+        Check(fallbackDefinition is not null, "fallback grammar parsed");
+        CheckEqual(
+            fallbackDefinition?.FallbackFormatter?.Command,
+            "hexal-missing-formatter",
+            "fallback formatter command",
+            "hexal-missing-formatter"
+        );
+        CheckEqual(
+            fallbackDefinition?.FallbackLsp?.Command,
+            "ccls",
+            "fallback LSP command",
+            "ccls"
+        );
+        CheckEqual(
+            fallbackDefinition?.FallbackLsp?.Arguments.Count,
+            1,
+            "fallback LSP argument count",
+            "1"
+        );
+        CheckEqual(
+            fallbackDefinition?.FallbackLsp?.LanguageId,
+            "c",
+            "fallback LSP language id",
+            "c"
+        );
+        CheckEqual(
+            fallbackDefinition?.ResolveFormatter()?.Command,
+            "dotnet",
+            "primary formatter wins when present",
+            "dotnet"
+        );
+
+        Check(
+            LanguageDefinition.TryParse(
+                """
+                {
+                    "id": "fallback2",
+                    "formatter": {
+                        "command": "hexal-missing-formatter"
+                    },
+                    "fallbackFormatter": {
+                        "command": "dotnet"
+                    }
+                }
+                """,
+                "fallback2.hexdef",
+                out LanguageDefinition? fallbackDefinition2,
+                out parseError
+            ),
+            "parse formatter fallback"
+        );
+        CheckEqual(
+            fallbackDefinition2?.ResolveFormatter()?.Command,
+            "dotnet",
+            "fallback formatter is used when primary is missing",
+            "dotnet"
+        );
+
+        Check(
+            LanguageDefinition.TryParse(
+                """
+                {
                     "id": "markup",
                     "autoIndent": false,
                     "autoClose": false,
@@ -2322,6 +2405,25 @@ internal static class Program
                 $"bundled {addedLanguage} grammar loads"
             );
         }
+
+        CheckEqual(
+            bundled.Find("go")?.FallbackFormatter?.Command,
+            "gofumpt",
+            "go fallback formatter",
+            "gofumpt"
+        );
+        CheckEqual(
+            bundled.Find("python")?.FallbackFormatter?.Command,
+            "ruff",
+            "python fallback formatter",
+            "ruff"
+        );
+        CheckEqual(
+            bundled.Find("c")?.FallbackLsp?.Command,
+            "ccls",
+            "c fallback LSP",
+            "ccls"
+        );
 
         LanguageDefinition? csharpLanguage = bundled.Find("csharp");
         Check(

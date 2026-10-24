@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Hexal.Core;
 using Hexal.Dap;
+using Hexal.Lsp;
 
 namespace Hexal.Languages;
 
@@ -34,6 +35,17 @@ public readonly record struct LineHighlightPattern(Regex Pattern, SyntaxTokenKin
 /// </summary>
 public readonly record struct IndentationSettings(bool UseTabs, int IndentWidth, int TabWidth);
 
+public sealed class LspFallbackConfig
+{
+    public string Name { get; init; } = string.Empty;
+
+    public string Command { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> Arguments { get; init; } = Array.Empty<string>();
+
+    public string LanguageId { get; init; } = string.Empty;
+}
+
 /// <summary>
 /// A validated .hexdef language definition. The canonical schema is the JSON
 /// object documented in README.md. Definitions are data only; adding a grammar
@@ -63,6 +75,8 @@ public sealed class LanguageDefinition
         string? escapeCharacter,
         bool highlightNumbers,
         FormatterConfig? formatter,
+        FormatterConfig? fallbackFormatter,
+        LspFallbackConfig? fallbackLsp,
         bool? formatOnSave,
         IndentationSettings? indentation,
         bool autoIndent,
@@ -90,6 +104,8 @@ public sealed class LanguageDefinition
         EscapeCharacter = escapeCharacter;
         HighlightNumbers = highlightNumbers;
         Formatter = formatter;
+        FallbackFormatter = fallbackFormatter;
+        FallbackLsp = fallbackLsp;
         FormatOnSave = formatOnSave;
         Indentation = indentation;
         AutoIndent = autoIndent;
@@ -142,7 +158,48 @@ public sealed class LanguageDefinition
 
     public FormatterConfig? Formatter { get; }
 
+    /// <summary>
+    /// Used only when the primary formatter's executable is not present in
+    /// PATH. A primary formatter that exists but fails is never replaced.
+    /// </summary>
+    public FormatterConfig? FallbackFormatter { get; }
+
+    /// <summary>
+    /// Language server used when a plugin's preferred server executable is not
+    /// present in PATH.
+    /// </summary>
+    public LspFallbackConfig? FallbackLsp { get; }
+
     public bool? FormatOnSave { get; }
+
+    /// <summary>
+    /// Returns the primary formatter when its executable exists in PATH,
+    /// otherwise the fallback formatter when that executable exists. If
+    /// neither exists, the primary formatter is returned so the normal error
+    /// path still reports the intended tool.
+    /// </summary>
+    public FormatterConfig? ResolveFormatter()
+    {
+        if (Formatter is null)
+        {
+            return null;
+        }
+
+        if (ExecutableFinder.Find(Formatter.Command) is not null)
+        {
+            return Formatter;
+        }
+
+        if (
+            FallbackFormatter is { } fallback
+            && ExecutableFinder.Find(fallback.Command) is not null
+        )
+        {
+            return fallback;
+        }
+
+        return Formatter;
+    }
 
     /// <summary>
     /// Optional default indentation style from the grammar's
@@ -438,58 +495,98 @@ public sealed class LanguageDefinition
 
             bool? formatOnSave = ReadBool(root, "formatOnSave") ?? ReadBool(root, "format_on_save");
             FormatterConfig? formatter = null;
-            if (
-                root.TryGetProperty("formatter", out JsonElement formatterElement)
-                && formatterElement.ValueKind == JsonValueKind.Object
-            )
+            if (root.TryGetProperty("formatter", out JsonElement formatterElement))
             {
-                string command = GetString(formatterElement, "command")?.Trim() ?? string.Empty;
-                if (command.Length == 0)
-                {
-                    error = "formatter.command is required";
-                    return false;
-                }
-
-                string input = (GetString(formatterElement, "input") ?? "stdin")
-                    .Trim()
-                    .ToLowerInvariant();
-                if (input is not ("stdin" or "file"))
-                {
-                    error = "formatter.input must be 'stdin' or 'file'";
-                    return false;
-                }
-
-                string output = (GetString(formatterElement, "output") ?? "stdout")
-                    .Trim()
-                    .ToLowerInvariant();
-                if (output is not ("stdout" or "file"))
-                {
-                    error = "formatter.output must be 'stdout' or 'file'";
-                    return false;
-                }
-
-                int timeoutMs = 15000;
                 if (
-                    formatterElement.TryGetProperty("timeout", out JsonElement timeout)
-                    && timeout.ValueKind == JsonValueKind.Number
-                    && timeout.TryGetInt32(out int configuredTimeout)
-                    && configuredTimeout > 0
+                    !TryParseFormatter(
+                        formatterElement,
+                        "formatter",
+                        out formatter,
+                        out bool? formatterFormatOnSave,
+                        ref error
+                    )
                 )
                 {
-                    timeoutMs = configuredTimeout;
+                    return false;
+                }
+                formatOnSave ??= formatterFormatOnSave;
+            }
+
+            FormatterConfig? fallbackFormatter = null;
+            bool hasFallbackFormatter = root.TryGetProperty(
+                "fallbackFormatter",
+                out JsonElement fallbackFormatterElement
+            );
+            if (!hasFallbackFormatter)
+            {
+                hasFallbackFormatter = root.TryGetProperty(
+                    "fallback_formatter",
+                    out fallbackFormatterElement
+                );
+            }
+            if (
+                hasFallbackFormatter
+                && !TryParseFormatter(
+                    fallbackFormatterElement,
+                    "fallbackFormatter",
+                    out fallbackFormatter,
+                    out _,
+                    ref error
+                )
+            )
+            {
+                return false;
+            }
+
+            LspFallbackConfig? fallbackLsp = null;
+            bool hasFallbackLsp = root.TryGetProperty(
+                "fallbackLsp",
+                out JsonElement fallbackLspElement
+            );
+            if (!hasFallbackLsp)
+            {
+                hasFallbackLsp = root.TryGetProperty("fallback_lsp", out fallbackLspElement);
+            }
+            if (hasFallbackLsp)
+            {
+                if (fallbackLspElement.ValueKind != JsonValueKind.Object)
+                {
+                    error = "fallbackLsp must be a JSON object";
+                    return false;
                 }
 
-                formatOnSave ??=
-                    ReadBool(formatterElement, "formatOnSave")
-                    ?? ReadBool(formatterElement, "format_on_save");
-
-                formatter = new FormatterConfig
+                string command = (GetString(fallbackLspElement, "command") ?? string.Empty).Trim();
+                if (command.Length == 0)
                 {
+                    error = "fallbackLsp.command is required";
+                    return false;
+                }
+
+                string lspName = (GetString(fallbackLspElement, "name") ?? string.Empty).Trim();
+                if (lspName.Length == 0)
+                {
+                    lspName = command;
+                }
+
+                List<string> arguments = ReadStringArray(
+                        fallbackLspElement,
+                        "arguments"
+                    )
+                    .ToList();
+                if (arguments.Count == 0)
+                {
+                    arguments = ReadStringArray(fallbackLspElement, "args").ToList();
+                }
+
+                fallbackLsp = new LspFallbackConfig
+                {
+                    Name = lspName,
                     Command = command,
-                    Arguments = ReadStringArray(formatterElement, "arguments").ToList(),
-                    Input = input,
-                    Output = output,
-                    TimeoutMs = timeoutMs,
+                    Arguments = arguments,
+                    LanguageId =
+                        GetString(fallbackLspElement, "languageId")
+                        ?? GetString(fallbackLspElement, "language_id")
+                        ?? id,
                 };
             }
 
@@ -631,6 +728,8 @@ public sealed class LanguageDefinition
                 escapeCharacter,
                 highlightNumbers,
                 formatter,
+                fallbackFormatter,
+                fallbackLsp,
                 formatOnSave,
                 indentation,
                 autoIndent,
@@ -698,6 +797,67 @@ public sealed class LanguageDefinition
                 kind = SyntaxTokenKind.Default;
                 return false;
         }
+    }
+
+    private static bool TryParseFormatter(
+        JsonElement element,
+        string fieldName,
+        out FormatterConfig? formatter,
+        out bool? formatOnSave,
+        ref string error
+    )
+    {
+        formatter = null;
+        formatOnSave = null;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            error = $"{fieldName} must be a JSON object";
+            return false;
+        }
+
+        string command = (GetString(element, "command") ?? string.Empty).Trim();
+        if (command.Length == 0)
+        {
+            error = $"{fieldName}.command is required";
+            return false;
+        }
+
+        string input = (GetString(element, "input") ?? "stdin").Trim().ToLowerInvariant();
+        if (input is not ("stdin" or "file"))
+        {
+            error = $"{fieldName}.input must be 'stdin' or 'file'";
+            return false;
+        }
+
+        string output = (GetString(element, "output") ?? "stdout").Trim().ToLowerInvariant();
+        if (output is not ("stdout" or "file"))
+        {
+            error = $"{fieldName}.output must be 'stdout' or 'file'";
+            return false;
+        }
+
+        int timeoutMs = 15000;
+        if (
+            element.TryGetProperty("timeout", out JsonElement timeout)
+            && timeout.ValueKind == JsonValueKind.Number
+            && timeout.TryGetInt32(out int configuredTimeout)
+            && configuredTimeout > 0
+        )
+        {
+            timeoutMs = configuredTimeout;
+        }
+
+        formatOnSave =
+            ReadBool(element, "formatOnSave") ?? ReadBool(element, "format_on_save");
+        formatter = new FormatterConfig
+        {
+            Command = command,
+            Arguments = ReadStringArray(element, "arguments").ToList(),
+            Input = input,
+            Output = output,
+            TimeoutMs = timeoutMs,
+        };
+        return true;
     }
 
     private static string? GetString(JsonElement element, string property)

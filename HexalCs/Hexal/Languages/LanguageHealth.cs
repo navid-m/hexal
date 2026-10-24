@@ -1,3 +1,4 @@
+using Hexal.Core;
 using Hexal.Dap;
 using Hexal.Lsp;
 using Hexal.Scripting;
@@ -121,10 +122,23 @@ public static class LanguageHealth
                 .Select(group => group.First())
                 .ToList();
 
+            if (language.FallbackLsp is { } fallbackLsp)
+            {
+                servers.Add(
+                    new CapturedServer(
+                        language.Id,
+                        fallbackLsp.Name,
+                        ExecutableFinder.Find(fallbackLsp.Command) is not null,
+                        fallbackLsp.Command
+                    )
+                );
+            }
+
             CapturedServer? available = servers.FirstOrDefault(server => server.Available);
             CapturedServer? selected = available ?? servers.FirstOrDefault();
 
-            string? formatter = language.Formatter?.Command;
+            FormatterConfig? activeFormatter = language.ResolveFormatter();
+            string? formatter = activeFormatter?.Command;
             bool formatterAvailable =
                 formatter is not null && ExecutableFinder.Find(formatter) is not null;
 

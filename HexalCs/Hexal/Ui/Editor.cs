@@ -4885,20 +4885,20 @@ public sealed partial class Editor
             return;
         }
 
-        if (_language.Formatter is null)
+        if (!TryGetFormatter(out FormatterConfig formatter))
         {
             SetError($"No formatter configured for {_language.Name}.");
             return;
         }
 
-        StartFormat(_language.Formatter, savePath: null, quitAfter: false, saveAfter);
+        StartFormat(formatter, savePath: null, quitAfter: false, saveAfter);
     }
 
     private bool ShouldFormatOnSave() => _language?.FormatOnSave ?? _config.FormatOnSave;
 
     private bool TryGetFormatter(out FormatterConfig formatter)
     {
-        formatter = _language?.Formatter!;
+        formatter = _language?.ResolveFormatter()!;
         return formatter is not null;
     }
 

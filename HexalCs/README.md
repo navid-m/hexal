@@ -396,6 +396,18 @@ Canonical schema:
         "output": "stdout",
         "timeout": 15000
     },
+    "fallbackFormatter": {
+        "command": "other-formatter",
+        "arguments": [],
+        "input": "stdin",
+        "output": "stdout"
+    },
+    "fallbackLsp": {
+        "name": "ccls",
+        "command": "ccls",
+        "arguments": [],
+        "languageId": "cpp"
+    },
     "debugger": {
         "adapter": "lldb-dap",
         "arguments": [],
@@ -468,6 +480,14 @@ through a shell.
 - `formatter.input` is `stdin` (default) or `file`.
 - `formatter.output` is `stdout` (default) or `file`.
 - `formatter.timeout` is the maximum run time in milliseconds (default 15000).
+- `fallbackFormatter` is optional and uses the same shape as `formatter`. It is
+  used only when the primary formatter executable is not present in `PATH`.
+  If the primary formatter exists but fails, the error is reported without
+  trying the fallback.
+- `fallbackLsp` is optional and accepts `name`, `command`, `arguments` and an
+  optional `languageId`. It is used when a plugin's preferred language-server
+  executable is not present in `PATH`; a server that exists but fails is not
+  replaced by the fallback.
 
 On success, the formatted output replaces the buffer as a single undo step and
 the cursor and selection line/column are preserved. On failure, the buffer is

@@ -17,6 +17,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     private readonly LspManager _lsp = new();
     private readonly Dictionary<string, string> _pluginStatus = new(StringComparer.Ordinal);
     private bool _lspDirty;
+    private bool _lspFallbackBlocked;
     private long _lspDirtySince;
 
     private string _pluginPromptLabel = string.Empty;
@@ -109,6 +110,11 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         IReadOnlyDictionary<string, object?>? data = null
     )
     {
+        if (string.Equals(eventName, "buffer_opened", StringComparison.Ordinal))
+        {
+            _lspFallbackBlocked = false;
+        }
+
         _plugins?.FireEvent(eventName, data);
         if (string.Equals(eventName, "buffer_opened", StringComparison.Ordinal))
         {
@@ -1467,8 +1473,43 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return false;
         }
 
+        LspServerConfig selected = config;
+        bool primaryPresent = ExecutableFinder.Find(config.Command) is not null;
+        bool usingFallback = false;
+        LanguageDefinition? language = _languages.Find(config.LanguageId) ?? _language;
+        if (
+            !primaryPresent
+            && !_lspFallbackBlocked
+            && language?.FallbackLsp is { } fallback
+            && ExecutableFinder.Find(fallback.Command) is not null
+        )
+        {
+            selected = new LspServerConfig
+            {
+                Name = fallback.Name,
+                Command = fallback.Command,
+                Arguments = fallback.Arguments,
+                LanguageId =
+                    config.LanguageId.Length > 0 ? config.LanguageId : fallback.LanguageId,
+            };
+            usingFallback = true;
+        }
+
         _lspDirty = false;
-        return _lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot, out error);
+        bool started = _lsp.TryStart(
+            selected,
+            _document.Path,
+            GetText(),
+            _workspaceRoot,
+            out error
+        );
+        if (!started && (primaryPresent || usingFallback))
+        {
+            // A present executable that fails is a separate error; never mask
+            // it by silently switching to the fallback afterwards.
+            _lspFallbackBlocked = true;
+        }
+        return started;
     }
 
     public void StopLsp(string? name)

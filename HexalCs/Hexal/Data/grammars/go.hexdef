@@ -36,5 +36,11 @@
         "arguments": [],
         "input": "stdin",
         "output": "stdout"
+    },
+    "fallbackFormatter": {
+        "command": "gofumpt",
+        "arguments": [],
+        "input": "stdin",
+        "output": "stdout"
     }
 }

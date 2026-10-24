@@ -52,5 +52,11 @@
             "cwd": "${workspace}",
             "stopOnEntry": false
         }
+    },
+    "fallbackLsp": {
+        "name": "ccls",
+        "command": "ccls",
+        "arguments": [],
+        "languageId": "cpp"
     }
 }
