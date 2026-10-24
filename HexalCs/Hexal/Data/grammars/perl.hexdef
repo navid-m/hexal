@@ -129,6 +129,12 @@
     "escapeCharacter": "\\"
   },
   "numbers": true,
+  "formatter": {
+    "command": "perltidy",
+    "arguments": ["-st", "-b"],
+    "input": "stdin",
+    "output": "stdout"
+  },
   "indentAfter": ["{", "[", "("],
   "unindentBefore": ["}", "]", ")"]
 }
