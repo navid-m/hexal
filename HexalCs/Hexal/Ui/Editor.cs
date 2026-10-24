@@ -7366,6 +7366,41 @@ public sealed partial class Editor
         }
     }
 
+    private bool PrepareUnnecessaryRanges(long line, ReadOnlySpan<byte> text)
+    {
+        if (!_unnecessaryDiagnostics.TryGetValue(line, out List<(int Start, int End)>? ranges))
+        {
+            return false;
+        }
+
+        _unnecessaryByteRanges.Clear();
+        foreach ((int start, int end) in ranges)
+        {
+            int startByte = LspPositions.Utf16ColumnToByteOffset(text, start);
+            int endByte =
+                end == int.MaxValue
+                    ? text.Length
+                    : LspPositions.Utf16ColumnToByteOffset(text, end);
+            if (endByte > startByte)
+            {
+                _unnecessaryByteRanges.Add((startByte, endByte));
+            }
+        }
+        return _unnecessaryByteRanges.Count > 0;
+    }
+
+    private bool IsUnnecessaryRune(int start, int end)
+    {
+        foreach ((int rangeStart, int rangeEnd) in _unnecessaryByteRanges)
+        {
+            if (start < rangeEnd && end > rangeStart)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void RenderTextLines(long firstLine, int rows, int gutter)
     {
         if (rows == 0 || _columns <= _editorLeft + gutter)
@@ -7393,6 +7428,7 @@ public sealed partial class Editor
             int length = _document.CopyLineText(line, ref _lineBuffer, out _);
             ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
             _syntax.GetLineTokens(line, text, _lineTokens);
+            bool dimUnnecessary = PrepareUnnecessaryRanges(line, text);
             int tokenIndex = 0;
             Style? lineHighlight = LineHighlightStyle(line);
             if (lineHighlight is { } fillStyle)
@@ -7424,6 +7460,11 @@ public sealed partial class Editor
 
                 UnicodeUtil.Decode(text, offset, out Rune rune, out int byteLength);
                 offset += byteLength;
+
+                if (dimUnnecessary && IsUnnecessaryRune(runeStart, offset))
+                {
+                    textStyle.Fg = _theme.Dimmed;
+                }
 
                 uint cp = (uint)rune.Value;
                 int width;

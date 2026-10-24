@@ -337,6 +337,7 @@ public sealed partial class Editor
             int length = _document.CopyLineText(wrapped.Line, ref _lineBuffer, out _);
             ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
             _syntax.GetLineTokens(wrapped.Line, text, _lineTokens);
+            bool dimUnnecessary = PrepareUnnecessaryRanges(wrapped.Line, text);
             Style? lineHighlight = LineHighlightStyle(wrapped.Line);
             if (lineHighlight is { } fillStyle)
             {
@@ -378,6 +379,11 @@ public sealed partial class Editor
 
                 UnicodeUtil.Decode(text, offset, out Rune rune, out int byteLength);
                 offset += byteLength;
+
+                if (dimUnnecessary && IsUnnecessaryRune(runeStart, offset))
+                {
+                    textStyle.Fg = _theme.Dimmed;
+                }
 
                 uint cp = (uint)rune.Value;
                 int width = RuneCellWidth(rune, visual);

@@ -670,28 +670,35 @@ public sealed class LspManager : IDisposable
                 int endColumn =
                     diagnostic.EndColumn >= 0 ? diagnostic.EndColumn : diagnostic.Column + 1;
 
-                contextDiagnostics.Add(
-                    (JsonNode)
-                        new JsonObject
+                var contextDiagnostic = new JsonObject
+                {
+                    ["range"] = new JsonObject
+                    {
+                        ["start"] = new JsonObject
                         {
-                            ["range"] = new JsonObject
-                            {
-                                ["start"] = new JsonObject
-                                {
-                                    ["line"] = diagnostic.Line,
-                                    ["character"] = diagnostic.Column,
-                                },
-                                ["end"] = new JsonObject
-                                {
-                                    ["line"] = endLine,
-                                    ["character"] = endColumn,
-                                },
-                            },
-                            ["severity"] = diagnostic.Severity,
-                            ["source"] = diagnostic.Source,
-                            ["message"] = diagnostic.Message,
-                        }
-                );
+                            ["line"] = diagnostic.Line,
+                            ["character"] = diagnostic.Column,
+                        },
+                        ["end"] = new JsonObject
+                        {
+                            ["line"] = endLine,
+                            ["character"] = endColumn,
+                        },
+                    },
+                    ["severity"] = diagnostic.Severity,
+                    ["source"] = diagnostic.Source,
+                    ["message"] = diagnostic.Message,
+                };
+                if (diagnostic.Tags is { Length: > 0 } tags)
+                {
+                    var tagArray = new JsonArray();
+                    foreach (int tag in tags)
+                    {
+                        tagArray.Add((JsonNode)JsonValue.Create(tag)!);
+                    }
+                    contextDiagnostic["tags"] = tagArray;
+                }
+                contextDiagnostics.Add((JsonNode)contextDiagnostic);
             }
 
             var parameters = new JsonObject
@@ -1497,53 +1504,7 @@ public sealed class LspManager : IDisposable
             {
                 foreach (JsonElement item in array.EnumerateArray())
                 {
-                    int line = 0;
-                    int column = 0;
-                    int endLine = -1;
-                    int endColumn = -1;
-                    if (item.TryGetProperty("range", out JsonElement range))
-                    {
-                        if (range.TryGetProperty("start", out JsonElement start))
-                        {
-                            if (start.TryGetProperty("line", out JsonElement lineElement))
-                            {
-                                line = lineElement.GetInt32();
-                            }
-                            if (start.TryGetProperty("character", out JsonElement columnElement))
-                            {
-                                column = columnElement.GetInt32();
-                            }
-                        }
-                        if (range.TryGetProperty("end", out JsonElement end))
-                        {
-                            if (end.TryGetProperty("line", out JsonElement endLineElement))
-                            {
-                                endLine = endLineElement.GetInt32();
-                            }
-                            if (end.TryGetProperty("character", out JsonElement endColumnElement))
-                            {
-                                endColumn = endColumnElement.GetInt32();
-                            }
-                        }
-                    }
-
-                    diagnostics.Add(
-                        new LspDiagnostic(
-                            line,
-                            column,
-                            item.TryGetProperty("severity", out JsonElement severity)
-                                ? severity.GetInt32()
-                                : 1,
-                            item.TryGetProperty("message", out JsonElement message)
-                                ? message.GetString() ?? string.Empty
-                                : string.Empty,
-                            item.TryGetProperty("source", out JsonElement source)
-                                ? source.GetString() ?? string.Empty
-                                : string.Empty,
-                            endLine,
-                            endColumn
-                        )
-                    );
+                    diagnostics.Add(ParseDiagnostic(item));
                 }
             }
 
@@ -2236,6 +2197,27 @@ public sealed class LspManager : IDisposable
             }
         }
 
+        int[]? tags = null;
+        if (
+            item.ValueKind == JsonValueKind.Object
+            && item.TryGetProperty("tags", out JsonElement tagsElement)
+            && tagsElement.ValueKind == JsonValueKind.Array
+        )
+        {
+            var values = new List<int>(tagsElement.GetArrayLength());
+            foreach (JsonElement tag in tagsElement.EnumerateArray())
+            {
+                if (tag.ValueKind == JsonValueKind.Number && tag.TryGetInt32(out int value))
+                {
+                    values.Add(value);
+                }
+            }
+            if (values.Count > 0)
+            {
+                tags = values.ToArray();
+            }
+        }
+
         return new LspDiagnostic(
             line,
             column,
@@ -2252,7 +2234,8 @@ public sealed class LspManager : IDisposable
                 ? source.GetString() ?? string.Empty
                 : string.Empty,
             endLine,
-            endColumn
+            endColumn,
+            tags
         );
     }
 

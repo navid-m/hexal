@@ -6,6 +6,7 @@
         "foreground": "#e6e6e6",
         "background": "#111111",
         "muted": "#6e6e6e",
+        "dimmed": "#909090",
         "accent": "#c8c8c8",
         "border": "#3a3a3a",
         "error": "#ffffff",

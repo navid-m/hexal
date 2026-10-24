@@ -19,6 +19,8 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     private bool _lspDirty;
     private bool _lspFallbackBlocked;
     private long _lspDirtySince;
+    private readonly Dictionary<long, List<(int Start, int End)>> _unnecessaryDiagnostics = new();
+    private readonly List<(int Start, int End)> _unnecessaryByteRanges = new();
 
     private string _pluginPromptLabel = string.Empty;
     private readonly StringBuilder _pluginPromptText = new();
@@ -313,6 +315,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 case LspEventKind.Diagnostics:
                 {
                     int count = lspEvent.Diagnostics.Count;
+                    UpdateUnnecessaryDiagnostics(lspEvent.Uri, lspEvent.Diagnostics);
                     _pluginStatus["lsp"] =
                         count == 0
                             ? $"LSP: {lspEvent.ServerName}"
@@ -336,6 +339,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                                     ["severity"] = diagnostic.Severity,
                                     ["message"] = diagnostic.Message,
                                     ["source"] = diagnostic.Source,
+                                    ["tags"] = diagnostic.Tags,
                                 }
                             );
                         }
@@ -462,11 +466,90 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _lsp.Stop();
         _pluginStatus.Remove("lsp");
         _lspDirty = false;
+        _unnecessaryDiagnostics.Clear();
+        _unnecessaryByteRanges.Clear();
         _hoverRequestPending = false;
         _definitionRequestPending = false;
         _codeActionRequestPending = false;
         _symbolRequestPending = false;
         CloseLspCompletion();
+    }
+
+    private void UpdateUnnecessaryDiagnostics(
+        string uri,
+        IReadOnlyList<LspDiagnostic> diagnostics
+    )
+    {
+        if (_document.Path is null)
+        {
+            return;
+        }
+
+        string path = LspManager.UriToPath(uri);
+        try
+        {
+            if (!PathsEqual(Path.GetFullPath(path), Path.GetFullPath(_document.Path)))
+            {
+                return;
+            }
+        }
+        catch (Exception ex)
+            when (ex
+                    is ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException
+                        or UnauthorizedAccessException
+                        or IOException
+            )
+        {
+            return;
+        }
+
+        _unnecessaryDiagnostics.Clear();
+        if (diagnostics.Count == 0)
+        {
+            return;
+        }
+
+        long lastLine = _document.LineCount - 1;
+        foreach (LspDiagnostic diagnostic in diagnostics)
+        {
+            if (!diagnostic.HasTag(LspDiagnosticTag.Unnecessary))
+            {
+                continue;
+            }
+            if (diagnostic.Line < 0 || diagnostic.Line > lastLine)
+            {
+                continue;
+            }
+
+            int endLine = diagnostic.EndLine >= 0 ? diagnostic.EndLine : diagnostic.Line;
+            int endColumn =
+                diagnostic.EndColumn >= 0 ? diagnostic.EndColumn : diagnostic.Column + 1;
+            if (endLine < diagnostic.Line)
+            {
+                endLine = diagnostic.Line;
+                endColumn = diagnostic.Column + 1;
+            }
+            endLine = (int)Math.Min(endLine, lastLine);
+
+            for (long line = diagnostic.Line; line <= endLine; ++line)
+            {
+                int start = line == diagnostic.Line ? Math.Max(0, diagnostic.Column) : 0;
+                int end = line == endLine ? Math.Max(start, endColumn) : int.MaxValue;
+                if (end <= start)
+                {
+                    continue;
+                }
+
+                if (!_unnecessaryDiagnostics.TryGetValue(line, out List<(int Start, int End)>? ranges))
+                {
+                    ranges = new List<(int Start, int End)>(1);
+                    _unnecessaryDiagnostics[line] = ranges;
+                }
+                ranges.Add((start, end));
+            }
+        }
     }
 
     private void NotifyLspSaved()

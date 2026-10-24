@@ -41,6 +41,7 @@ internal static class Program
         TestHexalConfig();
         TestFormatterRunner();
         TestLspPositions();
+        TestLspDiagnosticTags();
         TestLspDebugReport();
         TestLspStartsForNewFile();
         TestLspDocumentSymbols();
@@ -1603,6 +1604,75 @@ internal static class Program
         public void Dispose() { }
     }
 
+    private static void TestLspDiagnosticTags()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("tagged.cs");
+        Check(WriteBytes(path, "using System.Text;\n"u8), "write tagged diagnostic document");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        Check(
+            manager.TryStart(
+                new LspServerConfig
+                {
+                    Name = "Tagged",
+                    Transport = transport,
+                    LanguageId = "csharp",
+                },
+                path,
+                "using System.Text;\n",
+                directory.Path("."),
+                out string startError
+            ),
+            $"tagged LSP started ({startError})"
+        );
+
+        transport.Incoming.Enqueue("""{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        manager.Pump();
+
+        var notification = new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["method"] = "textDocument/publishDiagnostics",
+            ["params"] = new JsonObject
+            {
+                ["uri"] = new Uri(Path.GetFullPath(path)).AbsoluteUri,
+                ["diagnostics"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["range"] = new JsonObject
+                        {
+                            ["start"] = new JsonObject { ["line"] = 0, ["character"] = 0 },
+                            ["end"] = new JsonObject { ["line"] = 0, ["character"] = 18 },
+                        },
+                        ["severity"] = 4,
+                        ["code"] = "IDE0005",
+                        ["source"] = "OmniSharp",
+                        ["message"] = "Using directive is unnecessary.",
+                        ["tags"] = new JsonArray(JsonValue.Create(LspDiagnosticTag.Unnecessary)),
+                    },
+                },
+            },
+        };
+        transport.Incoming.Enqueue(notification.ToJsonString());
+        manager.Pump();
+
+        List<LspDiagnostic> diagnostics = manager.SnapshotDiagnosticsForPath(path);
+        CheckEqual(diagnostics.Count, 1, "tagged diagnostic count", "1");
+        if (diagnostics.Count > 0)
+        {
+            Check(
+                diagnostics[0].HasTag(LspDiagnosticTag.Unnecessary),
+                "unnecessary diagnostic tag is parsed"
+            );
+            CheckEqual(diagnostics[0].Tags?.Length ?? 0, 1, "diagnostic tag count", "1");
+        }
+
+        manager.Stop();
+    }
+
     private static void TestLspDebugReport()
     {
         string path = Path.GetTempFileName();
@@ -2418,12 +2488,7 @@ internal static class Program
             "python fallback formatter",
             "ruff"
         );
-        CheckEqual(
-            bundled.Find("c")?.FallbackLsp?.Command,
-            "ccls",
-            "c fallback LSP",
-            "ccls"
-        );
+        CheckEqual(bundled.Find("c")?.FallbackLsp?.Command, "ccls", "c fallback LSP", "ccls");
 
         LanguageDefinition? csharpLanguage = bundled.Find("csharp");
         Check(
@@ -2754,6 +2819,7 @@ internal static class Program
                     "foreground": "#112233",
                     "background": "black",
                     "muted": 245,
+                    "dimmed": 244,
                     "accent": "bright-cyan",
                     "selection": { "fg": "#ffffff", "bg": 4 },
                     "syntax": { "keyword": "#ff00aa" }
@@ -2781,6 +2847,7 @@ internal static class Program
         CheckEqual(Theme.Blue(theme.Foreground), (byte)0x33, "theme blue", "0x33");
         CheckEqual(theme.Background, 0u, "named background", "0");
         CheckEqual(theme.Muted, 245u, "numeric muted", "245");
+        CheckEqual(theme.Dimmed, 244u, "numeric dimmed", "244");
         CheckEqual(theme.Accent, 14u, "named accent", "14");
         CheckEqual(theme.SelectionForeground, Theme.Rgb(255, 255, 255), "selection fg", "#ffffff");
         CheckEqual(theme.SelectionBackground, 4u, "selection bg", "4");
@@ -2796,6 +2863,17 @@ internal static class Program
             "reject invalid colour"
         );
         Check(error.Length > 0, "invalid colour reports error");
+
+        Check(
+            Theme.TryParse(
+                "{\"colors\": {\"muted\": 6}}",
+                "muted-only.json",
+                out Theme? mutedOnly,
+                out error
+            ),
+            $"parse muted-only theme ({error})"
+        );
+        CheckEqual(mutedOnly?.Dimmed ?? 0, mutedOnly?.Muted ?? 0, "dimmed inherits muted", "muted");
 
         using var directory = new TempDir();
         File.WriteAllText(directory.Path("one.json"), json);
@@ -3340,16 +3418,21 @@ internal static class Program
 
         manager.FireEvent(
             "buffer_opened",
-            new Dictionary<string, object?> { ["language"] = "csharp" }
+            new Dictionary<string, object?>
+            {
+                ["language"] = "csharp",
+                ["path"] = "/tmp/First.cs",
+                ["id"] = "/tmp/First.cs",
+            }
         );
         CheckEqual(host.LspRequests.Count, 1, "omnisharp attempted first", "1");
         if (host.LspRequests.Count > 0)
         {
             CheckEqual(
                 host.LspRequests[0].Command,
-                "omnisharp",
+                "OmniSharp",
                 "csharp primary command",
-                "omnisharp"
+                "OmniSharp"
             );
             Check(
                 host.LspRequests[0].Arguments.Contains("--languageserver"),
@@ -3358,6 +3441,35 @@ internal static class Program
         }
         CheckEqual(manager.Coordinators.Count, 1, "builtin C# LSP fallback starts", "1");
         CheckEqual(manager.Coordinators[0].Servers.Count, 1, "csharp server registered", "1");
+
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?>
+            {
+                ["language"] = "csharp",
+                ["path"] = "/tmp/First.cs",
+                ["id"] = "/tmp/First.cs",
+            }
+        );
+        CheckEqual(host.LspRequests.Count, 1, "same buffer does not restart LSP", "1");
+
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?>
+            {
+                ["language"] = "csharp",
+                ["path"] = "/tmp/Second.cs",
+                ["id"] = "/tmp/Second.cs",
+            }
+        );
+        CheckEqual(host.LspRequests.Count, 2, "new buffer restarts LSP", "2");
+        CheckEqual(manager.Coordinators.Count, 1, "builtin C# server is reused", "1");
+        CheckEqual(
+            manager.Coordinators[0].Servers.Count,
+            1,
+            "csharp server is not duplicated",
+            "1"
+        );
     }
 
     private static void TestLuaLspRuntime()

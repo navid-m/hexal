@@ -589,6 +589,8 @@ Malformed theme files are logged and skipped.
 Colours can be an ANSI palette index (`0`-`255`), a name such as `"bright-cyan"`
 or `"black"`, or a `"#RRGGBB"` true-colour value. Missing entries inherit the
 default palette. `gitModified` controls the sidebar's Git status marker.
+`dimmed` colours muted code annotations such as unnecessary LSP diagnostics;
+when omitted it inherits `muted`.
 
 ```json
 {
@@ -599,6 +601,7 @@ default palette. `gitModified` controls the sidebar's Git status marker.
         "foreground": "#d8dee9",
         "background": "#2e3440",
         "muted": "#616e88",
+        "dimmed": "#7b88a1",
         "accent": "#88c0d0",
         "border": "#434c5e",
         "error": "#bf616a",
@@ -768,8 +771,10 @@ standalone executable. Set `bundlePath` to the extracted PSES directory in
 
 The LSP client runs asynchronously over stdio with JSON-RPC framing. It performs
 `initialize`, opens the document, sends debounced full-document changes and
-save notifications, and displays diagnostic counts in the status bar. It also
-supports language-server completions: typing a server-advertised trigger
+save notifications, and displays diagnostic counts in the status bar.
+Diagnostics tagged `DiagnosticTag.Unnecessary` (for example unused C# using
+directives) are drawn with the theme's `dimmed` foreground. It also supports
+language-server completions: typing a server-advertised trigger
 character such as `.` opens a completion popup, and `Ctrl+Space` requests
 completions manually. The client advertises snippet support, so snippet
 insertions are expanded with their default text and first tab stop.

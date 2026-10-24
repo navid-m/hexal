@@ -11,6 +11,12 @@ public sealed class LspServerConfig
     public ILspServerTransport? Transport { get; init; }
 }
 
+public static class LspDiagnosticTag
+{
+    public const int Unnecessary = 1;
+    public const int Deprecated = 2;
+}
+
 public sealed record LspDiagnostic(
     int Line,
     int Column,
@@ -18,8 +24,12 @@ public sealed record LspDiagnostic(
     string Message,
     string Source,
     int EndLine = -1,
-    int EndColumn = -1
-);
+    int EndColumn = -1,
+    int[]? Tags = null
+)
+{
+    public bool HasTag(int tag) => Tags is not null && Array.IndexOf(Tags, tag) >= 0;
+}
 
 /// <summary>
 /// A single textual edit from an LSP <c>WorkspaceEdit</c>. Positions use the

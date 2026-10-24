@@ -27,6 +27,7 @@ public sealed class Theme
     public uint Foreground { get; set; } = 15;
     public uint Background { get; set; }
     public uint Muted { get; set; } = 8;
+    public uint Dimmed { get; set; } = 8;
     public uint Accent { get; set; } = 14;
     public uint Border { get; set; } = 8;
     public uint Error { get; set; } = 9;
@@ -282,6 +283,7 @@ public sealed class Theme
                 result.Foreground = ReadColor(colors, "foreground", result.Foreground, ref error);
                 result.Background = ReadColor(colors, "background", result.Background, ref error);
                 result.Muted = ReadColor(colors, "muted", result.Muted, ref error);
+                result.Dimmed = ReadColor(colors, "dimmed", result.Muted, ref error);
                 result.Accent = ReadColor(colors, "accent", result.Accent, ref error);
                 result.Border = ReadColor(colors, "border", result.Border, ref error);
                 result.Error = ReadColor(colors, "error", result.Error, ref error);
