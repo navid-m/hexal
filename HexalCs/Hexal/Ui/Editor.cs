@@ -61,6 +61,8 @@ public sealed partial class Editor
     private static readonly (char Key, string Label)[] SpaceMenuItems =
     {
         ('/', "Search across files"),
+        ('.', "Find/replace across files"),
+        ('\\', "Regex find/replace across files"),
         ('f', "Open file picker"),
         ('y', "Yank selection to clipboard"),
         ('X', "Cut selection to clipboard"),
@@ -653,6 +655,12 @@ public sealed partial class Editor
         if (_pluginPanelVisible && _mode != Mode.PluginPrompt)
         {
             HandlePluginPanelInput(inputEvent);
+            return _running;
+        }
+
+        if (_crossFindActive)
+        {
+            HandleCrossFind(inputEvent);
             return _running;
         }
 
@@ -2639,6 +2647,12 @@ public sealed partial class Editor
         {
             case '/':
                 OpenPicker(PickerKind.Search);
+                return;
+            case '.':
+                OpenCrossFind(regex: false);
+                return;
+            case '\\':
+                OpenCrossFind(regex: true);
                 return;
             case 'f':
             case 'F':
@@ -8656,6 +8670,7 @@ public sealed partial class Editor
         RenderSpaceMenu();
         RenderPicker();
         RenderFind();
+        RenderCrossFind();
         RenderHover();
         RenderDebugVariables();
         RenderAbout();

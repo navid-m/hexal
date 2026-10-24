@@ -168,6 +168,8 @@ are cyan; headings and language names are white (headings bold).
 | `.` | Select every match of a search term, then edit them together (NORMAL or SELECT) |
 | `Space` | Open the space menu (bottom-right) |
 | `Space` `/` | Search across project files |
+| `Space` `.` | Find and replace across files matching a wildcard |
+| `Space` `\` | Regex find and replace across files matching a wildcard |
 | `Space` `f` | Open the file picker |
 | `Space` `y` | Yank the selection to the system clipboard |
 | `Space` `p` | Paste the system clipboard on the current line |
@@ -185,8 +187,10 @@ dismiss it, `/` to search across files, or `f` to open the file picker.
 `y` copies the current selection to the system clipboard and returns to
 NORMAL mode; `p` pastes the clipboard at the cursor (replacing the selection
 when one is active) and `P` pastes it on new lines below the cursor's line.
-Press `S` to pick a symbol from the current file using the language server's
-document symbols. Both pickers filter as you type; use Up/Down (or
+Press `.` for literal cross-file find/replace or `\` for regex cross-file
+find/replace; both accept a wildcard such as `*`, `*.cs`, or
+`./src/*.txt`. Press `S` to pick a symbol from the current file using the
+language server's document symbols. Both pickers filter as you type; use Up/Down (or
 PageUp/PageDown) to select and Enter to open the result. File pickers start
 from the current working directory and skip common build and VCS directories.
 Search results open the file at the matching line.
@@ -525,6 +529,8 @@ blue for modified lines. `showGitIgnored` controls whether files excluded by
 `keepSidebarFocusOnOpen` is enabled by default and keeps keyboard focus in the
 sidebar after opening a file; press `Ctrl+B` to close the sidebar and return to
 the buffer. Set it to `false` to move focus to the opened buffer immediately.
+When the sidebar is focused, `Ctrl+Left` and `Ctrl+Right` shrink and grow it
+within safe minimum and maximum widths.
 `wordWrap` is disabled by default. Toggle it with `:ww` to softly wrap long
 lines at the pane width; the new value is written back to the active
 configuration file.

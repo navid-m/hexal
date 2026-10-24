@@ -95,6 +95,10 @@ public sealed partial class Editor
     private int _sidebarTop;
     private int _sidebarMenuSelected;
     private int _editorLeft;
+    private int _sidebarWidthOverride;
+    private const int MinSidebarWidth = 20;
+    private const int MaxSidebarWidth = 80;
+    private const int MinEditorWidthBesideSidebar = 16;
     private readonly List<SidebarNode> _sidebarNodes = new();
     private readonly HashSet<string> _sidebarExpanded = new(SidebarPathComparison);
     private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes = new();
@@ -143,8 +147,38 @@ public sealed partial class Editor
             return 0;
         }
 
-        int width = Math.Clamp(_columns / 3, 20, 40);
-        return Math.Min(width, _columns - 16);
+        int maximum = Math.Max(
+            MinSidebarWidth,
+            Math.Min(MaxSidebarWidth, _columns - MinEditorWidthBesideSidebar)
+        );
+        int width = _sidebarWidthOverride > 0
+            ? _sidebarWidthOverride
+            : Math.Clamp(_columns / 3, MinSidebarWidth, 40);
+        return Math.Clamp(width, MinSidebarWidth, maximum);
+    }
+
+    private void ResizeSidebar(int delta)
+    {
+        if (!_sidebarVisible)
+        {
+            return;
+        }
+
+        int maximum = Math.Max(
+            MinSidebarWidth,
+            Math.Min(MaxSidebarWidth, _columns - MinEditorWidthBesideSidebar)
+        );
+        int target = Math.Clamp(SidebarWidth() + delta, MinSidebarWidth, maximum);
+        if (target == SidebarWidth())
+        {
+            return;
+        }
+
+        _sidebarWidthOverride = target;
+        UpdateEditorLeft();
+        _forceFullRedraw = true;
+        EnsureCursorVisible();
+        SetMessage($"Sidebar width: {target}");
     }
 
     private void UpdateEditorLeft()
@@ -233,6 +267,17 @@ public sealed partial class Editor
         if (_sidebarMenuVisible)
         {
             HandleSidebarMenu(inputEvent);
+            return;
+        }
+
+        if (inputEvent.Ctrl && inputEvent.Key == Key.Left)
+        {
+            ResizeSidebar(-2);
+            return;
+        }
+        if (inputEvent.Ctrl && inputEvent.Key == Key.Right)
+        {
+            ResizeSidebar(2);
             return;
         }
 

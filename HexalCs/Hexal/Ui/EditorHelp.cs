@@ -73,6 +73,8 @@ public sealed partial class Editor
         Entry("'", "Regular-expression search and replace");
         Entry(".", "Select every match for multi-cursor editing");
         Entry("Space /", "Search across all project files");
+        Entry("Space .", "Find and replace across matching files");
+        Entry("Space \\", "Regex find and replace across matching files");
         Entry("Space f", "Open the file picker");
         Blank();
 
@@ -84,6 +86,7 @@ public sealed partial class Editor
 
         Section("Sidebar");
         Entry("C", "Open the context menu for the selected item(s)");
+        Entry("Ctrl+Left / Ctrl+Right", "Shrink / grow the sidebar");
         Entry("Shift+Up / Shift+Down", "Extend the multi-selection");
         Entry("Enter / Space", "Open a file or expand/collapse a folder");
         Entry("O X E", "Menu: open, new folder, new file");
