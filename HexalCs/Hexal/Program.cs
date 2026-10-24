@@ -201,6 +201,8 @@ internal static class Program
     {
         try
         {
+            LinuxDesktopEntry.EnsureLauncher();
+
             var document = new Document();
             if (file.Length > 0)
             {
