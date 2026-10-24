@@ -86,6 +86,7 @@ public sealed partial class Editor
         "fmt",
         "fmta",
         "cw",
+        "rc",
         "cfg",
         "rcfg",
         "rla",
@@ -139,6 +140,7 @@ public sealed partial class Editor
         ["fmt"] = "Format the buffer, or just the active selection, with the language formatter.",
         ["fmta"] = "Format all non-ignored workspace files with the given extension.",
         ["cw"] = "Remove trailing spaces and tabs from every line.",
+        ["rc"] = "Remove comments from the active selection.",
         ["cfg"] = "Open (or create) the Hexal configuration file.",
         ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
         ["rla"] = "Reload all open files from disk and hard-refresh the interface.",
@@ -4516,6 +4518,15 @@ public sealed partial class Editor
                 CleanWhitespace();
                 return;
 
+            case "rc":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :rc");
+                    return;
+                }
+                RemoveCommentsFromSelection();
+                return;
+
             case "cfg":
                 if (arguments.Count != 0)
                 {
@@ -7489,6 +7500,327 @@ public sealed partial class Editor
         suffix.Length > 0
         && text.Length >= suffix.Length
         && text[^suffix.Length..].SequenceEqual(suffix);
+
+    /// <summary>
+    /// Removes line and block comments from the current SELECT-mode range.
+    /// Comment-only lines are removed completely; inline comments are removed
+    /// up to the end of their line. Quoted strings are skipped so comment
+    /// markers inside them are preserved.
+    /// </summary>
+    private void RemoveCommentsFromSelection()
+    {
+        if (_mode != Mode.Select)
+        {
+            SetError("Select text before removing comments.");
+            return;
+        }
+
+        if (_language is null)
+        {
+            SetError("No language is active for this buffer.");
+            return;
+        }
+
+        string lineComment = _language.LineComment ?? string.Empty;
+        string blockStart =
+            _language.HasBlockComments ? _language.BlockCommentStart ?? string.Empty : string.Empty;
+        string blockEnd =
+            _language.HasBlockComments ? _language.BlockCommentEnd ?? string.Empty : string.Empty;
+
+        if (lineComment.Length == 0 && (blockStart.Length == 0 || blockEnd.Length == 0))
+        {
+            SetError($"No comment syntax is configured for {_language.Name}.");
+            return;
+        }
+
+        (long start, long end) = SelectionRange();
+        if (end <= start)
+        {
+            SetError("Select text before removing comments.");
+            return;
+        }
+
+        byte[] selection = _document.Range(start, end - start);
+        byte[] replacement = StripComments(
+            selection,
+            start,
+            lineComment,
+            blockStart,
+            blockEnd,
+            out bool removed
+        );
+
+        if (!removed)
+        {
+            SetMessage("No comments found in the selection.");
+            return;
+        }
+
+        _document.BreakUndoGroup();
+        _document.Replace(start, end - start, replacement);
+        _selectionAnchor = start;
+        _cursor = start + replacement.Length;
+        _selectionLinewise = false;
+        _extraSelections.Clear();
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+        SetMessage("Removed comments from the selection.");
+    }
+
+    private byte[] StripComments(
+        ReadOnlySpan<byte> text,
+        long selectionStart,
+        string lineComment,
+        string blockStart,
+        string blockEnd,
+        out bool removed
+    )
+    {
+        removed = false;
+        byte[] lineMarker =
+            lineComment.Length > 0 ? Encoding.UTF8.GetBytes(lineComment) : Array.Empty<byte>();
+        byte[] blockStartBytes =
+            blockStart.Length > 0 ? Encoding.UTF8.GetBytes(blockStart) : Array.Empty<byte>();
+        byte[] blockEndBytes =
+            blockEnd.Length > 0 ? Encoding.UTF8.GetBytes(blockEnd) : Array.Empty<byte>();
+        byte[] escape =
+            _language?.EscapeCharacter is { Length: > 0 } escapeCharacter
+                ? Encoding.UTF8.GetBytes(escapeCharacter)
+                : Array.Empty<byte>();
+
+        var quoteTokens = new List<byte[]>();
+        if (_language is not null)
+        {
+            foreach (string quote in _language.QuoteCharacters)
+            {
+                if (quote.Length > 0)
+                {
+                    quoteTokens.Add(Encoding.UTF8.GetBytes(quote));
+                }
+            }
+        }
+        quoteTokens.Sort((left, right) => right.Length.CompareTo(left.Length));
+
+        byte[] output = new byte[text.Length];
+        int written = 0;
+        int index = 0;
+        int lineStart = 0;
+        int lineOutputStart = 0;
+        bool lineFullySelected =
+            selectionStart == _document.LineStart(_document.LineOfOffset(selectionStart));
+
+        while (index < text.Length)
+        {
+            byte[]? quoteToken = null;
+            foreach (byte[] candidate in quoteTokens)
+            {
+                if (StartsWith(text[index..], candidate))
+                {
+                    quoteToken = candidate;
+                    break;
+                }
+            }
+
+            if (quoteToken is not null)
+            {
+                int quoteStart = index;
+                index += quoteToken.Length;
+                while (index < text.Length)
+                {
+                    if (escape.Length > 0 && StartsWith(text[index..], escape))
+                    {
+                        index += escape.Length;
+                        if (index < text.Length)
+                        {
+                            index = UnicodeUtil.NextBoundary(text, index);
+                        }
+                        continue;
+                    }
+
+                    if (StartsWith(text[index..], quoteToken))
+                    {
+                        index += quoteToken.Length;
+                        break;
+                    }
+
+                    index = UnicodeUtil.NextBoundary(text, index);
+                }
+
+                for (int offset = quoteStart; offset < index; ++offset)
+                {
+                    byte value = text[offset];
+                    output[written++] = value;
+                    if (value == (byte)'\n')
+                    {
+                        lineStart = offset + 1;
+                        lineOutputStart = written;
+                        lineFullySelected = true;
+                    }
+                }
+                continue;
+            }
+
+            if (blockStartBytes.Length > 0 && StartsWith(text[index..], blockStartBytes))
+            {
+                removed = true;
+                int commentEnd = text.Length;
+                int search = index + blockStartBytes.Length;
+                while (search < text.Length)
+                {
+                    if (StartsWith(text[search..], blockEndBytes))
+                    {
+                        commentEnd = search + blockEndBytes.Length;
+                        break;
+                    }
+                    search = UnicodeUtil.NextBoundary(text, search);
+                }
+
+                int lineEnd = FindLineEnd(text, commentEnd);
+                int contentEnd = lineEnd;
+                if (contentEnd > 0 && text[contentEnd - 1] == (byte)'\r')
+                {
+                    --contentEnd;
+                }
+
+                bool onlyWhitespaceBefore = true;
+                for (int offset = lineStart; offset < index; ++offset)
+                {
+                    if (text[offset] is not ((byte)' ' or (byte)'\t'))
+                    {
+                        onlyWhitespaceBefore = false;
+                        break;
+                    }
+                }
+
+                bool onlyWhitespaceAfter = true;
+                for (int offset = commentEnd; offset < contentEnd; ++offset)
+                {
+                    if (text[offset] is not ((byte)' ' or (byte)'\t'))
+                    {
+                        onlyWhitespaceAfter = false;
+                        break;
+                    }
+                }
+
+                if (lineFullySelected && onlyWhitespaceBefore && onlyWhitespaceAfter)
+                {
+                    written = lineOutputStart;
+                    if (lineEnd < text.Length)
+                    {
+                        index = lineEnd + 1;
+                        lineStart = index;
+                        lineOutputStart = written;
+                        lineFullySelected = true;
+                    }
+                    else
+                    {
+                        index = text.Length;
+                    }
+                    continue;
+                }
+
+                if (onlyWhitespaceAfter)
+                {
+                    while (
+                        written > lineOutputStart
+                        && output[written - 1] is (byte)' ' or (byte)'\t'
+                    )
+                    {
+                        --written;
+                    }
+
+                    index = contentEnd;
+                    continue;
+                }
+
+                int lastNewline = -1;
+                for (int offset = index; offset < commentEnd; ++offset)
+                {
+                    if (text[offset] == (byte)'\n')
+                    {
+                        lastNewline = offset;
+                    }
+                }
+
+                index = commentEnd;
+                if (lastNewline >= 0)
+                {
+                    lineStart = lastNewline + 1;
+                    lineOutputStart = written;
+                    lineFullySelected = true;
+                }
+                continue;
+            }
+
+            if (lineMarker.Length > 0 && StartsWith(text[index..], lineMarker))
+            {
+                removed = true;
+                int lineEnd = FindLineEnd(text, index);
+                int contentEnd = lineEnd;
+                if (contentEnd > index && text[contentEnd - 1] == (byte)'\r')
+                {
+                    --contentEnd;
+                }
+
+                bool onlyWhitespaceBefore = true;
+                for (int offset = lineStart; offset < index; ++offset)
+                {
+                    if (text[offset] is not ((byte)' ' or (byte)'\t'))
+                    {
+                        onlyWhitespaceBefore = false;
+                        break;
+                    }
+                }
+
+                if (lineFullySelected && onlyWhitespaceBefore)
+                {
+                    written = lineOutputStart;
+                    if (lineEnd < text.Length)
+                    {
+                        index = lineEnd + 1;
+                        lineStart = index;
+                        lineOutputStart = written;
+                        lineFullySelected = true;
+                    }
+                    else
+                    {
+                        index = text.Length;
+                    }
+                    continue;
+                }
+
+                while (
+                    written > lineOutputStart
+                    && output[written - 1] is (byte)' ' or (byte)'\t'
+                )
+                {
+                    --written;
+                }
+
+                index = contentEnd;
+                continue;
+            }
+
+            byte next = text[index];
+            output[written++] = next;
+            ++index;
+            if (next == (byte)'\n')
+            {
+                lineStart = index;
+                lineOutputStart = written;
+                lineFullySelected = true;
+            }
+        }
+
+        return output.AsSpan(0, written).ToArray();
+    }
+
+    private static int FindLineEnd(ReadOnlySpan<byte> text, int offset)
+    {
+        int lineEnd = text[offset..].IndexOf((byte)'\n');
+        return lineEnd < 0 ? text.Length : offset + lineEnd;
+    }
 
     private void ToggleLineComments(SortedSet<long> lines, string marker)
     {

@@ -268,6 +268,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:fmt` | Format the current buffer, or just the active selection, with its language formatter |
 | `:fmta <ext>` | Format every non-ignored workspace file with the extension |
 | `:cw` | Remove trailing spaces and tabs from every line |
+| `:rc` | Remove comments from the active selection |
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
 | `:rla` | Reload all open files from disk and hard-refresh the interface |

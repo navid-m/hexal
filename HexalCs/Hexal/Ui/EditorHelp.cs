@@ -62,6 +62,7 @@ public sealed partial class Editor
         Entry("u / U / Ctrl+R", "Undo / redo");
         Entry("Ctrl+C", "Toggle comment on the selection or line");
         Entry("< / >", "Unindent / indent the selection or current line");
+        Entry(":rc", "Remove comments from the active selection");
         Entry("Space y", "Copy the selection to the system clipboard");
         Entry("Space X", "Cut the selection to the system clipboard");
         Entry("Space p / Space P", "Paste at the cursor / on a new line");
