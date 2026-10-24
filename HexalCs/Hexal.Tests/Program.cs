@@ -429,6 +429,14 @@ internal static class Program
         CheckEqual((uint)rune.Value, 0x754Cu, "wide rune", "0x754C");
         CheckEqual(UnicodeUtil.DisplayWidth(0x754C), 2, "wide display width", "2");
         CheckEqual(UnicodeUtil.DisplayWidth('a'), 1, "ascii display width", "1");
+        Check(
+            UnicodeUtil.IsUnsafeFormatCharacter(0x202E),
+            "bidirectional override is unsafe"
+        );
+        Check(
+            !UnicodeUtil.IsUnsafeFormatCharacter('a'),
+            "ascii is safe to render"
+        );
 
         CheckEqual(UnicodeUtil.PreviousBoundary(eAcute, 2), 0, "previous boundary", "0");
         CheckEqual(UnicodeUtil.NextBoundary(eAcute, 0), 2, "next boundary", "2");
@@ -1013,6 +1021,22 @@ internal static class Program
             matchCase: true
         );
         CheckEqual(caseSensitiveHit.Count, 1, "case-sensitive hit", "1");
+
+        Check(
+            !FileSearch.IsBinary(directory.Path("root.txt")),
+            "plain text file is not binary"
+        );
+
+        using var binaryDirectory = new TempDir();
+        string image = binaryDirectory.Path("image.png");
+        Check(
+            WriteBytes(
+                image,
+                new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00 }
+            ),
+            "write binary sample"
+        );
+        Check(FileSearch.IsBinary(image), "binary file is detected");
     }
 
     private static void TestGitDiff()

@@ -651,6 +651,12 @@ public sealed partial class Editor
             return _running;
         }
 
+        if (_binaryFilePromptVisible)
+        {
+            HandleBinaryFilePrompt(inputEvent);
+            return _running;
+        }
+
         if (_helpVisible)
         {
             HandleHelpInput(inputEvent);
@@ -2352,6 +2358,15 @@ public sealed partial class Editor
         );
         _completionFilesRoot = root;
         return _completionFiles;
+    }
+
+    private void InvalidateFileListCaches()
+    {
+        _completionFiles = null;
+        _completionFilesRoot = string.Empty;
+        _pickerFilesLoaded = false;
+        _pickerFilesRoot = string.Empty;
+        _pickerFiles = new List<string>();
     }
 
     private int CompletionMaxRows()
@@ -5548,6 +5563,18 @@ public sealed partial class Editor
 
     private void RequestOpen(string path, bool force, long line = -1, long column = -1)
     {
+        path = FileSystemUtil.ExpandHomeDirectory(path);
+        if (File.Exists(path) && FileSearch.IsBinary(path))
+        {
+            ShowBinaryFilePrompt(path, force, line, column);
+            return;
+        }
+
+        OpenPathWithDirtyCheck(path, force, line, column);
+    }
+
+    private void OpenPathWithDirtyCheck(string path, bool force, long line, long column)
+    {
         if (!force && _document.IsDirty)
         {
             _pendingOpen = path;
@@ -7493,6 +7520,11 @@ public sealed partial class Editor
                             continue; // combining mark
                         }
                     }
+                    else if (UnicodeUtil.IsUnsafeFormatCharacter(cp))
+                    {
+                        cp = 0xFFFD;
+                        width = 1;
+                    }
                 }
 
                 long nextVisual = visual + width;
@@ -8778,6 +8810,7 @@ public sealed partial class Editor
         RenderPluginPanel();
         RenderStartupBenchmark();
         RenderHelp();
+        RenderBinaryFilePrompt();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

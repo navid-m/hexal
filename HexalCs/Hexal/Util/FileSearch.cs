@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 
 namespace Hexal.Util;
@@ -267,6 +268,101 @@ public static class FileSearch
         }
 
         return matches;
+    }
+
+    /// <summary>
+    /// Heuristically detects whether a file is binary by sampling its leading
+    /// bytes. A NUL byte, a high proportion of non-text control bytes, or a
+    /// high proportion of invalid UTF-8 sequences marks the file as binary.
+    /// Empty and unreadable files are treated as text so normal error handling
+    /// can report the problem.
+    /// </summary>
+    public static bool IsBinary(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite
+            );
+
+            const int sampleSize = 8192;
+            byte[] buffer = new byte[sampleSize];
+            int read = stream.Read(buffer, 0, buffer.Length);
+            if (read <= 0)
+            {
+                return false;
+            }
+
+            int control = 0;
+            int invalid = 0;
+            int offset = 0;
+            while (offset < read)
+            {
+                byte value = buffer[offset];
+                if (value == 0)
+                {
+                    return true;
+                }
+
+                if (
+                    value < 0x20
+                    && value is not (byte)'\t'
+                        and not (byte)'\n'
+                        and not (byte)'\r'
+                        and not (byte)'\f'
+                        and not (byte)'\b'
+                )
+                {
+                    ++control;
+                }
+
+                if (value < 0x80)
+                {
+                    ++offset;
+                    continue;
+                }
+
+                OperationStatus status = Rune.DecodeFromUtf8(
+                    buffer.AsSpan(offset, read - offset),
+                    out _,
+                    out int consumed
+                );
+                if (status == OperationStatus.NeedMoreData)
+                {
+                    // The sample ended in the middle of a valid sequence.
+                    break;
+                }
+                if (status != OperationStatus.Done)
+                {
+                    ++invalid;
+                    ++offset;
+                    continue;
+                }
+
+                offset += consumed;
+            }
+
+            return control * 10 > read || invalid * 10 > read;
+        }
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+            )
+        {
+            return false;
+        }
     }
 
     /// <summary>

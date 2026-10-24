@@ -52,6 +52,10 @@ public sealed partial class Editor
         {
             width = 1;
         }
+        else if (width > 0 && UnicodeUtil.IsUnsafeFormatCharacter((uint)cp))
+        {
+            width = 1;
+        }
         return width;
     }
 
@@ -387,6 +391,11 @@ public sealed partial class Editor
 
                 uint cp = (uint)rune.Value;
                 int width = RuneCellWidth(rune, visual);
+                if (width > 0 && UnicodeUtil.IsUnsafeFormatCharacter(cp))
+                {
+                    cp = 0xFFFD;
+                    width = 1;
+                }
                 if (width == 0)
                 {
                     if (cp < 0x20 || cp == 0x7F)

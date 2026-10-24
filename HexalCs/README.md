@@ -196,6 +196,10 @@ type; use Up/Down (or PageUp/PageDown) to select and Enter to open the result.
 File pickers start from the current working directory and skip common build and
 VCS directories. Search results open the file at the matching line.
 
+Opening a binary file, such as an image, displays a centered `<Binary File>`
+confirmation instead of loading the contents. Press `Enter` to open it anyway
+or `Esc` to cancel and keep the current buffer.
+
 ### Command palette
 
 Press `Ctrl+P` in NORMAL, SELECT or INSERT mode to open the searchable command

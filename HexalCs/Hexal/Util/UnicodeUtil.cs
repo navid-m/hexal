@@ -179,6 +179,27 @@ public static class UnicodeUtil
         return IsWide(cp) ? 2 : 1;
     }
 
+    /// <summary>
+    /// Formatting and separator code points that terminals may interpret as
+    /// bidirectional overrides or otherwise render with an unexpected width.
+    /// Callers that draw one scalar per cell should replace these with U+FFFD.
+    /// </summary>
+    public static bool IsUnsafeFormatCharacter(uint cp)
+    {
+        if (cp < 0x80)
+        {
+            return false;
+        }
+
+        UnicodeCategory category = Rune.GetUnicodeCategory(new Rune((int)cp));
+        return category
+            is UnicodeCategory.Format
+                or UnicodeCategory.Surrogate
+                or UnicodeCategory.LineSeparator
+                or UnicodeCategory.ParagraphSeparator
+                or UnicodeCategory.OtherNotAssigned;
+    }
+
     public static long VisualColumn(ReadOnlySpan<byte> line, int byteOffset, int tabWidth)
     {
         tabWidth = Math.Max(1, tabWidth);

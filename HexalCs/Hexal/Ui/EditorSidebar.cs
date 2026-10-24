@@ -2124,6 +2124,7 @@ public sealed partial class Editor
 
     private void RefreshSidebar(string? selectPath)
     {
+        InvalidateFileListCaches();
         string? selectedPath = selectPath ?? SelectedSidebarNode?.Path;
         RefreshSidebarGitStatus();
         _sidebarNodes.Clear();
