@@ -34,6 +34,11 @@ public sealed partial class Editor
             OpenConfigFile
         );
         AddPaletteCommand(
+            "Open Hexal log",
+            "Open ~/.hexal/hexal.log to inspect startup, plugin, LSP and formatter messages.",
+            OpenLogFile
+        );
+        AddPaletteCommand(
             "Open ~/.hexal directory",
             "Browse the Hexal home directory in the file picker.",
             OpenHexalDirectory

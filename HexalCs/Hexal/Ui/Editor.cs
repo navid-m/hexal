@@ -87,6 +87,8 @@ public sealed partial class Editor
         "cw",
         "cfg",
         "rcfg",
+        "open-log",
+        "ol",
         "lang",
         "help",
         "about",
@@ -137,6 +139,8 @@ public sealed partial class Editor
         ["cw"] = "Remove trailing spaces and tabs from every line.",
         ["cfg"] = "Open (or create) the Hexal configuration file.",
         ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
+        ["open-log"] = "Open the Hexal log file (~/.hexal/hexal.log).",
+        ["ol"] = "Alias for :open-log.",
         ["lang"] = "Set the language grammar for the current buffer.",
         ["help"] = "Show a short reminder of the available keys.",
         ["about"] = "Show information about Hexal itself.",
@@ -4465,6 +4469,16 @@ public sealed partial class Editor
                 ReloadConfiguration();
                 return;
 
+            case "open-log":
+            case "ol":
+                if (arguments.Count != 0)
+                {
+                    SetError($"usage: :{name}");
+                    return;
+                }
+                OpenLogFile();
+                return;
+
             case "q":
                 if (arguments.Count != 0)
                 {
@@ -5044,6 +5058,8 @@ public sealed partial class Editor
             if (!result.Ok)
             {
                 SetError(result.Error);
+                string target = operation.Document.Path ?? operation.Document.DisplayName;
+                HexalPaths.Log($"formatting failed for {target}: {result.Error}");
             }
             else
             {
@@ -5125,6 +5141,27 @@ public sealed partial class Editor
         }
 
         RequestOpen(path, force: false);
+    }
+
+    private void OpenLogFile()
+    {
+        try
+        {
+            Directory.CreateDirectory(HexalPaths.HexalHomeDirectory);
+        }
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+            )
+        {
+            SetError($"cannot open Hexal log: {ex.Message}");
+            return;
+        }
+
+        RequestOpen(HexalPaths.LogPath, force: false);
     }
 
     private void ReloadConfiguration()

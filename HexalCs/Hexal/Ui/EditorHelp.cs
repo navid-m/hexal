@@ -108,6 +108,7 @@ public sealed partial class Editor
         Entry(":ww", "Toggle word wrap (persisted to .hexcfg)");
         Entry(":cw", "Trim trailing whitespace from every line");
         Entry(":cfg / :rcfg", "Open .hexcfg / reload configuration");
+        Entry(":open-log / :ol", "Open the Hexal log (~/.hexal/hexal.log)");
         Entry(":path", "Show the current file's absolute path");
         Entry(":lang <id>", "Override the language for the current buffer");
         Entry(":adi", "Detect and apply the buffer's indentation");

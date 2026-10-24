@@ -269,6 +269,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:cw` | Remove trailing spaces and tabs from every line |
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
+| `:open-log`, `:ol` | Open `~/.hexal/hexal.log` |
 | `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
 | `:gdl` | Toggle added/deleted/modified markers in the line-number gutter |
 | `:gj` | Jump to the next git diff line |
