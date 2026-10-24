@@ -116,6 +116,12 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         if (string.Equals(eventName, "buffer_opened", StringComparison.Ordinal))
         {
             _lspFallbackBlocked = false;
+            var enriched = data is null
+                ? new Dictionary<string, object?>()
+                : new Dictionary<string, object?>(data);
+            enriched["lsp_running"] =
+                _document.Path is not null && _lsp.IsServing(_document.Path);
+            data = enriched;
         }
 
         _plugins?.FireEvent(eventName, data);
@@ -470,6 +476,11 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     {
         _lsp.Stop();
         _pluginStatus.Remove("lsp");
+        ResetLspInteractionState();
+    }
+
+    private void ResetLspInteractionState()
+    {
         _lspDirty = false;
         _unnecessaryDiagnostics.Clear();
         _unnecessaryByteRanges.Clear();
@@ -479,6 +490,16 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _codeActionRequestPending = false;
         _symbolRequestPending = false;
         CloseLspCompletion();
+    }
+
+    private void PrepareLspForBufferSwitch() => ResetLspInteractionState();
+
+    private void StopLspIfNotServingCurrentDocument()
+    {
+        if (_document.Path is null || !_lsp.IsServing(_document.Path))
+        {
+            ResetLsp();
+        }
     }
 
     private void UpdateDiagnosticDecorations(
@@ -1342,7 +1363,11 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return false;
         }
 
-        if (_lsp.IsRunning && string.Equals(_lsp.ServerName, server.Name, StringComparison.Ordinal))
+        if (
+            _lsp.IsRunning
+            && string.Equals(_lsp.ServerName, server.Name, StringComparison.Ordinal)
+            && _lsp.IsServing(_document.Path)
+        )
         {
             return true;
         }

@@ -6,11 +6,12 @@ local function ensure_server(event)
         return
     end
 
-    -- The editor stops the old server when it opens another buffer, so restart
-    -- on every buffer change. Repeated events for the same buffer are ignored
-    -- to avoid unnecessary PATH scans and server restarts.
+    -- Ask to attach each newly active buffer. The host reuses a compatible
+    -- initialized server and switches its active document; it only starts a
+    -- new process when the server or workspace changes. Repeated events for
+    -- the same buffer are ignored while its server is still running.
     local buffer = event.path or event.id or ""
-    if buffer == active_buffer then
+    if buffer == active_buffer and event.lsp_running ~= false then
         return
     end
     active_buffer = buffer

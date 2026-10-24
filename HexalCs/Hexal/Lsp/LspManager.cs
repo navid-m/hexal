@@ -297,54 +297,53 @@ public sealed class LspManager : IDisposable
             return false;
         }
 
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(documentPath);
+        }
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            error = ex.Message;
+            return false;
+        }
+
+        string workingDirectory =
+            !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
+                ? Path.GetFullPath(workspaceRoot)
+                : Path.GetDirectoryName(fullPath) ?? ".";
+        string documentUri = PathToUri(fullPath);
+
         lock (_stateLock)
         {
             if (_process is not null || _transport is not null)
             {
-                bool sameTransport = config.Transport is null
-                    ? _transport is null
-                    : ReferenceEquals(_transport, config.Transport);
-                if (
-                    _config is not null
-                    && sameTransport
-                    && string.Equals(
-                        _config.Command,
-                        config.Command,
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    && string.Equals(
-                        _documentUri,
-                        PathToUri(documentPath),
-                        StringComparison.Ordinal
-                    )
-                )
+                if (CanReuseServerLocked(config, workingDirectory))
                 {
+                    if (string.Equals(_documentUri, documentUri, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+
+                    SwitchDocumentLocked(
+                        config,
+                        fullPath,
+                        documentUri,
+                        workingDirectory,
+                        text
+                    );
                     return true;
                 }
+
                 StopLocked();
             }
 
             if (config.Transport is not null)
             {
-                string transportPath;
-                try
-                {
-                    transportPath = Path.GetFullPath(documentPath);
-                }
-                catch (Exception ex)
-                    when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-                {
-                    error = ex.Message;
-                    return false;
-                }
-
-                string transportRoot =
-                    !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
-                        ? Path.GetFullPath(workspaceRoot)
-                        : Path.GetDirectoryName(transportPath) ?? ".";
-                _rootPath = transportRoot;
-                _rootUri = PathToUri(transportRoot, directory: true);
-                _documentUri = PathToUri(transportPath);
+                _rootPath = workingDirectory;
+                _rootUri = PathToUri(workingDirectory, directory: true);
+                _documentUri = documentUri;
                 _config = config;
                 _currentText = text;
                 _version = 1;
@@ -360,10 +359,10 @@ public sealed class LspManager : IDisposable
                     Enqueue(new LspEvent { Kind = LspEventKind.Stopped, ServerName = config.Name });
                 };
 
-                LogInfo($"starting in-process LSP: {config.Name} for {transportPath}");
+                LogInfo($"starting in-process LSP: {config.Name} for {fullPath}");
                 SendInitializeLocked();
                 Enqueue(new LspEvent { Kind = LspEventKind.Started, ServerName = config.Name });
-                HexalPaths.Log($"Lua LSP started: {config.Name} for {transportPath}");
+                HexalPaths.Log($"Lua LSP started: {config.Name} for {fullPath}");
                 return true;
             }
 
@@ -374,25 +373,9 @@ public sealed class LspManager : IDisposable
                 return false;
             }
 
-            string fullPath;
-            try
-            {
-                fullPath = Path.GetFullPath(documentPath);
-            }
-            catch (Exception ex)
-                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                error = ex.Message;
-                return false;
-            }
-
-            string workingDirectory =
-                !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
-                    ? Path.GetFullPath(workspaceRoot)
-                    : Path.GetDirectoryName(fullPath) ?? ".";
             _rootPath = workingDirectory;
             _rootUri = PathToUri(workingDirectory, directory: true);
-            _documentUri = PathToUri(fullPath);
+            _documentUri = documentUri;
             _config = config;
             _currentText = text;
             _version = 1;
@@ -470,6 +453,136 @@ public sealed class LspManager : IDisposable
             {
                 error = $"cannot start language server '{config.Command}': {ex.Message}";
                 StopLocked();
+                return false;
+            }
+        }
+    }
+
+    private bool CanReuseServerLocked(LspServerConfig config, string workingDirectory)
+    {
+        if (_config is null)
+        {
+            return false;
+        }
+
+        bool sameTransport = config.Transport is null
+            ? _transport is null
+            : ReferenceEquals(_transport, config.Transport);
+        bool sameInProcessServer =
+            _initialized
+            && config.Transport is not null
+            && _transport is not null
+            && string.Equals(_config.Name, config.Name, StringComparison.Ordinal);
+        if (!sameTransport && !sameInProcessServer)
+        {
+            return false;
+        }
+
+        bool sameServer = config.Transport is null
+            ? string.Equals(_config.Command, config.Command, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(_config.Name, config.Name, StringComparison.Ordinal);
+        if (!sameServer)
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(_rootPath)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory)),
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal
+            );
+        }
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private void SwitchDocumentLocked(
+        LspServerConfig config,
+        string fullPath,
+        string documentUri,
+        string workingDirectory,
+        string text
+    )
+    {
+        bool initialized = _initialized;
+        if (config.Transport is not null && !ReferenceEquals(_transport, config.Transport))
+        {
+            // The Lua coordinator creates a fresh transport wrapper each time a
+            // server reattaches. The underlying server state is unchanged.
+            _transport = config.Transport;
+            _transport.Disconnected = () =>
+            {
+                Enqueue(new LspEvent { Kind = LspEventKind.Stopped, ServerName = config.Name });
+            };
+        }
+
+        if (initialized && _documentUri.Length > 0)
+        {
+            SendNotificationLocked(
+                "textDocument/didClose",
+                new JsonObject
+                {
+                    ["textDocument"] = new JsonObject { ["uri"] = _documentUri },
+                }
+            );
+            _diagnostics.Remove(_documentUri);
+        }
+
+        _config = config;
+        _rootPath = workingDirectory;
+        _rootUri = PathToUri(workingDirectory, directory: true);
+        _documentUri = documentUri;
+        _currentText = text;
+        _version = 1;
+        _pendingRequests.Clear();
+
+        if (initialized)
+        {
+            SendNotificationLocked(
+                "textDocument/didOpen",
+                new JsonObject
+                {
+                    ["textDocument"] = new JsonObject
+                    {
+                        ["uri"] = _documentUri,
+                        ["languageId"] = _config.LanguageId,
+                        ["version"] = _version,
+                        ["text"] = _currentText,
+                    },
+                }
+            );
+        }
+
+        LogInfo($"switched active document to {fullPath}");
+    }
+
+    public bool IsServing(string documentPath)
+    {
+        lock (_stateLock)
+        {
+            if (_process is null && _transport is null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return string.Equals(
+                    _documentUri,
+                    PathToUri(documentPath),
+                    StringComparison.Ordinal
+                );
+            }
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
                 return false;
             }
         }

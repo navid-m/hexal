@@ -5565,7 +5565,7 @@ public sealed partial class Editor
             return;
         }
 
-        ResetLsp();
+        PrepareLspForBufferSwitch();
         _document = loaded;
         RefreshLanguage();
         AutoDetectIndentationOnOpen();
@@ -5610,6 +5610,7 @@ public sealed partial class Editor
         Dictionary<string, object?> opened = CurrentBufferData();
         opened["line"] = line;
         FirePluginEvent("buffer_opened", opened);
+        StopLspIfNotServingCurrentDocument();
     }
 
     private void Undo()

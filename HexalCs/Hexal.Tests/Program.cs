@@ -42,6 +42,7 @@ internal static class Program
         TestFormatterRunner();
         TestLspPositions();
         TestLspDiagnosticTags();
+        TestLspSwitchesDocument();
         TestLspDebugReport();
         TestLspStartsForNewFile();
         TestLspDocumentSymbols();
@@ -1683,6 +1684,85 @@ internal static class Program
             );
             CheckEqual(diagnostics[0].Tags?.Length ?? 0, 1, "diagnostic tag count", "1");
         }
+
+        manager.Stop();
+    }
+
+    private static void TestLspSwitchesDocument()
+    {
+        using var directory = new TempDir();
+        string first = directory.Path("First.cs");
+        string second = directory.Path("Second.cs");
+        Check(WriteBytes(first, "class First {}\n"u8), "write first switch document");
+        Check(WriteBytes(second, "class Second {}\n"u8), "write second switch document");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        var config = new LspServerConfig
+        {
+            Name = "Switch",
+            Transport = transport,
+            LanguageId = "csharp",
+        };
+
+        Check(
+            manager.TryStart(
+                config,
+                first,
+                "class First {}\n",
+                directory.Path("."),
+                out string error
+            ),
+            $"switch LSP started ({error})"
+        );
+
+        transport.Incoming.Enqueue("""{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        manager.Pump();
+        int sentBeforeSwitch = transport.Sent.Count;
+
+        Check(
+            manager.TryStart(
+                config,
+                second,
+                "class Second {}\n",
+                directory.Path("."),
+                out error
+            ),
+            $"switch LSP switched document ({error})"
+        );
+
+        Check(manager.IsServing(second), "switch LSP serves the new document");
+        Check(!manager.IsServing(first), "switch LSP no longer serves the old document");
+        CheckEqual(
+            transport.Sent.Count,
+            sentBeforeSwitch + 2,
+            "document switch message count",
+            "didClose + didOpen"
+        );
+
+        string firstUri = new Uri(Path.GetFullPath(first)).AbsoluteUri;
+        string secondUri = new Uri(Path.GetFullPath(second)).AbsoluteUri;
+        Check(
+            transport.Sent.Any(message =>
+                message.Contains("textDocument/didClose", StringComparison.Ordinal)
+                && message.Contains(firstUri, StringComparison.Ordinal)
+            ),
+            "document switch closes the old document"
+        );
+        Check(
+            transport.Sent.Any(message =>
+                message.Contains("textDocument/didOpen", StringComparison.Ordinal)
+                && message.Contains(secondUri, StringComparison.Ordinal)
+                && message.Contains("class Second", StringComparison.Ordinal)
+            ),
+            "document switch opens the new document"
+        );
+        Check(
+            !transport.Sent.Skip(sentBeforeSwitch).Any(message =>
+                message.Contains("\"method\":\"initialize\"", StringComparison.Ordinal)
+            ),
+            "document switch does not reinitialize the server"
+        );
 
         manager.Stop();
     }

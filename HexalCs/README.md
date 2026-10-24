@@ -785,8 +785,11 @@ character such as `.` opens a completion popup, and `Ctrl+Space` requests
 completions manually. The client advertises snippet support, so snippet
 insertions are expanded with their default text and first tab stop.
 `hexal.lsp.on_diagnostics` callbacks receive the server, URI and diagnostic
-objects. Servers are stopped and restarted when the buffer or language changes.
-If the executable is missing, the next candidate is attempted; absence of a
+objects. Switching to another buffer served by the same initialized server
+sends `textDocument/didClose` for the old document and `textDocument/didOpen`
+for the new one, so the process keeps running. The server is stopped and
+restarted only when its identity or workspace changes. If the executable is
+missing, the next candidate is attempted; absence of a
 server does not affect normal editing. The C# plugin starts OmniSharp first and
 falls back to the bundled Lua C# server when OmniSharp is unavailable. When
 configuring OmniSharp manually, include `--languageserver` in its arguments;

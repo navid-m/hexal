@@ -411,8 +411,9 @@ public sealed partial class Editor
 
         if (!ReferenceEquals(previous, _document))
         {
-            ResetLsp();
+            PrepareLspForBufferSwitch();
             FirePluginEvent("buffer_opened", CurrentBufferData());
+            StopLspIfNotServingCurrentDocument();
         }
 
         SnapCursor();
