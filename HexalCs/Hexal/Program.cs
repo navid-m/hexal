@@ -9,7 +9,7 @@ namespace Hexal;
 
 internal static class Program
 {
-    public const string Version = "0.1.5";
+    public const string Version = "0.1.6";
 
     public static int Main(string[] args) => RunHexal(args);
 
@@ -233,7 +233,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"hexal: fatal error: {ex.Message}");
+            Console.Error.WriteLine($"hexal: severe error: {ex.Message}");
             return 1;
         }
     }
