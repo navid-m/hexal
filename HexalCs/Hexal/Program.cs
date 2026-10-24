@@ -243,7 +243,8 @@ internal static class Program
         Console.Out.Write(
             $"""
             Hexal v{Version}
-            Modal Editing Redefined
+            https://hexal.pages.dev
+            By Navid Momtahen (C) 2026
 
             Usage:
               hexal [options] [file]
