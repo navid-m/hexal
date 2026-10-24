@@ -1,8 +1,4 @@
-# Hexal (C#)
-
-A C#/.NET 9 port of the C++ Hexal MVP. The project directory is `HexalCs`
-because it sits alongside the original C++ tree, but the project and root
-namespace are `Hexal` (`HexalCs/Hexal`).
+# Hexal
 
 The implementation is a cross-platform, modal, terminal text editor built on
 the .NET 9 runtime with no UI toolkit. Its single runtime dependency is NLua,
