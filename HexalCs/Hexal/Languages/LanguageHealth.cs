@@ -265,6 +265,12 @@ public static class LanguageHealth
 
         public void ShowMessage(string text, bool warning) { }
 
+        public bool CopyToClipboard(string text, out string error)
+        {
+            error = string.Empty;
+            return false;
+        }
+
         public void SetPluginStatus(string key, string? text) { }
 
         public void RequestPrompt(string label, Action<string?> callback) { }

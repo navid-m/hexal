@@ -126,6 +126,10 @@ FUNCTIONS:
   select(items, callback)
     Display a selection menu.
 
+  copy(text)
+    Copy plain UTF-8 text to the system clipboard.
+    Returns true when the copy was accepted.
+
   set_status(key, text)
     Set a plugin-owned status-bar entry.
 

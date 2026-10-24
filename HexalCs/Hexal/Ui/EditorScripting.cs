@@ -1641,6 +1641,11 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         SetMessage(warning ? $"Warning: {text}" : text);
     }
 
+    public bool CopyToClipboard(string text, out string error)
+    {
+        return Clipboard.TryCopy(_terminal, Encoding.UTF8.GetBytes(text ?? string.Empty), out error);
+    }
+
     public void SetPluginStatus(string key, string? text)
     {
         if (string.IsNullOrEmpty(text))

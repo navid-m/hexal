@@ -2588,6 +2588,11 @@ internal static class Program
             "fortran",
             "lisp",
             "xsd",
+            "objc",
+            "clojure",
+            "wat",
+            "clif",
+            "groovy",
         };
         foreach (string addedLanguage in addedLanguages)
         {
@@ -4239,6 +4244,15 @@ internal static class Program
         }
 
         public void ShowMessage(string text, bool warning) => Messages.Add(text);
+
+        public string ClipboardText { get; private set; } = string.Empty;
+
+        public bool CopyToClipboard(string text, out string error)
+        {
+            ClipboardText = text;
+            error = string.Empty;
+            return text.Length > 0;
+        }
 
         public void SetPluginStatus(string key, string? text) { }
 

@@ -1,5 +1,6 @@
 using Hexal.Platform;
 using Hexal.Scripting;
+using Hexal.Util;
 
 namespace Hexal.Ui;
 
@@ -8,11 +9,15 @@ public sealed partial class Editor
     private bool _pluginManagerVisible;
     private int _pluginManagerSelected;
     private int _pluginManagerTop;
+    private string _pluginManagerFilter = string.Empty;
+    private bool _pluginManagerFiltering;
     private readonly List<PluginInfo> _pluginManagerItems = new();
 
     private void OpenPluginManager()
     {
         ClearMessage();
+        _pluginManagerFilter = string.Empty;
+        _pluginManagerFiltering = false;
         RefreshPluginManagerItems(keepSelection: false);
         _pluginManagerVisible = true;
         _forceFullRedraw = true;
@@ -22,6 +27,8 @@ public sealed partial class Editor
     {
         _pluginManagerVisible = false;
         _pluginManagerTop = 0;
+        _pluginManagerFilter = string.Empty;
+        _pluginManagerFiltering = false;
         _forceFullRedraw = true;
     }
 
@@ -37,7 +44,13 @@ public sealed partial class Editor
         _pluginManagerItems.Clear();
         if (_plugins is not null)
         {
-            _pluginManagerItems.AddRange(_plugins.Plugins);
+            foreach (PluginInfo plugin in _plugins.Plugins)
+            {
+                if (PluginManagerMatchesFilter(plugin))
+                {
+                    _pluginManagerItems.Add(plugin);
+                }
+            }
         }
 
         _pluginManagerSelected = 0;
@@ -66,11 +79,40 @@ public sealed partial class Editor
         );
     }
 
+    private bool PluginManagerMatchesFilter(PluginInfo plugin)
+    {
+        if (_pluginManagerFilter.Length == 0)
+        {
+            return true;
+        }
+
+        return plugin.Name.Contains(_pluginManagerFilter, StringComparison.OrdinalIgnoreCase)
+            || plugin.Id.Contains(_pluginManagerFilter, StringComparison.OrdinalIgnoreCase)
+            || plugin.Description.Contains(
+                _pluginManagerFilter,
+                StringComparison.OrdinalIgnoreCase
+            )
+            || plugin.Author.Contains(_pluginManagerFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void HandlePluginManagerInput(InputEvent inputEvent)
     {
+        if (_pluginManagerFiltering)
+        {
+            HandlePluginManagerFilterInput(inputEvent);
+            return;
+        }
+
         switch (inputEvent.Key)
         {
             case Key.Escape:
+                if (_pluginManagerFilter.Length > 0)
+                {
+                    _pluginManagerFilter = string.Empty;
+                    RefreshPluginManagerItems(keepSelection: false);
+                    _forceFullRedraw = true;
+                    return;
+                }
                 ClosePluginManager();
                 return;
             case Key.Up:
@@ -107,6 +149,10 @@ public sealed partial class Editor
 
         switch (inputEvent.Character.Value)
         {
+            case '/':
+                _pluginManagerFiltering = true;
+                _forceFullRedraw = true;
+                return;
             case 'q':
             case 'Q':
                 ClosePluginManager();
@@ -137,6 +183,66 @@ public sealed partial class Editor
                 ReloadAllPlugins();
                 return;
         }
+    }
+
+    private void HandlePluginManagerFilterInput(InputEvent inputEvent)
+    {
+        switch (inputEvent.Key)
+        {
+            case Key.Escape:
+                _pluginManagerFilter = string.Empty;
+                _pluginManagerFiltering = false;
+                RefreshPluginManagerItems(keepSelection: false);
+                _forceFullRedraw = true;
+                return;
+            case Key.Enter:
+                _pluginManagerFiltering = false;
+                _forceFullRedraw = true;
+                return;
+            case Key.Backspace:
+                if (_pluginManagerFilter.Length > 0)
+                {
+                    int previous = UnicodeUtil.PreviousBoundary(
+                        _pluginManagerFilter,
+                        _pluginManagerFilter.Length
+                    );
+                    _pluginManagerFilter = _pluginManagerFilter[..previous];
+                    RefreshPluginManagerItems(keepSelection: true);
+                }
+                _forceFullRedraw = true;
+                return;
+            case Key.Up:
+            case Key.ScrollUp:
+                MovePluginManagerSelection(-1);
+                return;
+            case Key.Down:
+            case Key.ScrollDown:
+                MovePluginManagerSelection(1);
+                return;
+            case Key.PageUp:
+                MovePluginManagerSelection(-PluginManagerListRows());
+                return;
+            case Key.PageDown:
+                MovePluginManagerSelection(PluginManagerListRows());
+                return;
+            case Key.Home:
+                _pluginManagerSelected = 0;
+                EnsurePluginManagerSelectionVisible();
+                return;
+            case Key.End:
+                _pluginManagerSelected = Math.Max(0, _pluginManagerItems.Count - 1);
+                EnsurePluginManagerSelectionVisible();
+                return;
+        }
+
+        if (inputEvent.Key != Key.Character || inputEvent.Ctrl || inputEvent.Alt)
+        {
+            return;
+        }
+
+        _pluginManagerFilter += inputEvent.Character.ToString();
+        RefreshPluginManagerItems(keepSelection: true);
+        _forceFullRedraw = true;
     }
 
     private PluginInfo? SelectedPluginManagerItem() =>
@@ -416,7 +522,15 @@ public sealed partial class Editor
 
         int x = Math.Max(0, (_columns - width) / 2);
         int y = Math.Max(0, (_rows - height) / 2);
-        DrawBox(x, y, width, height, " Plugins ");
+        string title = " Plugins ";
+        if (_pluginManagerFiltering || _pluginManagerFilter.Length > 0)
+        {
+            title =
+                " Plugins · /"
+                + _pluginManagerFilter
+                + (_pluginManagerFiltering ? "▏" : " ");
+        }
+        DrawBox(x, y, width, height, title);
 
         int contentRows = Math.Max(1, height - 3);
         int listWidth = Math.Clamp(width / 3, 14, 34);
@@ -433,7 +547,9 @@ public sealed partial class Editor
             _screen.PutString(
                 x + 2,
                 y + 1,
-                "No plugins discovered.",
+                _pluginManagerFilter.Length > 0
+                    ? "No matching plugins."
+                    : "No plugins discovered.",
                 _theme.MutedStyle,
                 detailWidth
             );
@@ -481,10 +597,13 @@ public sealed partial class Editor
             }
         }
 
+        string footer = _pluginManagerFiltering
+            ? "type to filter · ↑↓ move · Enter apply · Esc clear"
+            : "j/k move · Enter toggle · s source · r reload · R all · / search · Esc close";
         _screen.PutString(
             x + 2,
             y + height - 2,
-            "j/k move · Enter toggle · s source · r reload · R all · Esc close",
+            footer,
             _theme.MutedStyle,
             width - 4
         );

@@ -192,23 +192,73 @@ public sealed partial class Editor
                 HandlePluginPanelKey("tab");
                 return;
             case Key.Up:
+                if (inputEvent.Shift)
+                {
+                    if (HandlePluginPanelKey("shift+up"))
+                    {
+                        return;
+                    }
+                    MovePluginPanelSelection(-1);
+                    return;
+                }
+                MovePluginPanelSelection(-1);
+                return;
             case Key.ScrollUp:
-                MovePluginPanelSelection(inputEvent.Key == Key.ScrollUp ? -MouseScrollLines : -1);
+                MovePluginPanelSelection(-MouseScrollLines);
                 return;
             case Key.Down:
+                if (inputEvent.Shift)
+                {
+                    if (HandlePluginPanelKey("shift+down"))
+                    {
+                        return;
+                    }
+                    MovePluginPanelSelection(1);
+                    return;
+                }
+                MovePluginPanelSelection(1);
+                return;
             case Key.ScrollDown:
-                MovePluginPanelSelection(inputEvent.Key == Key.ScrollDown ? MouseScrollLines : 1);
+                MovePluginPanelSelection(MouseScrollLines);
                 return;
             case Key.PageUp:
+                if (inputEvent.Shift)
+                {
+                    if (HandlePluginPanelKey("shift+pageup"))
+                    {
+                        return;
+                    }
+                }
                 MovePluginPanelSelection(-PluginPanelContentRows());
                 return;
             case Key.PageDown:
+                if (inputEvent.Shift)
+                {
+                    if (HandlePluginPanelKey("shift+pagedown"))
+                    {
+                        return;
+                    }
+                }
                 MovePluginPanelSelection(PluginPanelContentRows());
                 return;
             case Key.Home:
+                if (inputEvent.Shift)
+                {
+                    if (HandlePluginPanelKey("shift+home"))
+                    {
+                        return;
+                    }
+                }
                 MovePluginPanelToEdge(first: true);
                 return;
             case Key.End:
+                if (inputEvent.Shift)
+                {
+                    if (HandlePluginPanelKey("shift+end"))
+                    {
+                        return;
+                    }
+                }
                 MovePluginPanelToEdge(first: false);
                 return;
         }
@@ -243,7 +293,7 @@ public sealed partial class Editor
         HandlePluginPanelKey(inputEvent.Character.ToString());
     }
 
-    private void HandlePluginPanelKey(string key, bool closeIfUnhandled = false)
+    private bool HandlePluginPanelKey(string key, bool closeIfUnhandled = false)
     {
         bool handled = false;
         if (_pluginPanelOnKey is not null)
@@ -255,19 +305,22 @@ public sealed partial class Editor
             catch (Exception ex)
             {
                 SetError($"plugin panel: {ex.Message}");
-                return;
+                return true;
             }
         }
 
         if (!_pluginPanelVisible)
         {
-            return;
+            return true;
         }
 
         if (closeIfUnhandled && !handled)
         {
             ClosePluginPanel();
+            return true;
         }
+
+        return handled;
     }
 
     private void MovePluginPanelSelection(int delta)

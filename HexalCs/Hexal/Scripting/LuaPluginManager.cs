@@ -1188,6 +1188,19 @@ public sealed class LuaPluginManager : IDisposable
         LuaTable ui = NewModule(lua, root, "ui");
         ui["message"] = new Action<string>(text => _host.ShowMessage(text, false));
         ui["warn"] = new Action<string>(text => _host.ShowMessage(text, true));
+        ui["copy"] = new Func<string, bool>(text =>
+        {
+            if (_host.CopyToClipboard(text ?? string.Empty, out string error))
+            {
+                return true;
+            }
+
+            if (error.Length > 0)
+            {
+                _host.ShowMessage(error, true);
+            }
+            return false;
+        });
         ui["terminal_size"] = new Func<LuaTable>(() =>
         {
             LuaTable table = NewTable(lua);

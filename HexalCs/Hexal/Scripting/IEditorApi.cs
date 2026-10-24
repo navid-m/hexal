@@ -67,6 +67,8 @@ public interface IEditorApi
 
     void ShowMessage(string text, bool warning);
 
+    bool CopyToClipboard(string text, out string error);
+
     void SetPluginStatus(string key, string? text);
 
     void RequestPrompt(string label, Action<string?> callback);

@@ -125,6 +125,10 @@ local function open_project_tree()
         collapsed = {},
         panel = nil,
         row_nodes = {},
+        row_texts = {},
+        row_selectable = {},
+        current_index = nil,
+        selection_anchor = nil,
         match_count = 0,
     }
 
@@ -262,20 +266,44 @@ local function open_project_tree()
         local left_pad = math.max(0, math.floor((content_width - maximum_width) / 2))
         local root_extra = math.max(0, math.floor((maximum_width - root_width) / 2))
 
+        local selection_first = nil
+        local selection_last = nil
+        if state.selection_anchor and state.current_index then
+            selection_first = math.min(state.selection_anchor, state.current_index)
+            selection_last = math.max(state.selection_anchor, state.current_index)
+        end
+
         local lines = {}
         local row_nodes = {}
+        local row_texts = {}
+        local row_selectable = {}
         for index, row in ipairs(rows) do
             local pad = left_pad + (row.root and root_extra or 0)
             local segments = {}
+            local plain = {}
             if pad > 0 then
                 segments[#segments + 1] = { text = string.rep(" ", pad), style = "default" }
             end
+            local in_selection =
+                selection_first ~= nil
+                and index >= selection_first
+                and index <= selection_last
             for _, segment in ipairs(row.indent_segments) do
-                segments[#segments + 1] = segment
+                segments[#segments + 1] = {
+                    text = segment.text,
+                    style = in_selection and "warning" or segment.style,
+                }
+                plain[#plain + 1] = segment.text
             end
-            segments[#segments + 1] = { text = row.label, style = row.style }
+            segments[#segments + 1] = {
+                text = row.label,
+                style = in_selection and "warning" or row.style,
+            }
+            plain[#plain + 1] = row.label
             lines[#lines + 1] = { segments = segments, selectable = row.selectable }
             row_nodes[index] = row.node
+            row_texts[index] = table.concat(plain)
+            row_selectable[index] = row.selectable
         end
 
         local title = " Project Tree · " .. root_name
@@ -283,13 +311,13 @@ local function open_project_tree()
         if searching then
             title = title .. " · /" .. state.query
             footer = string.format(
-                "%d matching %s · ↑↓/j/k select · Enter open · / search · q close",
+                "%d matching %s · ↑↓ move · Shift+↑↓ select · y copy · Enter open · / search · q close",
                 state.match_count,
                 state.match_count == 1 and "file" or "files"
             )
         else
             footer = string.format(
-                "%d %s · non-ignored · ↑↓/j/k select · Enter open/toggle · / search · q close",
+                "%d %s · ↑↓ move · Shift+↑↓ select · y copy · Enter open/toggle · / search · q close",
                 #files,
                 #files == 1 and "file" or "files"
             )
@@ -299,6 +327,8 @@ local function open_project_tree()
         return {
             lines = lines,
             row_nodes = row_nodes,
+            row_texts = row_texts,
+            row_selectable = row_selectable,
             title = title,
             footer = footer,
         }
@@ -316,6 +346,8 @@ local function open_project_tree()
     local function refresh(select_key)
         local view = build_view()
         state.row_nodes = view.row_nodes
+        state.row_texts = view.row_texts
+        state.row_selectable = view.row_selectable
         state.panel:set_title(view.title)
         state.panel:set_footer(view.footer)
         state.panel:set_selectable(true)
@@ -330,15 +362,107 @@ local function open_project_tree()
         end
 
         if not selected then
-            for index, node in ipairs(view.row_nodes) do
-                if node and (state.query == "" or not node.is_dir) then
+            for index, selectable in ipairs(view.row_selectable) do
+                if selectable then
                     selected = index
                     break
                 end
             end
         end
 
-        state.panel:set_selected(selected or 1)
+        state.current_index = selected or 1
+        state.panel:set_selected(state.current_index)
+    end
+
+    local function reset_selection_if_moved(selected)
+        if state.selection_anchor ~= nil and state.current_index ~= selected then
+            state.selection_anchor = nil
+        end
+    end
+
+    local function is_selectable(index)
+        return state.row_selectable[index] == true
+    end
+
+    local function move_index(selected, delta)
+        local step = delta > 0 and 1 or -1
+        local remaining = math.abs(delta)
+        local index = selected
+        while remaining > 0 do
+            local candidate = index + step
+            if candidate < 1 or candidate > #state.row_nodes then
+                break
+            end
+            index = candidate
+            if is_selectable(index) then
+                remaining = remaining - 1
+            end
+        end
+        return index
+    end
+
+    local function first_selectable()
+        for index, selectable in ipairs(state.row_selectable) do
+            if selectable then
+                return index
+            end
+        end
+        return nil
+    end
+
+    local function last_selectable()
+        for index = #state.row_selectable, 1, -1 do
+            if state.row_selectable[index] then
+                return index
+            end
+        end
+        return nil
+    end
+
+    local function extend_selection(selected, target)
+        reset_selection_if_moved(selected)
+        if not target then
+            return true
+        end
+
+        if state.selection_anchor == nil then
+            state.selection_anchor = selected
+        end
+
+        state.current_index = target
+        local node = state.row_nodes[target]
+        refresh(node and node.path or nil)
+        return true
+    end
+
+    local function copy_tree(selected)
+        reset_selection_if_moved(selected)
+
+        local first = 1
+        local last = #state.row_texts
+        if state.selection_anchor and state.current_index == selected then
+            first = math.min(state.selection_anchor, selected)
+            last = math.max(state.selection_anchor, selected)
+        end
+
+        local lines = {}
+        for index = first, last do
+            local text = state.row_texts[index]
+            if text and text ~= "" then
+                lines[#lines + 1] = text
+            end
+        end
+
+        if #lines == 0 then
+            hexal.ui.warn("projtree: nothing to copy")
+            return
+        end
+
+        if hexal.ui.copy(table.concat(lines, "\n")) then
+            hexal.ui.message(
+                string.format("Copied %d %s to clipboard", #lines, #lines == 1 and "line" or "lines")
+            )
+        end
     end
 
     local function start_search(selected)
@@ -351,12 +475,34 @@ local function open_project_tree()
 
             local query = value:gsub("^%s+", ""):gsub("%s+$", ""):lower()
             state.query = query
+            state.selection_anchor = nil
+            state.current_index = nil
             refresh(previous)
         end)
     end
 
     local function on_key(key, selected)
+        if key == "shift+up" then
+            return extend_selection(selected, move_index(selected, -1))
+        elseif key == "shift+down" then
+            return extend_selection(selected, move_index(selected, 1))
+        elseif key == "shift+pageup" then
+            return extend_selection(selected, move_index(selected, -10))
+        elseif key == "shift+pagedown" then
+            return extend_selection(selected, move_index(selected, 10))
+        elseif key == "shift+home" then
+            return extend_selection(selected, first_selectable())
+        elseif key == "shift+end" then
+            return extend_selection(selected, last_selectable())
+        end
+
+        if key == "y" or key == "Y" then
+            copy_tree(selected)
+            return true
+        end
+
         if key == "/" then
+            state.selection_anchor = nil
             start_search(selected)
             return true
         end
@@ -364,6 +510,8 @@ local function open_project_tree()
         if key ~= "enter" then
             return false
         end
+
+        state.selection_anchor = nil
 
         local node = state.row_nodes[selected]
         if not node then
@@ -387,13 +535,16 @@ local function open_project_tree()
 
     local view = build_view()
     state.row_nodes = view.row_nodes
+    state.row_texts = view.row_texts
+    state.row_selectable = view.row_selectable
     local selected = nil
-    for index, node in ipairs(view.row_nodes) do
-        if node then
+    for index, selectable in ipairs(view.row_selectable) do
+        if selectable then
             selected = index
             break
         end
     end
+    state.current_index = selected or 1
 
     state.panel = hexal.ui.panel({
         title = view.title,

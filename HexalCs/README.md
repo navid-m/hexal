@@ -665,7 +665,8 @@ Plugins live under `<binary>/data/plugins/<plugin-id>/`, or
 `lazy = "true"` together with `language = "<id>"` defers creating the plugin's
 Lua state until a buffer of that language is first opened. Language-server
 association plugins use this to keep first-frame startup fast; enabling the
-plugin from the plugin manager loads it immediately.
+plugin from the plugin manager loads it immediately. Press `/` in the plugin
+manager to filter plugins by name, id, description or author.
 
 ```toml
 name = "Example"
@@ -691,7 +692,9 @@ returning `true` (or nothing) consumes it.
 The bundled `projtree` plugin registers `:pt`, which opens a scrollable,
 color-coded Unicode tree of the workspace's non-ignored files. Press `/` to
 filter the tree, `Enter` on a directory to collapse or expand it, or `Enter` on
-a file to open it in the active buffer.
+a file to open it in the active buffer. Use `Shift+Up`/`Shift+Down` to select a
+contiguous range and `y` to copy the visible tree, or just that range, to the
+clipboard without color codes.
 
 The bundled `mdtools` plugin makes Markdown lists easier to edit: `Enter`
 continues a bullet or ordered list, `Enter` on an empty item leaves the list,
@@ -705,7 +708,7 @@ Implemented API modules:
 | `hexal.editor` | buffer text, line/cursor/selection inspection, cursor movement, insert/replace with undo integration |
 | `hexal.commands` | register, unregister, execute |
 | `hexal.keymap` | map, map_callback, unmap |
-| `hexal.ui` | message, warn, prompt, select, set_status, terminal_size, panel |
+| `hexal.ui` | message, warn, prompt, select, copy, set_status, terminal_size, panel |
 | `hexal.events` | on/off for buffer and editor lifecycle events |
 | `hexal.lsp` | start/stop external servers, create Lua LSP servers, diagnostics subscriptions, custom methods and navigation |
 | `hexal.config` | per-plugin JSON settings under `~/.hexal/plugin-config/<id>.json` |
