@@ -5050,14 +5050,24 @@ public sealed partial class Editor
                 SetError("Buffer changed during formatting; result discarded.");
             }
 
-            if (_resaveRequested)
+            if (operation.SaveAfter)
+            {
+                // Formatting is best effort when it is part of a save. The
+                // pending write must still happen, using the unformatted
+                // buffer, rather than being cancelled by a formatter failure.
+                bool quitAfter = operation.QuitAfter || _quitAfterSave;
+                _resaveRequested = false;
+                _quitAfterSave = false;
+                StartSave(operation.SavePath, quitAfter, skipFormat: true);
+            }
+            else if (_resaveRequested)
             {
                 bool quitAfter = _quitAfterSave;
                 _resaveRequested = false;
                 _quitAfterSave = false;
                 StartSave(path: null, quitAfter, skipFormat: true);
             }
-            else if (operation.SaveAfter)
+            else
             {
                 _quitAfterSave = false;
             }

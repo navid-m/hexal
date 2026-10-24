@@ -491,7 +491,9 @@ through a shell.
 
 On success, the formatted output replaces the buffer as a single undo step and
 the cursor and selection line/column are preserved. On failure, the buffer is
-left unchanged and the error is shown in the status bar.
+left unchanged and the error is shown in the status bar. When formatting is
+triggered by saving through `formatOnSave`, a formatter failure does not cancel
+the write; the file is saved with the unformatted buffer.
 
 `formatOnSave` in a language definition overrides the global setting. When it
 is omitted, the global setting from `~/.hexal/.hexcfg` is used:
