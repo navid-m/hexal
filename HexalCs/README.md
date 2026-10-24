@@ -731,7 +731,7 @@ start the first executable found in `PATH` when a matching buffer is opened:
 | Scar | `.scar` | none (syntax highlighting only) |
 | Dotenv | `.env`, `.env.local`, `.env.development`, `.env.production`, and similar | none (syntax highlighting only) |
 | XML | `.xml`, `.csproj`, `.rpp` | `lemminx`, `xml-language-server` |
-| C# | `.cs` | `csharp-ls`, `roslyn-language-server`, `omnisharp` |
+| C# | `.cs` | `omnisharp`, built-in Lua server (fallback) |
 | C | `.h`, `.c` | `clangd` |
 | C++ | `.h`, `.cpp`, `.hpp` | `clangd` |
 | Python | `.py` | `pyright-langserver`, `ty`, `mypy`, `mypy-language-server` |
@@ -773,10 +773,11 @@ insertions are expanded with their default text and first tab stop.
 `hexal.lsp.on_diagnostics` callbacks receive the server, URI and diagnostic
 objects. Servers are stopped and restarted when the buffer or language changes.
 If the executable is missing, the next candidate is attempted; absence of a
-server does not affect normal editing. When configuring OmniSharp manually,
-include `--languageserver` in its arguments; without that flag it writes
-newline-delimited host events instead of framed LSP messages, and the client
-will wait forever for an `initialize` response.
+server does not affect normal editing. The C# plugin starts OmniSharp first and
+falls back to the bundled Lua C# server when OmniSharp is unavailable. When
+configuring OmniSharp manually, include `--languageserver` in its arguments;
+without that flag it writes newline-delimited host events instead of framed LSP
+messages, and the client will wait forever for an `initialize` response.
 
 Run `:debug-lsp` (or `:dl`) to open a full-screen, live view of the language
 server state and recent traffic. It shows the command and arguments, process

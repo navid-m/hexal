@@ -3331,7 +3331,7 @@ internal static class Program
             File.Copy(file, System.IO.Path.Combine(plugin, System.IO.Path.GetFileName(file)));
         }
 
-        var host = new FakeHost();
+        var host = new FakeHost { LspAvailable = false };
         using var manager = new LuaPluginManager(host, plugins);
         manager.LoadAll();
 
@@ -3342,7 +3342,21 @@ internal static class Program
             "buffer_opened",
             new Dictionary<string, object?> { ["language"] = "csharp" }
         );
-        CheckEqual(manager.Coordinators.Count, 1, "csharp LSP starts for csharp buffers", "1");
+        CheckEqual(host.LspRequests.Count, 1, "omnisharp attempted first", "1");
+        if (host.LspRequests.Count > 0)
+        {
+            CheckEqual(
+                host.LspRequests[0].Command,
+                "omnisharp",
+                "csharp primary command",
+                "omnisharp"
+            );
+            Check(
+                host.LspRequests[0].Arguments.Contains("--languageserver"),
+                "omnisharp uses the languageserver LSP mode"
+            );
+        }
+        CheckEqual(manager.Coordinators.Count, 1, "builtin C# LSP fallback starts", "1");
         CheckEqual(manager.Coordinators[0].Servers.Count, 1, "csharp server registered", "1");
     }
 
@@ -3607,6 +3621,10 @@ internal static class Program
     {
         public List<string> Messages { get; } = new();
 
+        public List<LspServerConfig> LspRequests { get; } = new();
+
+        public bool LspAvailable { get; set; } = true;
+
         public string CurrentBufferId => "[No Name]";
 
         public string? WorkspaceRoot { get; set; }
@@ -3694,7 +3712,8 @@ internal static class Program
         public bool StartLsp(LspServerConfig config, out string error)
         {
             error = string.Empty;
-            return true;
+            LspRequests.Add(config);
+            return LspAvailable;
         }
 
         public void StopLsp(string? name) { }
