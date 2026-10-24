@@ -100,6 +100,11 @@ public sealed partial class Editor
             ReloadConfiguration
         );
         AddPaletteCommand(
+            "Reload all files",
+            "Reload open files from disk and hard-refresh the interface.",
+            () => ReloadAll(force: false)
+        );
+        AddPaletteCommand(
             "Manage plugins",
             "Enable or disable installed plugins and inspect their details.",
             OpenPluginManager

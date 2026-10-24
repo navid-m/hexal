@@ -88,6 +88,7 @@ public sealed partial class Editor
         "cw",
         "cfg",
         "rcfg",
+        "rla",
         "open-log",
         "ol",
         "lang",
@@ -140,6 +141,7 @@ public sealed partial class Editor
         ["cw"] = "Remove trailing spaces and tabs from every line.",
         ["cfg"] = "Open (or create) the Hexal configuration file.",
         ["rcfg"] = "Reload configuration, grammars, themes and language servers.",
+        ["rla"] = "Reload all open files from disk and hard-refresh the interface.",
         ["open-log"] = "Open the Hexal log file (~/.hexal/hexal.log).",
         ["ol"] = "Alias for :open-log.",
         ["lang"] = "Set the language grammar for the current buffer.",
@@ -1253,6 +1255,9 @@ public sealed partial class Editor
             case 'u':
                 Undo();
                 return;
+            case 'U':
+                Redo();
+                return;
             case 'g':
             case 'G':
                 _pendingG = true;
@@ -1441,6 +1446,10 @@ public sealed partial class Editor
             case 'u':
                 CancelSelection();
                 Undo();
+                return;
+            case 'U':
+                CancelSelection();
+                Redo();
                 return;
         }
     }
@@ -4487,6 +4496,15 @@ public sealed partial class Editor
                     return;
                 }
                 ReloadConfiguration();
+                return;
+
+            case "rla":
+                if (arguments.Count != 0)
+                {
+                    SetError("usage: :rla[!]");
+                    return;
+                }
+                ReloadAll(force);
                 return;
 
             case "open-log":

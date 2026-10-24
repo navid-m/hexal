@@ -58,7 +58,7 @@ public sealed partial class Editor
         Entry("v / V", "Start character / line selection");
         Entry("x / X", "Select current line / extend line selection");
         Entry("d / D / Delete", "Delete the character or selection");
-        Entry("u / Ctrl+R", "Undo / redo");
+        Entry("u / U / Ctrl+R", "Undo / redo");
         Entry("Ctrl+C", "Toggle comment on the selection or line");
         Entry("< / >", "Unindent / indent the selection or current line");
         Entry("Space y", "Copy the selection to the system clipboard");
@@ -117,6 +117,7 @@ public sealed partial class Editor
         Entry(":ww", "Toggle word wrap (persisted to .hexcfg)");
         Entry(":cw", "Trim trailing whitespace from every line");
         Entry(":cfg / :rcfg", "Open .hexcfg / reload configuration");
+        Entry(":rla[!]", "Reload all open files and hard-refresh the interface");
         Entry(":open-log / :ol", "Open the Hexal log (~/.hexal/hexal.log)");
         Entry(":path", "Show the current file's absolute path");
         Entry(":lang <id>", "Override the language for the current buffer");

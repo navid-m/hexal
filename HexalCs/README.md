@@ -157,7 +157,7 @@ are cyan; headings and language names are white (headings bold).
 | `x` / `X` | Select the current line; repeat to extend by one line |
 | `v` / `V` | Enter SELECT mode at the cursor |
 | `d` / `D`, `Delete` | Delete the character/selection under the cursor |
-| `u` / `Ctrl+R` | Undo / redo |
+| `u` / `U` / `Ctrl+R` | Undo / redo |
 | `Ctrl+Space` | Request LSP completions in INSERT mode |
 | `Ctrl+E` | Toggle a debug breakpoint on the current line (experimental DAP) |
 | `:` | Open the Ex command line |
@@ -274,6 +274,8 @@ support it. Pasting without a clipboard helper reports an error.
 | `:cw` | Remove trailing spaces and tabs from every line |
 | `:cfg` | Open the active configuration file |
 | `:rcfg` | Reload configuration, grammars and themes |
+| `:rla` | Reload all open files from disk and hard-refresh the interface |
+| `:rla!` | As `:rla`, but discard unsaved changes |
 | `:open-log`, `:ol` | Open `~/.hexal/hexal.log` |
 | `:gi` | Toggle showing git-ignored files in the sidebar and pickers |
 | `:gdl` | Toggle added/deleted/modified markers in the line-number gutter |
@@ -322,6 +324,11 @@ If the file did change, Hexal reloads it immediately and restores the cursor's
 line and display column. This deliberately differs from Helix's explicit `:rla`
 workflow: external content wins, and unsaved edits are replaced. The status bar
 reports the reload and notes when unsaved edits were discarded.
+
+`:rla` reloads every open file-backed buffer from disk without closing panes or
+changing the layout. Modified buffers are kept in memory; use `:rla!` to discard
+their edits as well. The command also resets the renderer and repaints the
+whole interface, which clears artefacts left behind by rendering binary data.
 
 Focus reporting requires terminal support (`\e[?1004h`); when unavailable,
 external changes are picked up only after reopening the file.

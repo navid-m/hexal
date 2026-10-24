@@ -12,6 +12,18 @@ public sealed class Renderer
     private int _previousHeight;
     private readonly ByteBuffer _output = new(64 * 1024);
 
+    /// <summary>
+    /// Forgets the previously rendered frame so the next render repaints every
+    /// cell. Used by the hard-refresh path to clear terminal artefacts.
+    /// </summary>
+    public void Reset()
+    {
+        _previous = Array.Empty<Cell>();
+        _previousWidth = 0;
+        _previousHeight = 0;
+        _output.Clear();
+    }
+
     public ReadOnlySpan<byte> Render(Screen screen, bool forceFullRedraw = false)
     {
         _output.Clear();
