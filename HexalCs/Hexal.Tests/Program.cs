@@ -45,6 +45,7 @@ internal static class Program
         TestLspPositions();
         TestLspDiagnosticTags();
         TestLspSwitchesDocument();
+        TestExecutableFinderRejectsBrokenLinks();
         TestLspDebugReport();
         TestLspStartsForNewFile();
         TestLspDocumentSymbols();
@@ -1792,6 +1793,30 @@ internal static class Program
         );
 
         manager.Stop();
+    }
+
+    private static void TestExecutableFinderRejectsBrokenLinks()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var directory = new TempDir();
+        string broken = directory.Path("broken-tool");
+        File.CreateSymbolicLink(broken, directory.Path("missing-tool"));
+        Check(ExecutableFinder.Find(broken) is null, "broken executable symlink is rejected");
+
+        string target = directory.Path("real-tool");
+        File.WriteAllText(target, "#!/bin/sh\n");
+        string linked = directory.Path("linked-tool");
+        File.CreateSymbolicLink(linked, target);
+        CheckEqual(
+            ExecutableFinder.Find(linked),
+            linked,
+            "valid executable symlink is accepted",
+            linked
+        );
     }
 
     private static void TestLspDebugReport()

@@ -148,7 +148,7 @@ public static class ExecutableFinder
 
         if (Path.IsPathRooted(command))
         {
-            return File.Exists(command) ? command : null;
+            return IsUsableExecutable(command) ? command : null;
         }
 
         string path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -178,7 +178,7 @@ public static class ExecutableFinder
                     continue;
                 }
 
-                if (File.Exists(candidate))
+                if (IsUsableExecutable(candidate))
                 {
                     return candidate;
                 }
@@ -186,5 +186,30 @@ public static class ExecutableFinder
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns true when the path exists and, for symbolic links, its final
+    /// target also exists. .NET's File.Exists reports dangling links as present,
+    /// which would otherwise make --health claim a server is available only for
+    /// Process.Start to fail with "No such file or directory".
+    /// </summary>
+    private static bool IsUsableExecutable(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            FileSystemInfo? target = File.ResolveLinkTarget(path, returnFinalTarget: true);
+            return target is null || target.Exists;
+        }
+        catch (Exception ex)
+            when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return false;
+        }
     }
 }
