@@ -5,7 +5,7 @@
     "autoIndent": true,
     "autoClose": true,
     "traditionalMarkupLanguage": true,
-    "extensions": [".xml", ".csproj", ".rpp"],
+    "extensions": [".xml", ".csproj", ".rpp", ".props"],
     "keywords": [
         "xml", "version", "encoding", "standalone", "xmlns", "xsi",
         "schemaLocation", "noNamespaceSchemaLocation"
