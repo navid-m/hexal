@@ -48,7 +48,65 @@ public sealed partial class Editor
             return LineTint(red: false);
         }
 
+        if (
+            _config.DiagnosticLineHighlight
+            && _diagnosticLineSeverity.TryGetValue(line, out int severity)
+        )
+        {
+            return DiagnosticLineTint(severity);
+        }
+
         return null;
+    }
+
+    private Style DiagnosticLineTint(int severity)
+    {
+        bool dark = ThemeBackgroundIsDark();
+        uint background = _theme.Background;
+        uint source = severity switch
+        {
+            1 => _theme.Error,
+            2 => _theme.Warning,
+            3 => _theme.Accent,
+            _ => _theme.Dimmed,
+        };
+
+        uint tint;
+        if (Theme.IsTrueColor(background) && Theme.IsTrueColor(source))
+        {
+            double amount = severity switch
+            {
+                1 => 0.24,
+                2 => 0.22,
+                3 => 0.17,
+                _ => 0.15,
+            };
+            tint = BlendColor(source, background, amount);
+        }
+        else
+        {
+            tint = severity switch
+            {
+                1 => dark ? Theme.Rgb(70, 26, 32) : Theme.Rgb(247, 214, 216),
+                2 => dark ? Theme.Rgb(68, 56, 22) : Theme.Rgb(248, 238, 205),
+                3 => dark ? Theme.Rgb(30, 46, 64) : Theme.Rgb(219, 233, 245),
+                _ => dark ? Theme.Rgb(44, 46, 50) : Theme.Rgb(235, 235, 235),
+            };
+        }
+
+        return new Style { Fg = _theme.Foreground, Bg = tint };
+    }
+
+    private static uint BlendColor(uint foreground, uint background, double amount)
+    {
+        amount = Math.Clamp(amount, 0, 1);
+        byte red = (byte)
+            Math.Round(Theme.Red(background) * (1 - amount) + Theme.Red(foreground) * amount);
+        byte green = (byte)
+            Math.Round(Theme.Green(background) * (1 - amount) + Theme.Green(foreground) * amount);
+        byte blue = (byte)
+            Math.Round(Theme.Blue(background) * (1 - amount) + Theme.Blue(foreground) * amount);
+        return Theme.Rgb(red, green, blue);
     }
 
     private Style LineTint(bool red)

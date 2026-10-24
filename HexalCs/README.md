@@ -511,6 +511,7 @@ is omitted, the global setting from `~/.hexal/.hexcfg` is used:
     "syntaxHighlightPickerPreview": false,
     "debugAdapter": true,
     "showDiffLines": true,
+    "diagnosticLineHighlight": true,
     "showGitIgnored": false,
     "showModifiedIndicators": true,
     "wordWrap": false,
@@ -550,6 +551,11 @@ must be used instead, matching Helix's behaviour.
 are enabled by default and use green for added lines, red for deleted lines and
 blue for modified lines. The sidebar also marks modified and renamed files with
 an `M` at its right edge, including parent folders that contain such files.
+`diagnosticLineHighlight` is enabled by default and tints whole lines that
+contain language-server diagnostics. The tint is based on the most severe
+diagnostic on the line: muted red for errors, amber for warnings, blue for
+information and grey for hints. Syntax colours stay unchanged so the text
+remains legible. Set it to `false` to disable the tints.
 `showModifiedIndicators` controls those markers and defaults to `true`.
 `showGitIgnored` controls whether files excluded by `.gitignore` appear in the
 sidebar, file picker and cross-file search.

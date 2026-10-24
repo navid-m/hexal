@@ -1252,6 +1252,7 @@ internal static class Program
         Check(
             config is not null
                 && config.ShowDiffLines
+                && config.DiagnosticLineHighlight
                 && !config.ShowGitIgnored
                 && config.ShowModifiedIndicators
                 && !config.WordWrap
@@ -1262,6 +1263,19 @@ internal static class Program
         Check(
             config is not null && config.KeepSidebarFocusOnOpen,
             "sidebar focus setting defaults on"
+        );
+        Check(
+            HexalConfig.TryParse(
+                "{\"diagnosticLineHighlight\": false}",
+                "test.hexcfg",
+                out config,
+                out error
+            ),
+            "parse diagnostic line highlight"
+        );
+        Check(
+            config is not null && !config.DiagnosticLineHighlight,
+            "diagnostic line highlight can be disabled"
         );
         Check(
             HexalConfig.TryParse(

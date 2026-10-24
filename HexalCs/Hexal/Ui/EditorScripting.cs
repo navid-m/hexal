@@ -21,6 +21,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     private long _lspDirtySince;
     private readonly Dictionary<long, List<(int Start, int End)>> _unnecessaryDiagnostics = new();
     private readonly List<(int Start, int End)> _unnecessaryByteRanges = new();
+    private readonly Dictionary<long, int> _diagnosticLineSeverity = new();
 
     private string _pluginPromptLabel = string.Empty;
     private readonly StringBuilder _pluginPromptText = new();
@@ -315,7 +316,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 case LspEventKind.Diagnostics:
                 {
                     int count = lspEvent.Diagnostics.Count;
-                    UpdateUnnecessaryDiagnostics(lspEvent.Uri, lspEvent.Diagnostics);
+                    UpdateDiagnosticDecorations(lspEvent.Uri, lspEvent.Diagnostics);
                     _pluginStatus["lsp"] =
                         count == 0
                             ? $"LSP: {lspEvent.ServerName}"
@@ -436,6 +437,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                     OpenLspCompletion(lspEvent.Completions);
                     break;
                 case LspEventKind.WorkspaceDiagnostics:
+                    foreach (LspDocumentDiagnostics report in lspEvent.DocumentDiagnostics)
+                    {
+                        UpdateDiagnosticDecorations(report.Uri, report.Diagnostics);
+                    }
                     if (_pickerKind == PickerKind.Problems && _problemsWorkspace)
                     {
                         PopulateProblemItems();
@@ -468,6 +473,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _lspDirty = false;
         _unnecessaryDiagnostics.Clear();
         _unnecessaryByteRanges.Clear();
+        _diagnosticLineSeverity.Clear();
         _hoverRequestPending = false;
         _definitionRequestPending = false;
         _codeActionRequestPending = false;
@@ -475,7 +481,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         CloseLspCompletion();
     }
 
-    private void UpdateUnnecessaryDiagnostics(
+    private void UpdateDiagnosticDecorations(
         string uri,
         IReadOnlyList<LspDiagnostic> diagnostics
     )
@@ -506,6 +512,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
 
         _unnecessaryDiagnostics.Clear();
+        _diagnosticLineSeverity.Clear();
         if (diagnostics.Count == 0)
         {
             return;
@@ -514,10 +521,6 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         long lastLine = _document.LineCount - 1;
         foreach (LspDiagnostic diagnostic in diagnostics)
         {
-            if (!diagnostic.HasTag(LspDiagnosticTag.Unnecessary))
-            {
-                continue;
-            }
             if (diagnostic.Line < 0 || diagnostic.Line > lastLine)
             {
                 continue;
@@ -532,9 +535,24 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 endColumn = diagnostic.Column + 1;
             }
             endLine = (int)Math.Min(endLine, lastLine);
+            int severity = diagnostic.Severity is >= 1 and <= 4 ? diagnostic.Severity : 4;
+            bool unnecessary = diagnostic.HasTag(LspDiagnosticTag.Unnecessary);
 
             for (long line = diagnostic.Line; line <= endLine; ++line)
             {
+                if (
+                    !_diagnosticLineSeverity.TryGetValue(line, out int existingSeverity)
+                    || severity < existingSeverity
+                )
+                {
+                    _diagnosticLineSeverity[line] = severity;
+                }
+
+                if (!unnecessary)
+                {
+                    continue;
+                }
+
                 int start = line == diagnostic.Line ? Math.Max(0, diagnostic.Column) : 0;
                 int end = line == endLine ? Math.Max(start, endColumn) : int.MaxValue;
                 if (end <= start)

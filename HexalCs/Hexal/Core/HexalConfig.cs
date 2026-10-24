@@ -23,6 +23,7 @@ public sealed class HexalConfig
             "syntaxHighlightPickerPreview": false,
             "debugAdapter": true,
             "showDiffLines": true,
+            "diagnosticLineHighlight": true,
             "showGitIgnored": false,
             "showModifiedIndicators": true,
             "wordWrap": false,
@@ -80,6 +81,12 @@ public sealed class HexalConfig
     public bool DebugAdapter { get; init; } = true;
 
     public bool ShowDiffLines { get; init; } = true;
+
+    /// <summary>
+    /// When true, lines containing language-server diagnostics get a muted
+    /// background tint based on the most severe diagnostic on the line.
+    /// </summary>
+    public bool DiagnosticLineHighlight { get; init; } = true;
 
     public bool ShowGitIgnored { get; init; }
 
@@ -217,6 +224,9 @@ public sealed class HexalConfig
             bool? debugAdapter = ReadBool(root, "debugAdapter") ?? ReadBool(root, "debug_adapter");
             bool? showDiffLines =
                 ReadBool(root, "showDiffLines") ?? ReadBool(root, "show_diff_lines");
+            bool? diagnosticLineHighlight =
+                ReadBool(root, "diagnosticLineHighlight")
+                ?? ReadBool(root, "diagnostic_line_highlight");
             bool? showGitIgnored =
                 ReadBool(root, "showGitIgnored") ?? ReadBool(root, "show_git_ignored");
             bool? showModifiedIndicators =
@@ -261,6 +271,9 @@ public sealed class HexalConfig
                     ReadBool(editor, "debugAdapter") ?? ReadBool(editor, "debug_adapter");
                 showDiffLines ??=
                     ReadBool(editor, "showDiffLines") ?? ReadBool(editor, "show_diff_lines");
+                diagnosticLineHighlight ??=
+                    ReadBool(editor, "diagnosticLineHighlight")
+                    ?? ReadBool(editor, "diagnostic_line_highlight");
                 showGitIgnored ??=
                     ReadBool(editor, "showGitIgnored") ?? ReadBool(editor, "show_git_ignored");
                 showModifiedIndicators ??=
@@ -292,6 +305,7 @@ public sealed class HexalConfig
                 SyntaxHighlightPickerPreview = syntaxHighlightPickerPreview ?? false,
                 DebugAdapter = debugAdapter ?? true,
                 ShowDiffLines = showDiffLines ?? true,
+                DiagnosticLineHighlight = diagnosticLineHighlight ?? true,
                 ShowGitIgnored = showGitIgnored ?? false,
                 ShowModifiedIndicators = showModifiedIndicators ?? true,
                 WordWrap = wordWrap ?? false,
