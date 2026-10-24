@@ -1241,9 +1241,20 @@ public sealed partial class Editor
                 });
                 return;
             case 'o':
+                // A modified letter must not fall through to the plain
+                // open-line command. Ghostty can report Ctrl+Shift+O as the
+                // shifted character, so require the key to stand alone.
+                if (inputEvent.Ctrl || inputEvent.Shift)
+                {
+                    return;
+                }
                 ForEachSelection(InsertNewlineBelow, editing: true);
                 return;
             case 'O':
+                if (inputEvent.Ctrl || inputEvent.Shift)
+                {
+                    return;
+                }
                 ForEachSelection(InsertNewlineAbove, editing: true);
                 return;
             case 'h':
