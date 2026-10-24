@@ -430,7 +430,9 @@ public sealed partial class Editor
                 }
 
                 Style style = PluginPanelStyle(segment.Style);
-                if (selected)
+                // Selected lines paint their text, not the alignment spaces
+                // that position it. This keeps tree indentation unhighlighted.
+                if (selected && !string.IsNullOrWhiteSpace(segment.Text))
                 {
                     style.Bg = _theme.SelectionBackground;
                     style.Bold = true;
