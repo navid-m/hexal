@@ -5,9 +5,11 @@ using Hexal.Core;
 using Hexal.Dap;
 using Hexal.Languages;
 using Hexal.Lsp;
+using Hexal.Platform;
 using Hexal.Scripting;
 using Hexal.Ui;
 using Hexal.Util;
+using NLua;
 
 namespace Hexal.Tests;
 
@@ -59,6 +61,7 @@ internal static class Program
         TestGitLogPlugin();
         TestLazyCSharpPlugin();
         TestLuaLspRuntime();
+        TestMarkdownToolsPlugin();
         TestHexalPaths();
 
         Console.Out.WriteLine($"{s_checks - s_failures} of {s_checks} checks passed");
@@ -3331,6 +3334,165 @@ internal static class Program
         Check(host.Messages.Contains("LAZY_OPENED:test"), "lazy plugin received the opening event");
     }
 
+    private static void TestMarkdownToolsPlugin()
+    {
+        string source = System.IO.Path.Combine(
+            AppContext.BaseDirectory,
+            "data",
+            "plugins",
+            "mdtools"
+        );
+        Check(Directory.Exists(source), "bundled mdtools plugin exists");
+        if (!Directory.Exists(source))
+        {
+            return;
+        }
+
+        using var directory = new TempDir();
+        string plugins = directory.Path("plugins");
+        string plugin = System.IO.Path.Combine(plugins, "mdtools");
+        Directory.CreateDirectory(plugin);
+        foreach (string file in Directory.GetFiles(source))
+        {
+            File.Copy(file, System.IO.Path.Combine(plugin, System.IO.Path.GetFileName(file)));
+        }
+
+        var host = new FakeHost
+        {
+            BufferId = "/tmp/notes.md",
+            BufferText = "- first\n- second",
+            Cursor = new PluginCursor(1, 8),
+        };
+        using var manager = new LuaPluginManager(host, plugins);
+        manager.LoadAll();
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?>
+            {
+                ["language"] = "markdown",
+                ["path"] = "/tmp/notes.md",
+                ["id"] = "/tmp/notes.md",
+            }
+        );
+
+        if (manager.Errors.Count > 0)
+        {
+            Console.Error.WriteLine(string.Join("\n", manager.Errors));
+        }
+        CheckEqual(manager.Errors.Count, 0, "mdtools plugin errors", "0");
+        Check(manager.HasCommand("mdtools-normalize"), "mdtools registers its normalize command");
+
+        var enter = new InputEvent { Key = Key.Enter };
+        Check(
+            manager.TryHandleKey(enter, "insert", out bool handled),
+            "mdtools handles Enter on a list"
+        );
+        Check(handled, "mdtools consumes Enter on a list");
+        CheckEqual(
+            host.BufferText,
+            "- first\n- second\n- ",
+            "mdtools continues a bullet list",
+            "new bullet"
+        );
+        CheckEqual(host.Cursor.Line, 2L, "mdtools bullet cursor line", "2");
+        CheckEqual(host.Cursor.Column, 2L, "mdtools bullet cursor column", "2");
+
+        Check(
+            manager.TryHandleKey(enter, "insert", out handled),
+            "mdtools handles Enter on an empty item"
+        );
+        Check(handled, "mdtools consumes Enter on an empty item");
+        CheckEqual(
+            host.BufferText,
+            "- first\n- second\n",
+            "mdtools exits an empty item",
+            "empty line"
+        );
+        CheckEqual(host.Cursor.Line, 2L, "mdtools empty item cursor line", "2");
+        CheckEqual(host.Cursor.Column, 0L, "mdtools empty item cursor column", "0");
+
+        host.BufferText = "- hello";
+        host.Cursor = new PluginCursor(0, 4);
+        Check(
+            manager.TryHandleKey(enter, "insert", out handled),
+            "mdtools handles Enter inside a list item"
+        );
+        CheckEqual(
+            host.BufferText,
+            "- he\n- llo",
+            "mdtools splits a list item",
+            "continued split"
+        );
+        CheckEqual(host.Cursor.Line, 1L, "mdtools split cursor line", "1");
+        CheckEqual(host.Cursor.Column, 2L, "mdtools split cursor column", "2");
+
+        host.BufferText = "1. one";
+        host.Cursor = new PluginCursor(0, 6);
+        Check(
+            manager.TryHandleKey(enter, "insert", out handled),
+            "mdtools handles Enter on an ordered list"
+        );
+        Check(handled, "mdtools consumes Enter on an ordered list");
+        CheckEqual(host.BufferText, "1. one\n2. ", "mdtools increments an ordered list", "2. ");
+
+        host.BufferText = "Title\n______";
+        host.Cursor = new PluginCursor(1, 6);
+        Check(
+            !manager.TryHandleKey(enter, "insert", out handled),
+            "mdtools passes Enter through after normalizing a rule"
+        );
+        Check(!handled, "mdtools rule normalization is not consumed");
+        CheckEqual(host.BufferText, "Title\n---", "mdtools normalizes a thematic break", "---");
+        CheckEqual(host.Cursor.Line, 1L, "mdtools rule cursor line", "1");
+        CheckEqual(host.Cursor.Column, 3L, "mdtools rule cursor column", "3");
+
+        host.BufferText = "```\n- code";
+        host.Cursor = new PluginCursor(1, 6);
+        Check(
+            !manager.TryHandleKey(enter, "insert", out handled),
+            "mdtools ignores list-like lines in fenced code"
+        );
+        Check(!handled, "mdtools code fence Enter is not consumed");
+        CheckEqual(host.BufferText, "```\n- code", "mdtools leaves fenced code alone", "unchanged");
+
+        host.BufferText = "- item";
+        host.Cursor = new PluginCursor(0, 6);
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "text" }
+        );
+        Check(
+            !manager.TryHandleKey(enter, "insert", out handled),
+            "mdtools is inactive outside Markdown"
+        );
+        Check(!handled, "mdtools non-Markdown Enter is not consumed");
+        CheckEqual(host.BufferText, "- item", "mdtools leaves non-Markdown text alone", "unchanged");
+
+        host.BufferText = "x\n____\n___\n";
+        host.Cursor = new PluginCursor(0, 1);
+        manager.FireEvent(
+            "buffer_opened",
+            new Dictionary<string, object?> { ["language"] = "markdown" }
+        );
+        Check(
+            manager.TryExecuteCommand("mdtools-normalize", Array.Empty<string>(), out string error),
+            $"run mdtools normalize command ({error})"
+        );
+        CheckEqual(error, string.Empty, "mdtools normalize command error", "empty");
+        CheckEqual(
+            host.BufferText,
+            "x\n---\n---\n",
+            "mdtools normalizes every thematic break",
+            "three rules"
+        );
+        Check(
+            !host.Messages.Any(message =>
+                message.StartsWith("error:", StringComparison.Ordinal)
+            ),
+            "mdtools callbacks complete without errors"
+        );
+    }
+
     private static void TestGitLogPlugin()
     {
         string source = System.IO.Path.Combine(
@@ -3831,7 +3993,13 @@ internal static class Program
 
         public bool LspAvailable { get; set; } = true;
 
-        public string CurrentBufferId => "[No Name]";
+        public string BufferId { get; set; } = "[No Name]";
+
+        public string BufferText { get; set; } = string.Empty;
+
+        public PluginCursor Cursor { get; set; }
+
+        public string CurrentBufferId => BufferId;
 
         public string? WorkspaceRoot { get; set; }
 
@@ -3873,19 +4041,58 @@ internal static class Program
 
         public void ClosePluginPanels(string pluginId) { }
 
-        public string GetText() => string.Empty;
+        public string GetText() => BufferText;
 
         public string? GetLine(long line, out string error)
         {
             error = string.Empty;
+            if (line < 0)
+            {
+                error = $"line {line} is out of range";
+                return null;
+            }
+
+            long current = 0;
+            int start = 0;
+            for (int index = 0; index <= BufferText.Length; ++index)
+            {
+                if (index == BufferText.Length || BufferText[index] == '\n')
+                {
+                    if (current == line)
+                    {
+                        int end = index;
+                        if (end > start && BufferText[end - 1] == '\r')
+                        {
+                            --end;
+                        }
+                        return BufferText.Substring(start, end - start);
+                    }
+                    ++current;
+                    start = index + 1;
+                }
+            }
+
+            error = $"line {line} is out of range";
             return null;
         }
 
-        public PluginCursor GetCursor() => new(0, 0);
+        public PluginCursor GetCursor() => Cursor;
 
         public bool SetCursor(long line, long column, out string error)
         {
             error = string.Empty;
+            string? text = GetLine(line, out error);
+            if (text is null)
+            {
+                return false;
+            }
+            if (column < 0)
+            {
+                error = "column must not be negative";
+                return false;
+            }
+
+            Cursor = new PluginCursor(line, Math.Min(column, text.Length));
             return true;
         }
 
@@ -3894,13 +4101,117 @@ internal static class Program
         public bool InsertText(string text, out string error)
         {
             error = string.Empty;
+            if (string.IsNullOrEmpty(text))
+            {
+                return true;
+            }
+
+            long offset = OffsetOf(Cursor.Line, Cursor.Column);
+            BufferText = BufferText.Insert((int)offset, text);
+            Cursor = CursorForOffset(offset + text.Length);
             return true;
         }
 
         public bool ReplaceRange(object? start, object? finish, string text, out string error)
         {
             error = string.Empty;
+            if (
+                !TryOffset(start, out long startOffset)
+                || !TryOffset(finish, out long endOffset)
+            )
+            {
+                error = "invalid range";
+                return false;
+            }
+
+            if (startOffset < 0 || endOffset < startOffset || endOffset > BufferText.Length)
+            {
+                error = "range is outside the document";
+                return false;
+            }
+
+            string replacement = text ?? string.Empty;
+            BufferText = BufferText
+                .Remove((int)startOffset, (int)(endOffset - startOffset))
+                .Insert((int)startOffset, replacement);
+            Cursor = CursorForOffset(startOffset + replacement.Length);
             return true;
+        }
+
+        private long OffsetOf(long line, long column)
+        {
+            long current = 0;
+            int start = 0;
+            for (int index = 0; index <= BufferText.Length; ++index)
+            {
+                if (index == BufferText.Length || BufferText[index] == '\n')
+                {
+                    if (current == line)
+                    {
+                        long length = index - start;
+                        if (length > 0 && BufferText[index - 1] == '\r')
+                        {
+                            --length;
+                        }
+                        return start + Math.Min(column, length);
+                    }
+                    ++current;
+                    start = index + 1;
+                }
+            }
+            return BufferText.Length;
+        }
+
+        private PluginCursor CursorForOffset(long offset)
+        {
+            int limit = (int)Math.Clamp(offset, 0, BufferText.Length);
+            long line = 0;
+            int start = 0;
+            for (int index = 0; index < limit; ++index)
+            {
+                if (BufferText[index] == '\n')
+                {
+                    ++line;
+                    start = index + 1;
+                }
+            }
+
+            int column = limit - start;
+            if (column > 0 && BufferText[start + column - 1] == '\r')
+            {
+                --column;
+            }
+            return new PluginCursor(line, column);
+        }
+
+        private bool TryOffset(object? value, out long offset)
+        {
+            offset = 0;
+            switch (value)
+            {
+                case null:
+                    return false;
+                case LuaTable table:
+                    if (table["line"] is null || table["column"] is null)
+                    {
+                        return false;
+                    }
+                    offset = OffsetOf(
+                        Convert.ToInt64(table["line"]),
+                        Convert.ToInt64(table["column"])
+                    );
+                    return true;
+                default:
+                    try
+                    {
+                        offset = Convert.ToInt64(value);
+                        return offset >= 0;
+                    }
+                    catch (Exception)
+                    {
+                        return false;
+                    }
+            }
         }
 
         public void ShowMessage(string text, bool warning) => Messages.Add(text);

@@ -103,6 +103,8 @@ RULES:
   - Support configurable editor modes.
   - Detect or resolve conflicting bindings.
   - Allow users to override default bindings.
+  - A callback may return false to let the editor handle the key;
+    any other result consumes it.
 
 
 5. hexal.ui

@@ -671,7 +671,14 @@ public sealed class LuaPluginManager : IDisposable
             {
                 try
                 {
-                    binding.Callback.Call();
+                    object[] result = binding.Callback.Call();
+                    if (result.Length > 0 && result[0] is bool passThrough && !passThrough)
+                    {
+                        // A callback can decline the binding and let the editor
+                        // handle the key normally. Anything else consumes it.
+                        handled = false;
+                        return false;
+                    }
                 }
                 catch (Exception ex)
                 {

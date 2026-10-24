@@ -674,11 +674,18 @@ hexal.keymap.map("space h", "Hello")
 Plugin commands are callable through the Ex prompt (`:Hello`). Keymaps accept
 space-separated sequences, mode names `normal`, `insert`, or `select`, and
 single-key/chord tokens such as `f`, `space`, `esc`, `ctrl+p`, or `alt+x`.
+A keymap callback can return `false` to pass the key through to the editor;
+returning `true` (or nothing) consumes it.
 
 The bundled `projtree` plugin registers `:pt`, which opens a scrollable,
 color-coded Unicode tree of the workspace's non-ignored files. Press `/` to
 filter the tree, `Enter` on a directory to collapse or expand it, or `Enter` on
 a file to open it in the active buffer.
+
+The bundled `mdtools` plugin makes Markdown lists easier to edit: `Enter`
+continues a bullet or ordered list, `Enter` on an empty item leaves the list,
+and thematic breaks such as `______` or `****` become `---`. Use
+`:mdtools-normalize` to fix every thematic break in the current document.
 
 Implemented API modules:
 
