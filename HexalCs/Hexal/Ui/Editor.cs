@@ -1242,6 +1242,10 @@ public sealed partial class Editor
             case 'l':
                 ForEachSelection(MoveRight);
                 return;
+            case 'w':
+            case 'W':
+                ForEachSelection(MoveWordForward);
+                return;
             case 'j':
                 ForEachSelection(() => MoveVertical(1));
                 return;
@@ -1426,6 +1430,10 @@ public sealed partial class Editor
                 return;
             case 'l':
                 ForEachSelection(MoveRight);
+                return;
+            case 'w':
+            case 'W':
+                ForEachSelection(MoveWordForward);
                 return;
             case 'j':
                 ForEachSelection(() => MoveVertical(1));
@@ -5946,6 +5954,63 @@ public sealed partial class Editor
         _preferredColumnValid = false;
         _document.BreakUndoGroup();
         SnapCursor();
+    }
+
+    /// <summary>
+    /// Moves the cursor to the start of the next whitespace-delimited WORD,
+    /// matching Helix's <c>W</c> motion. Unlike a regular word, punctuation
+    /// is treated as part of the WORD.
+    /// </summary>
+    private void MoveWordForward()
+    {
+        long line = CursorLine();
+        long begin = _document.LineStart(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
+        int local = Math.Clamp((int)(_cursor - begin), 0, length);
+
+        // If the cursor is inside a WORD, skip the rest of it first.
+        while (local < length && !IsWordSeparator(text, local))
+        {
+            local = UnicodeUtil.NextBoundary(text, local);
+        }
+
+        // Then skip whitespace, crossing line breaks, to the next WORD.
+        while (true)
+        {
+            if (local < length)
+            {
+                if (!IsWordSeparator(text, local))
+                {
+                    break;
+                }
+
+                local = UnicodeUtil.NextBoundary(text, local);
+                continue;
+            }
+
+            if (line + 1 >= _document.LineCount)
+            {
+                break;
+            }
+
+            line++;
+            begin = _document.LineStart(line);
+            length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            text = _lineBuffer.AsSpan(0, length);
+            local = 0;
+        }
+
+        _cursor = begin + local;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+    }
+
+    private static bool IsWordSeparator(ReadOnlySpan<byte> text, int offset)
+    {
+        UnicodeUtil.Decode(text, offset, out Rune rune, out _);
+        return Rune.IsWhiteSpace(rune);
     }
 
     private void MoveVertical(int delta)
