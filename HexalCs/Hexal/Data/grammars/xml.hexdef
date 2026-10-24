@@ -1,24 +1,30 @@
 {
-    "id": "xml",
-    "name": "XML",
-    "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
-    "autoIndent": true,
-    "autoClose": true,
-    "traditionalMarkupLanguage": true,
-    "extensions": [".xml", ".csproj", ".rpp", ".props"],
-    "keywords": [
-        "xml", "version", "encoding", "standalone", "xmlns", "xsi",
-        "schemaLocation", "noNamespaceSchemaLocation"
-    ],
-    "controlStatements": [],
-    "types": [],
-    "constants": ["true", "false"],
-    "comments": {
-        "blockStart": "<!--",
-        "blockEnd": "-->"
-    },
-    "strings": {
-        "quoteCharacters": ["\"", "'"]
-    },
-    "numbers": true
+  "id": "xml",
+  "name": "XML",
+  "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
+  "autoIndent": true,
+  "autoClose": true,
+  "traditionalMarkupLanguage": true,
+  "extensions": [".xml", ".csproj", ".rpp", ".props"],
+  "keywords": [
+    "xml",
+    "version",
+    "encoding",
+    "standalone",
+    "xmlns",
+    "xsi",
+    "schemaLocation",
+    "noNamespaceSchemaLocation"
+  ],
+  "controlStatements": [],
+  "types": [],
+  "constants": ["true", "false"],
+  "comments": {
+    "blockStart": "<!--",
+    "blockEnd": "-->"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "'"]
+  },
+  "numbers": true
 }

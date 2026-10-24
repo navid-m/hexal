@@ -1,38 +1,86 @@
 {
-    "id": "gotempl",
-    "name": "Go Templ",
-    "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
-    "autoIndent": true,
-    "autoClose": true,
-    "traditionalMarkupLanguage": true,
-    "extensions": [".templ", ".gotmpl"],
-    "keywords": [
-        "any", "break", "case", "component", "const", "continue", "css",
-        "default", "else", "end", "error", "false", "for", "func", "if",
-        "import", "int", "interface", "nil", "package", "range", "return",
-        "script", "string", "struct", "switch", "templ", "true", "type",
-        "var"
-    ],
-    "controlStatements": [
-        "break", "case", "continue", "default", "else", "for", "if", "range",
-        "return", "switch"
-    ],
-    "types": [
-        "any", "bool", "byte", "error", "float32", "float64", "int", "int8",
-        "int16", "int32", "int64", "rune", "string", "uint", "uint8",
-        "uint16", "uint32", "uint64"
-    ],
-    "constants": ["false", "nil", "true"],
-    "comments": {
-        "line": "//",
-        "blockStart": "/*",
-        "blockEnd": "*/"
-    },
-    "strings": {
-        "quoteCharacters": ["\"", "`"],
-        "escapeCharacter": "\\"
-    },
-    "numbers": true,
-    "indentAfter": ["templ", "if", "for", "switch", "func"],
-    "unindentBefore": ["}", "end"]
+  "id": "gotempl",
+  "name": "Go Templ",
+  "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
+  "autoIndent": true,
+  "autoClose": true,
+  "traditionalMarkupLanguage": true,
+  "extensions": [".templ", ".gotmpl"],
+  "keywords": [
+    "any",
+    "break",
+    "case",
+    "component",
+    "const",
+    "continue",
+    "css",
+    "default",
+    "else",
+    "end",
+    "error",
+    "false",
+    "for",
+    "func",
+    "if",
+    "import",
+    "int",
+    "interface",
+    "nil",
+    "package",
+    "range",
+    "return",
+    "script",
+    "string",
+    "struct",
+    "switch",
+    "templ",
+    "true",
+    "type",
+    "var"
+  ],
+  "controlStatements": [
+    "break",
+    "case",
+    "continue",
+    "default",
+    "else",
+    "for",
+    "if",
+    "range",
+    "return",
+    "switch"
+  ],
+  "types": [
+    "any",
+    "bool",
+    "byte",
+    "error",
+    "float32",
+    "float64",
+    "int",
+    "int8",
+    "int16",
+    "int32",
+    "int64",
+    "rune",
+    "string",
+    "uint",
+    "uint8",
+    "uint16",
+    "uint32",
+    "uint64"
+  ],
+  "constants": ["false", "nil", "true"],
+  "comments": {
+    "line": "//",
+    "blockStart": "/*",
+    "blockEnd": "*/"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "`"],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "indentAfter": ["templ", "if", "for", "switch", "func"],
+  "unindentBefore": ["}", "end"]
 }

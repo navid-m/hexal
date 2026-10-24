@@ -1,46 +1,36 @@
 {
-    "id": "ini",
-    "name": "INI",
-    "indentation": {
-        "style": "spaces",
-        "width": 4,
-        "tabWidth": 4
-    },
-    "autoIndent": false,
-    "autoClose": false,
-    "extensions": [
-        ".ini",
-        ".cfg",
-        ".conf",
-        ".desktop",
-        ".editorconfig",
-        ".npmrc",
-        ".gitconfig",
-        ".wslconfig",
-        ".buckconfig",
-        ".directory",
-        ".properties"
-    ],
-    "keywords": [],
-    "controlStatements": [],
-    "types": [],
-    "constants": [
-        "true",
-        "false",
-        "yes",
-        "no",
-        "on",
-        "off"
-    ],
-    "comments": {
-        "line": "#"
-    },
-    "strings": {
-        "quoteCharacters": [
-            "\"",
-            "'"
-        ],
-        "escapeCharacter": "\\"
-    },
-    "numbers": true
+  "id": "ini",
+  "name": "INI",
+  "indentation": {
+    "style": "spaces",
+    "width": 4,
+    "tabWidth": 4
+  },
+  "autoIndent": false,
+  "autoClose": false,
+  "extensions": [
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".desktop",
+    ".editorconfig",
+    ".npmrc",
+    ".gitconfig",
+    ".wslconfig",
+    ".buckconfig",
+    ".directory",
+    ".properties"
+  ],
+  "keywords": [],
+  "controlStatements": [],
+  "types": [],
+  "constants": ["true", "false", "yes", "no", "on", "off"],
+  "comments": {
+    "line": "#"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "'"],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true
 }

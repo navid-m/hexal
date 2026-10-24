@@ -1,107 +1,83 @@
 {
-    "id": "hcl",
-    "name": "HCL",
-    "indentation": {
-        "style": "spaces",
-        "width": 2,
-        "tabWidth": 4
-    },
-    "autoIndent": true,
-    "autoClose": true,
-    "extensions": [
-        ".hcl",
-        ".tf",
-        ".tfvars",
-        ".nomad"
-    ],
-    "keywords": [
-        "backend",
-        "cloud",
-        "condition",
-        "connection",
-        "content",
-        "count",
-        "data",
-        "default",
-        "depends_on",
-        "description",
-        "dynamic",
-        "experiments",
-        "for_each",
-        "iterator",
-        "lifecycle",
-        "locals",
-        "module",
-        "nullable",
-        "output",
-        "provider",
-        "provisioner",
-        "required_providers",
-        "required_version",
-        "resource",
-        "sensitive",
-        "source",
-        "terraform",
-        "type",
-        "validation",
-        "variable",
-        "version",
-        "workspace"
-    ],
-    "controlStatements": [
-        "for",
-        "in",
-        "if",
-        "else",
-        "endif",
-        "endfor"
-    ],
-    "types": [
-        "any",
-        "bool",
-        "list",
-        "map",
-        "number",
-        "object",
-        "set",
-        "string",
-        "tuple"
-    ],
-    "constants": [
-        "true",
-        "false",
-        "null"
-    ],
-    "comments": {
-        "line": "#",
-        "blockStart": "/*",
-        "blockEnd": "*/"
-    },
-    "strings": {
-        "quoteCharacters": [
-            "\""
-        ],
-        "escapeCharacter": "\\"
-    },
-    "numbers": true,
-    "formatter": {
-        "command": "terraform",
-        "arguments": [
-            "fmt",
-            "-"
-        ],
-        "input": "stdin",
-        "output": "stdout",
-        "timeout": 15000
-    },
-    "fallbackFormatter": {
-        "command": "tofu",
-        "arguments": [
-            "fmt",
-            "-"
-        ],
-        "input": "stdin",
-        "output": "stdout",
-        "timeout": 15000
-    }
+  "id": "hcl",
+  "name": "HCL",
+  "indentation": {
+    "style": "spaces",
+    "width": 2,
+    "tabWidth": 4
+  },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".hcl", ".tf", ".tfvars", ".nomad"],
+  "keywords": [
+    "backend",
+    "cloud",
+    "condition",
+    "connection",
+    "content",
+    "count",
+    "data",
+    "default",
+    "depends_on",
+    "description",
+    "dynamic",
+    "experiments",
+    "for_each",
+    "iterator",
+    "lifecycle",
+    "locals",
+    "module",
+    "nullable",
+    "output",
+    "provider",
+    "provisioner",
+    "required_providers",
+    "required_version",
+    "resource",
+    "sensitive",
+    "source",
+    "terraform",
+    "type",
+    "validation",
+    "variable",
+    "version",
+    "workspace"
+  ],
+  "controlStatements": ["for", "in", "if", "else", "endif", "endfor"],
+  "types": [
+    "any",
+    "bool",
+    "list",
+    "map",
+    "number",
+    "object",
+    "set",
+    "string",
+    "tuple"
+  ],
+  "constants": ["true", "false", "null"],
+  "comments": {
+    "line": "#",
+    "blockStart": "/*",
+    "blockEnd": "*/"
+  },
+  "strings": {
+    "quoteCharacters": ["\""],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "formatter": {
+    "command": "terraform",
+    "arguments": ["fmt", "-"],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  },
+  "fallbackFormatter": {
+    "command": "tofu",
+    "arguments": ["fmt", "-"],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

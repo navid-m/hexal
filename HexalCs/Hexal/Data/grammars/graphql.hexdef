@@ -1,28 +1,39 @@
 {
-    "id": "graphql",
-    "name": "GraphQL",
-    "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
-    "autoIndent": true,
-    "autoClose": true,
-    "extensions": [".graphql", ".graphqls", ".gql"],
-    "keywords": [
-        "directive", "enum", "extend", "fragment", "implements", "input",
-        "interface", "mutation", "on", "query", "repeatable", "scalar",
-        "schema", "subscription", "type", "union"
-    ],
-    "controlStatements": [
-        "fragment", "mutation", "on", "query", "subscription"
-    ],
-    "types": ["Boolean", "Float", "ID", "Int", "String"],
-    "constants": ["false", "null", "true"],
-    "comments": {
-        "line": "#"
-    },
-    "strings": {
-        "quoteCharacters": ["\"\"\"", "\""],
-        "escapeCharacter": "\\"
-    },
-    "numbers": true,
-    "indentAfter": ["{", "[", "("],
-    "unindentBefore": ["}", "]", ")"]
+  "id": "graphql",
+  "name": "GraphQL",
+  "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".graphql", ".graphqls", ".gql"],
+  "keywords": [
+    "directive",
+    "enum",
+    "extend",
+    "fragment",
+    "implements",
+    "input",
+    "interface",
+    "mutation",
+    "on",
+    "query",
+    "repeatable",
+    "scalar",
+    "schema",
+    "subscription",
+    "type",
+    "union"
+  ],
+  "controlStatements": ["fragment", "mutation", "on", "query", "subscription"],
+  "types": ["Boolean", "Float", "ID", "Int", "String"],
+  "constants": ["false", "null", "true"],
+  "comments": {
+    "line": "#"
+  },
+  "strings": {
+    "quoteCharacters": ["\"\"\"", "\""],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "indentAfter": ["{", "[", "("],
+  "unindentBefore": ["}", "]", ")"]
 }

@@ -1,27 +1,22 @@
 {
-    "id": "csv",
-    "name": "CSV",
-    "indentation": {
-        "style": "spaces",
-        "width": 2,
-        "tabWidth": 4
-    },
-    "autoIndent": false,
-    "autoClose": false,
-    "extensions": [
-        ".csv",
-        ".tsv"
-    ],
-    "keywords": [],
-    "controlStatements": [],
-    "types": [],
-    "constants": [],
-    "comments": {},
-    "strings": {
-        "quoteCharacters": [
-            "\""
-        ],
-        "escapeCharacter": "\\"
-    },
-    "numbers": true
+  "id": "csv",
+  "name": "CSV",
+  "indentation": {
+    "style": "spaces",
+    "width": 2,
+    "tabWidth": 4
+  },
+  "autoIndent": false,
+  "autoClose": false,
+  "extensions": [".csv", ".tsv"],
+  "keywords": [],
+  "controlStatements": [],
+  "types": [],
+  "constants": [],
+  "comments": {},
+  "strings": {
+    "quoteCharacters": ["\""],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true
 }

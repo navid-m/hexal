@@ -1,90 +1,85 @@
 {
-    "id": "quakec",
-    "name": "QuakeC",
-    "indentation": {
-        "style": "spaces",
-        "width": 4,
-        "tabWidth": 4
-    },
-    "autoIndent": true,
-    "autoClose": true,
-    "extensions": [
-        ".qc",
-        ".qh"
-    ],
-    "keywords": [
-        "var",
-        "local",
-        "const",
-        "static",
-        "extern",
-        "typedef",
-        "struct",
-        "union",
-        "enum",
-        "class",
-        "noref",
-        "nosave",
-        "readonly",
-        "shared",
-        "state",
-        "think",
-        "touch",
-        "use",
-        "pain",
-        "death",
-        "__FILE__",
-        "__LINE__"
-    ],
-    "controlStatements": [
-        "if",
-        "else",
-        "for",
-        "while",
-        "do",
-        "switch",
-        "case",
-        "default",
-        "break",
-        "continue",
-        "return",
-        "goto"
-    ],
-    "types": [
-        "void",
-        "float",
-        "vector",
-        "string",
-        "entity",
-        "field",
-        "function",
-        "int",
-        "bool",
-        "double",
-        "quaternion"
-    ],
-    "constants": [
-        "TRUE",
-        "FALSE",
-        "NULL",
-        "true",
-        "false",
-        "self",
-        "other",
-        "world",
-        "time",
-        "frametime"
-    ],
-    "comments": {
-        "line": "//",
-        "blockStart": "/*",
-        "blockEnd": "*/"
-    },
-    "strings": {
-        "quoteCharacters": [
-            "\""
-        ],
-        "escapeCharacter": "\\"
-    },
-    "numbers": true
+  "id": "quakec",
+  "name": "QuakeC",
+  "indentation": {
+    "style": "spaces",
+    "width": 4,
+    "tabWidth": 4
+  },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".qc", ".qh"],
+  "keywords": [
+    "var",
+    "local",
+    "const",
+    "static",
+    "extern",
+    "typedef",
+    "struct",
+    "union",
+    "enum",
+    "class",
+    "noref",
+    "nosave",
+    "readonly",
+    "shared",
+    "state",
+    "think",
+    "touch",
+    "use",
+    "pain",
+    "death",
+    "__FILE__",
+    "__LINE__"
+  ],
+  "controlStatements": [
+    "if",
+    "else",
+    "for",
+    "while",
+    "do",
+    "switch",
+    "case",
+    "default",
+    "break",
+    "continue",
+    "return",
+    "goto"
+  ],
+  "types": [
+    "void",
+    "float",
+    "vector",
+    "string",
+    "entity",
+    "field",
+    "function",
+    "int",
+    "bool",
+    "double",
+    "quaternion"
+  ],
+  "constants": [
+    "TRUE",
+    "FALSE",
+    "NULL",
+    "true",
+    "false",
+    "self",
+    "other",
+    "world",
+    "time",
+    "frametime"
+  ],
+  "comments": {
+    "line": "//",
+    "blockStart": "/*",
+    "blockEnd": "*/"
+  },
+  "strings": {
+    "quoteCharacters": ["\""],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true
 }
