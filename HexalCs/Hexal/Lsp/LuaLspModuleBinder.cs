@@ -2016,6 +2016,32 @@ public static class LuaLspModuleBinder
                 return coordinator.NewArray(values);
             }
         );
+        module["workspace_files"] = new Func<object?, LuaTable>(options =>
+        {
+            string root =
+                coordinator.Host?.WorkspaceRoot
+                ?? coordinator.ActiveServer?.Workspace.RootPath
+                ?? coordinator.Workspace.RootPath
+                ?? Directory.GetCurrentDirectory();
+            int maxResults = FileSearch.DefaultMaxFiles;
+            bool showIgnored = false;
+            if (options is LuaTable table)
+            {
+                maxResults =
+                    LspJson.ToInt32(table["max_results"])
+                    ?? LspJson.ToInt32(table["maxResults"])
+                    ?? maxResults;
+                showIgnored = table["show_ignored"] is bool ignored && ignored;
+            }
+
+            List<string> files = FileSearch.EnumerateFiles(
+                root,
+                maxResults,
+                showIgnored,
+                CancellationToken.None
+            );
+            return coordinator.NewArray(files.Cast<object?>());
+        });
         module["mkdir"] = new Func<string, object?, bool>(
             (pathValue, options) =>
             {

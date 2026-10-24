@@ -274,6 +274,7 @@ support it. Pasting without a clipboard helper reports an error.
 | `:hs` | Split the focused pane horizontally, stacked |
 | `:cb` | Close the focused pane; with one pane, use `:q`/`:q!` to quit |
 | `:adi` | Detect and apply the current buffer's indentation style |
+| `:pt` | Show a Unicode tree of non-ignored workspace files |
 | `:ww` | Toggle soft word wrap and persist the setting to `.hexcfg` |
 | `:help` | Open the scrollable keybinding and command reference |
 | `:help` | Show a short key reminder |
@@ -631,6 +632,9 @@ Plugin commands are callable through the Ex prompt (`:Hello`). Keymaps accept
 space-separated sequences, mode names `normal`, `insert`, or `select`, and
 single-key/chord tokens such as `f`, `space`, `esc`, `ctrl+p`, or `alt+x`.
 
+The bundled `projtree` plugin registers `:pt`, which opens a scrollable Unicode
+tree of the workspace's non-ignored files.
+
 Implemented API modules:
 
 | Module | Notes |
@@ -638,7 +642,7 @@ Implemented API modules:
 | `hexal.editor` | buffer text, line/cursor/selection inspection, cursor movement, insert/replace with undo integration |
 | `hexal.commands` | register, unregister, execute |
 | `hexal.keymap` | map, map_callback, unmap |
-| `hexal.ui` | message, warn, prompt, select, set_status |
+| `hexal.ui` | message, warn, prompt, select, set_status, terminal_size, panel |
 | `hexal.events` | on/off for buffer and editor lifecycle events |
 | `hexal.lsp` | start/stop external servers, create Lua LSP servers, diagnostics subscriptions, custom methods and navigation |
 | `hexal.config` | per-plugin JSON settings under `~/.hexal/plugin-config/<id>.json` |
@@ -821,7 +825,7 @@ The runtime exposes:
 | `hexal.lsp.folding_range` / `code_lens` | Folding ranges and code lenses |
 | `hexal.async` | Coroutine tasks, sleep, await, debounce and scheduling |
 | `hexal.json` | JSON encoding/decoding with a `json.null` sentinel |
-| `hexal.fs` | Permission-aware filesystem helpers |
+| `hexal.fs` | Permission-aware filesystem helpers, globbing and non-ignored workspace file listing |
 | `hexal.log` | Trace/debug/info/warn/error logging |
 | `hexal.index` | In-memory incremental symbol/reference index |
 | `hexal.testing.lsp` | In-memory LSP client for server unit tests |

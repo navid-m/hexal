@@ -47,6 +47,10 @@ public interface IEditorApi
 
     string? WorkspaceRoot { get; }
 
+    int TerminalColumns { get; }
+
+    int TerminalRows { get; }
+
     string GetText();
 
     string? GetLine(long line, out string error);

@@ -153,6 +153,7 @@ public sealed class LuaPluginManager : IDisposable
         try
         {
             using var lua = new Lua();
+            lua.State.Encoding = Encoding.UTF8;
             lua.NewTable("hexal");
             var plugin = new LoadedPlugin
             {
@@ -913,6 +914,7 @@ public sealed class LuaPluginManager : IDisposable
         try
         {
             plugin.Lua = new Lua();
+            plugin.Lua.State.Encoding = Encoding.UTF8;
             plugin.Lua.NewTable("hexal");
             plugin.Hexal = (LuaTable)plugin.Lua["hexal"];
             plugin.Hexal["api_version"] = 1;
@@ -1168,6 +1170,13 @@ public sealed class LuaPluginManager : IDisposable
         LuaTable ui = NewModule(lua, root, "ui");
         ui["message"] = new Action<string>(text => _host.ShowMessage(text, false));
         ui["warn"] = new Action<string>(text => _host.ShowMessage(text, true));
+        ui["terminal_size"] = new Func<LuaTable>(() =>
+        {
+            LuaTable table = NewTable(lua);
+            table["columns"] = _host.TerminalColumns;
+            table["rows"] = _host.TerminalRows;
+            return table;
+        });
         ui["prompt"] = new Action<string, LuaFunction>(
             (label, callback) =>
             {

@@ -195,6 +195,10 @@ public static class LanguageHealth
 
         public string? WorkspaceRoot => null;
 
+        public int TerminalColumns => 120;
+
+        public int TerminalRows => 40;
+
         public int OpenPluginPanel(
             PluginPanelOptions options,
             Func<string, long, bool>? onKey,

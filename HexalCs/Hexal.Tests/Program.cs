@@ -3497,6 +3497,10 @@ internal static class Program
 
         public string? WorkspaceRoot { get; set; }
 
+        public int TerminalColumns => 120;
+
+        public int TerminalRows => 40;
+
         public int PanelId { get; private set; }
 
         public IReadOnlyList<PluginPanelLine> PanelLines { get; private set; } =

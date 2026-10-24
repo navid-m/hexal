@@ -1280,6 +1280,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
     public string CurrentBufferId => _document.Path ?? "[No Name]";
 
+    public int TerminalColumns => _columns;
+
+    public int TerminalRows => _rows;
+
     public string GetText()
     {
         return Encoding.UTF8.GetString(_document.Text());
