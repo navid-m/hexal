@@ -47,7 +47,7 @@ public sealed partial class Editor
         Section("Movement");
         Entry("h j k l / arrows", "Move left, down, up, right");
         Entry("w / W", "Next WORD (whitespace-delimited)");
-        Entry("b / e", "Previous word / end of word");
+        Entry("q / Q", "Previous WORD (whitespace-delimited)");
         Entry("0 / $  Home / End", "Start / end of line");
         Entry("gg / ge", "First / last line");
         Entry("PageUp / PageDown", "Move one screen up / down");

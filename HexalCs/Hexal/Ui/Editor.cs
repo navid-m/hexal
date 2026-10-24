@@ -1246,6 +1246,10 @@ public sealed partial class Editor
             case 'W':
                 ForEachSelection(MoveWordForward);
                 return;
+            case 'q':
+            case 'Q':
+                ForEachSelection(MoveWordBackward);
+                return;
             case 'j':
                 ForEachSelection(() => MoveVertical(1));
                 return;
@@ -1434,6 +1438,10 @@ public sealed partial class Editor
             case 'w':
             case 'W':
                 ForEachSelection(MoveWordForward);
+                return;
+            case 'q':
+            case 'Q':
+                ForEachSelection(MoveWordBackward);
                 return;
             case 'j':
                 ForEachSelection(() => MoveVertical(1));
@@ -5999,6 +6007,83 @@ public sealed partial class Editor
             length = _document.CopyLineText(line, ref _lineBuffer, out _);
             text = _lineBuffer.AsSpan(0, length);
             local = 0;
+        }
+
+        _cursor = begin + local;
+        _preferredColumnValid = false;
+        _document.BreakUndoGroup();
+        SnapCursor();
+    }
+
+    /// <summary>
+    /// Moves the cursor to the start of the previous whitespace-delimited
+    /// WORD. This is the reverse of <see cref="MoveWordForward"/>.
+    /// </summary>
+    private void MoveWordBackward()
+    {
+        long line = CursorLine();
+        long begin = _document.LineStart(line);
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        ReadOnlySpan<byte> text = _lineBuffer.AsSpan(0, length);
+        int local = Math.Clamp((int)(_cursor - begin), 0, length);
+
+        if (line == 0 && local == 0)
+        {
+            return;
+        }
+
+        // Step onto the character before the cursor, crossing a line break
+        // when the cursor is at the start of a line.
+        if (local > 0)
+        {
+            local = UnicodeUtil.PreviousBoundary(text, local);
+        }
+        else
+        {
+            line--;
+            begin = _document.LineStart(line);
+            length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            text = _lineBuffer.AsSpan(0, length);
+            local = length;
+        }
+
+        // Skip whitespace, including line breaks, before the previous WORD.
+        while (true)
+        {
+            if (local > 0)
+            {
+                int previous = UnicodeUtil.PreviousBoundary(text, local);
+                if (IsWordSeparator(text, previous))
+                {
+                    local = previous;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (line == 0)
+            {
+                break;
+            }
+
+            line--;
+            begin = _document.LineStart(line);
+            length = _document.CopyLineText(line, ref _lineBuffer, out _);
+            text = _lineBuffer.AsSpan(0, length);
+            local = length;
+        }
+
+        // Walk back through the WORD to its first character.
+        while (local > 0)
+        {
+            int previous = UnicodeUtil.PreviousBoundary(text, local);
+            if (IsWordSeparator(text, previous))
+            {
+                break;
+            }
+
+            local = previous;
         }
 
         _cursor = begin + local;
