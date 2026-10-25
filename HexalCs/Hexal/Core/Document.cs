@@ -84,11 +84,7 @@ public sealed class Document
     /// Creates an in-memory document for content that has no backing file,
     /// such as an assembly metadata definition returned by a language server.
     /// </summary>
-    public static Document CreateVirtual(
-        string name,
-        ReadOnlySpan<byte> text,
-        string? languageId
-    )
+    public static Document CreateVirtual(string name, ReadOnlySpan<byte> text, string? languageId)
     {
         var document = new Document
         {
