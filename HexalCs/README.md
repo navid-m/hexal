@@ -80,9 +80,12 @@ NLua's native library is copied beside the published executable
 (`liblua54.so`, `liblua54.dylib`, or `lua54.dll`). Keep it in the same directory
 when installing the binary; `install.sh` does this for Linux.
 
-On Linux, the first editor launch creates `hexal.desktop` beside the executable.
-The launcher uses `Terminal=true`, so it opens Hexal in the default terminal when
-double-clicked from a file manager. If creation fails, the reason is appended to
+On Linux, the first editor launch installs `hexal.desktop` under
+`$XDG_DATA_HOME/applications` (usually `~/.local/share/applications`), so file
+managers can list Hexal under "Open With". If that directory cannot be written,
+the launcher falls back to the executable's directory. The launcher uses
+`Terminal=true`, so it opens Hexal in a terminal instead of running the TUI
+without one. If installation fails, the reason is appended to
 `~/.hexal/hexal.log`.
 
 ## Test

@@ -1,16 +1,29 @@
+using System.Diagnostics;
 using System.Text;
 using Hexal.Util;
 
 namespace Hexal.Platform;
 
 /// <summary>
-/// Creates a Linux desktop launcher beside the Hexal executable on first run.
-/// The launcher uses <c>Terminal=true</c>, so desktop environments start Hexal
-/// in the user's default terminal instead of trying to run the TUI directly.
+/// Installs a Linux desktop launcher so file managers can open Hexal through
+/// the normal application association mechanism. The launcher is written to
+/// <c>$XDG_DATA_HOME/applications</c> (usually
+/// <c>~/.local/share/applications</c>) and falls back to the executable's
+/// directory when that location cannot be written. It uses
+/// <c>Terminal=true</c>, so desktop environments start Hexal in a terminal
+/// instead of trying to run the TUI directly.
 /// </summary>
 internal static class LinuxDesktopEntry
 {
     private const string DesktopFileName = "hexal.desktop";
+    private const UnixFileMode DesktopFileMode =
+        UnixFileMode.UserRead
+        | UnixFileMode.UserWrite
+        | UnixFileMode.UserExecute
+        | UnixFileMode.GroupRead
+        | UnixFileMode.GroupExecute
+        | UnixFileMode.OtherRead
+        | UnixFileMode.OtherExecute;
 
     private static bool _checked;
 
@@ -22,8 +35,6 @@ internal static class LinuxDesktopEntry
         }
 
         _checked = true;
-
-        string desktopPath = string.Empty;
 
         try
         {
@@ -44,8 +55,8 @@ internal static class LinuxDesktopEntry
             }
 
             executable = Path.GetFullPath(executable);
-            string? directory = Path.GetDirectoryName(executable);
-            if (string.IsNullOrEmpty(directory))
+            string? executableDirectory = Path.GetDirectoryName(executable);
+            if (string.IsNullOrEmpty(executableDirectory))
             {
                 LogFailure($"could not resolve the directory for '{executable}'");
                 return;
@@ -57,41 +68,57 @@ internal static class LinuxDesktopEntry
                 return;
             }
 
-            desktopPath = Path.Combine(directory, DesktopFileName);
-            if (File.Exists(desktopPath))
+            string contents = BuildContents(executable);
+            string? applicationsDirectory = ApplicationsDirectory();
+            if (applicationsDirectory is not null)
             {
+                string applicationsPath = Path.Combine(
+                    applicationsDirectory,
+                    DesktopFileName
+                );
+                if (
+                    TryInstallLauncher(
+                        applicationsPath,
+                        contents,
+                        createDirectory: true,
+                        out bool changed,
+                        out string error
+                    )
+                )
+                {
+                    if (changed)
+                    {
+                        HexalPaths.Log($"Installed desktop launcher: {applicationsPath}");
+                        TryUpdateDesktopDatabase(applicationsDirectory);
+                    }
+                    return;
+                }
+
+                HexalPaths.Log(
+                    $"Could not install desktop launcher in '{applicationsDirectory}': "
+                        + $"{error}; falling back to the executable directory"
+                );
+            }
+
+            string fallbackPath = Path.Combine(executableDirectory, DesktopFileName);
+            if (
+                !TryInstallLauncher(
+                    fallbackPath,
+                    contents,
+                    createDirectory: false,
+                    out bool fallbackChanged,
+                    out string fallbackError
+                )
+            )
+            {
+                LogFailure(fallbackError);
                 return;
             }
 
-            using (
-                var stream = new FileStream(
-                    desktopPath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None
-                )
-            )
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            if (fallbackChanged)
             {
-                writer.Write(BuildContents(executable));
+                HexalPaths.Log($"Created desktop launcher: {fallbackPath}");
             }
-
-            File.SetUnixFileMode(
-                desktopPath,
-                UnixFileMode.UserRead
-                    | UnixFileMode.UserWrite
-                    | UnixFileMode.UserExecute
-                    | UnixFileMode.GroupRead
-                    | UnixFileMode.GroupExecute
-                    | UnixFileMode.OtherRead
-                    | UnixFileMode.OtherExecute
-            );
-
-            HexalPaths.Log($"Created desktop launcher: {desktopPath}");
-        }
-        catch (IOException ex) when (desktopPath.Length > 0 && File.Exists(desktopPath))
-        {
-            HexalPaths.Log($"Desktop launcher already exists: {ex.Message}");
         }
         catch (Exception ex)
             when (ex
@@ -104,6 +131,148 @@ internal static class LinuxDesktopEntry
             )
         {
             LogFailure(ex.Message);
+        }
+    }
+
+    private static string? ApplicationsDirectory()
+    {
+        string? dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (string.IsNullOrWhiteSpace(dataHome) || !Path.IsPathRooted(dataHome))
+        {
+            string home = HexalPaths.HomeDirectory;
+            if (string.IsNullOrEmpty(home))
+            {
+                return null;
+            }
+
+            dataHome = Path.Combine(home, ".local", "share");
+        }
+
+        return Path.Combine(dataHome, "applications");
+    }
+
+    private static bool TryInstallLauncher(
+        string path,
+        string contents,
+        bool createDirectory,
+        out bool changed,
+        out string error
+    )
+    {
+        changed = false;
+        error = string.Empty;
+
+        try
+        {
+            string? directory = Path.GetDirectoryName(path);
+            if (createDirectory && !string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            if (File.Exists(path))
+            {
+                try
+                {
+                    if (
+                        string.Equals(
+                            File.ReadAllText(path),
+                            contents,
+                            StringComparison.Ordinal
+                        )
+                    )
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                    when (ex
+                            is IOException
+                                or UnauthorizedAccessException
+                                or NotSupportedException
+                    )
+                {
+                    // Replace the existing launcher if it cannot be read.
+                }
+            }
+
+            File.WriteAllText(path, contents, new UTF8Encoding(false));
+            changed = true;
+
+            if (OperatingSystem.IsLinux())
+            {
+                try
+                {
+                    File.SetUnixFileMode(path, DesktopFileMode);
+                }
+                catch (Exception ex)
+                    when (ex
+                            is IOException
+                                or UnauthorizedAccessException
+                                or NotSupportedException
+                                or ArgumentException
+                    )
+                {
+                    // The file is still usable without the executable bit.
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException
+                        or ArgumentException
+                        or PathTooLongException
+                        or System.Security.SecurityException
+            )
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    private static void TryUpdateDesktopDatabase(string applicationsDirectory)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "update-desktop-database",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add(applicationsDirectory);
+
+            using Process? process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return;
+            }
+
+            process.StandardInput.Close();
+            _ = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(2000))
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception ex)
+            when (ex
+                    is System.ComponentModel.Win32Exception
+                        or IOException
+                        or InvalidOperationException
+                        or NotSupportedException
+                        or UnauthorizedAccessException
+            )
+        {
+            // The desktop database is an optional cache refresh.
         }
     }
 
