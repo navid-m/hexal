@@ -606,14 +606,19 @@ public sealed partial class Editor
         return result;
     }
 
-    private static bool SidebarHotkeyMatches(char hotkey, char character)
+    private static int FindSidebarHotkey(SidebarMenuItem[] items, char character)
     {
-        if (hotkey == character)
+        // Prefer an exact match so that lowercase 'd' selects Delete instead of
+        // the case-insensitive match for Duplicate's 'D'. Letter shortcuts are
+        // displayed in uppercase but may still be typed in either case.
+        int index = Array.FindIndex(items, item => item.Hotkey == character);
+        if (index >= 0)
         {
-            return true;
+            return index;
         }
 
-        return hotkey != 'd' && char.ToUpperInvariant(character) == hotkey;
+        char uppercase = char.ToUpperInvariant(character);
+        return Array.FindIndex(items, item => item.Hotkey == uppercase);
     }
 
     private void HandleSidebarMenu(InputEvent inputEvent)
@@ -660,10 +665,7 @@ public sealed partial class Editor
             return;
         }
 
-        int hotkeyIndex = Array.FindIndex(
-            items,
-            item => SidebarHotkeyMatches(item.Hotkey, character)
-        );
+        int hotkeyIndex = FindSidebarHotkey(items, character);
         if (hotkeyIndex >= 0)
         {
             _sidebarMenuSelected = hotkeyIndex;
