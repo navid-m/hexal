@@ -834,8 +834,21 @@ public sealed class LspManager : IDisposable
         int line,
         int character,
         string? triggerCharacter
+    ) => RequestCompletion(documentPath, line, character, triggerCharacter, out _);
+
+    /// <summary>
+    /// Requests completions and returns the JSON-RPC request id so callers can
+    /// ignore late responses from an older request for the same document.
+    /// </summary>
+    public bool RequestCompletion(
+        string documentPath,
+        int line,
+        int character,
+        string? triggerCharacter,
+        out long requestId
     )
     {
+        requestId = 0;
         lock (_stateLock)
         {
             if (!CanRequestForPathLocked(documentPath))
@@ -859,7 +872,7 @@ public sealed class LspManager : IDisposable
                 ["context"] = context,
             };
 
-            SendRequestLocked("textDocument/completion", parameters);
+            requestId = SendRequestLocked("textDocument/completion", parameters);
             return true;
         }
     }
@@ -1570,7 +1583,10 @@ public sealed class LspManager : IDisposable
 
         if (root.TryGetProperty("error", out JsonElement error))
         {
-            _pendingMetadataTargets.Remove(requestId);
+            lock (_stateLock)
+            {
+                _pendingMetadataTargets.Remove(requestId);
+            }
             string message = error.TryGetProperty("message", out JsonElement text)
                 ? text.GetString() ?? $"{method} failed"
                 : $"{method} failed";
@@ -1660,13 +1676,28 @@ public sealed class LspManager : IDisposable
 
             case "o#/metadata":
             {
-                (int line, int character) = _pendingMetadataTargets.TryGetValue(
-                    requestId,
-                    out (int Line, int Character) pending
-                )
-                    ? pending
-                    : (0, 0);
-                _pendingMetadataTargets.Remove(requestId);
+                int line;
+                int character;
+                lock (_stateLock)
+                {
+                    if (
+                        _pendingMetadataTargets.TryGetValue(
+                            requestId,
+                            out (int Line, int Character) pending
+                        )
+                    )
+                    {
+                        line = pending.Line;
+                        character = pending.Character;
+                    }
+                    else
+                    {
+                        line = 0;
+                        character = 0;
+                    }
+
+                    _pendingMetadataTargets.Remove(requestId);
+                }
 
                 LspMetadataDocument? metadata = ParseMetadataDocument(
                     result,
@@ -1723,6 +1754,7 @@ public sealed class LspManager : IDisposable
                         Kind = LspEventKind.Completions,
                         ServerName = serverName,
                         Method = method,
+                        RequestId = requestId,
                         Completions = items,
                     }
                 );

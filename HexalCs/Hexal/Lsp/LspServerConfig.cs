@@ -161,6 +161,7 @@ public sealed class LspEvent
     public string Uri { get; init; } = string.Empty;
     public string Method { get; init; } = string.Empty;
     public string Text { get; init; } = string.Empty;
+    public long RequestId { get; init; }
     public IReadOnlyList<LspDiagnostic> Diagnostics { get; init; } = Array.Empty<LspDiagnostic>();
     public IReadOnlyList<LspLocation> Locations { get; init; } = Array.Empty<LspLocation>();
     public IReadOnlyList<LspDefinitionTarget> DefinitionTargets { get; init; } =

@@ -18,18 +18,26 @@ public sealed partial class Editor
             return false;
         }
 
-        if (_lspDirty)
+        if (_lspDirty || _document.Revision != _lspSyncedRevision)
         {
-            _lsp.DidChange(GetText());
-            _lspDirty = false;
+            SyncLspDocumentNow();
         }
 
         (int line, int character) = CursorLspPosition();
-        if (!_lsp.RequestCompletion(_document.Path, line, character, triggerCharacter))
+        if (
+            !_lsp.RequestCompletion(
+                _document.Path,
+                line,
+                character,
+                triggerCharacter,
+                out long requestId
+            )
+        )
         {
             return false;
         }
 
+        _lspCompletionRequestId = requestId;
         _lspCompletionPending = true;
         return true;
     }
@@ -72,6 +80,7 @@ public sealed partial class Editor
         _lspCompletionAllItems.Clear();
         _lspCompletionItems.Clear();
         _lspCompletionFilter = string.Empty;
+        _lspCompletionRequestId = 0;
         _lspCompletionSelected = 0;
         _lspCompletionTop = 0;
     }
@@ -246,7 +255,8 @@ public sealed partial class Editor
     }
 
     private void AcceptLspCompletion()
-    {        if (
+    {
+        if (
             !_lspCompletionVisible
             || _lspCompletionItems.Count == 0
             || _lspCompletionSelected < 0

@@ -2079,7 +2079,11 @@ internal static class Program
         Check(manager.IsCompletionTriggerCharacter('.'), "completion dot trigger registered");
         Check(!manager.IsCompletionTriggerCharacter('x'), "completion non-trigger rejected");
 
-        Check(manager.RequestCompletion(path, 0, 24, "."), "request completions");
+        Check(
+            manager.RequestCompletion(path, 0, 24, ".", out long completionRequestId),
+            "request completions"
+        );
+        Check(completionRequestId > 0, "completion request id returned");
         string request = transport.Sent.Last(message =>
             message.Contains("textDocument/completion", StringComparison.Ordinal)
         );
@@ -2115,6 +2119,12 @@ internal static class Program
             }
 
             seen = true;
+            CheckEqual(
+                lspEvent.RequestId,
+                completionRequestId,
+                "completion event request id",
+                completionRequestId.ToString()
+            );
             CheckEqual(lspEvent.Completions.Count, 2, "completion item count", "2");
             CheckEqual(lspEvent.Completions[0].Label, "Name", "completion label", "Name");
             CheckEqual(

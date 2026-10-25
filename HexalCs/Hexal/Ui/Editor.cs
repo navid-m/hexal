@@ -348,6 +348,7 @@ public sealed partial class Editor
     private readonly List<LspCompletionItem> _lspCompletionAllItems = new();
     private readonly List<LspCompletionItem> _lspCompletionItems = new();
     private string _lspCompletionFilter = string.Empty;
+    private long _lspCompletionRequestId;
     private int _lspCompletionSelected;
     private int _lspCompletionTop;
     private int _completionSelected;

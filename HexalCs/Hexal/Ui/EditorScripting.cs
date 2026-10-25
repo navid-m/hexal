@@ -19,6 +19,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
     private bool _lspDirty;
     private bool _lspFallbackBlocked;
     private long _lspDirtySince;
+    private long _lspSyncedRevision = -1;
     private readonly Dictionary<long, List<(int Start, int End)>> _unnecessaryDiagnostics = new();
     private readonly List<(int Start, int End)> _unnecessaryByteRanges = new();
     private readonly Dictionary<long, int> _diagnosticLineSeverity = new();
@@ -140,7 +141,12 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
         if (_document.Revision != revisionBefore)
         {
-            _lspDirty = _lsp.IsRunning;
+            // An explicit sync during this input event (for example an LSP
+            // completion request) already sent the current text, so marking it
+            // dirty again would send a redundant didChange. Some servers,
+            // OmniSharp included, can cancel an in-flight completion when that
+            // second change arrives.
+            _lspDirty = _lsp.IsRunning && _document.Revision != _lspSyncedRevision;
             _lspDirtySince = Environment.TickCount64;
 
             if (_plugins is not null && _plugins.HasSubscribers("buffer_changed"))
@@ -477,7 +483,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                     OpenDocumentSymbolPicker(lspEvent.DocumentSymbols);
                     break;
                 case LspEventKind.Completions:
-                    if (!_lspCompletionPending)
+                    if (
+                        !_lspCompletionPending
+                        || lspEvent.RequestId != _lspCompletionRequestId
+                    )
                     {
                         break;
                     }
@@ -501,6 +510,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                 case LspEventKind.Stopped:
                     _pluginStatus.Remove("lsp");
                     _lspDirty = false;
+                    _lspSyncedRevision = -1;
                     break;
             }
         }
@@ -514,6 +524,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         {
             _lsp.DidChange(GetText());
             _lspDirty = false;
+            _lspSyncedRevision = _document.Revision;
         }
 
         return redraw;
@@ -526,9 +537,32 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         ResetLspInteractionState();
     }
 
+    /// <summary>
+    /// Sends the current buffer to the language server immediately. Completion
+    /// and other position-based requests use this so the server analyzes the
+    /// text that is actually on screen at the requested position.
+    /// </summary>
+    private void SyncLspDocumentNow()
+    {
+        if (!_lsp.IsRunning || !_lsp.IsInitialized)
+        {
+            return;
+        }
+
+        if (!_lspDirty && _document.Revision == _lspSyncedRevision)
+        {
+            return;
+        }
+
+        _lsp.DidChange(GetText());
+        _lspDirty = false;
+        _lspSyncedRevision = _document.Revision;
+    }
+
     private void ResetLspInteractionState()
     {
         _lspDirty = false;
+        _lspSyncedRevision = -1;
         _unnecessaryDiagnostics.Clear();
         _unnecessaryByteRanges.Clear();
         _diagnosticLineSeverity.Clear();
@@ -1577,6 +1611,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _lspDirty = false;
         if (_lsp.TryStart(config, _document.Path, GetText(), _workspaceRoot, out string error))
         {
+            _lspSyncedRevision = _document.Revision;
             return true;
         }
 
@@ -1597,6 +1632,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             _lsp.Stop();
             _pluginStatus.Remove("lsp");
             _lspDirty = false;
+            _lspSyncedRevision = -1;
         }
     }
 
@@ -1828,6 +1864,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             _workspaceRoot,
             out error
         );
+        if (started)
+        {
+            _lspSyncedRevision = _document.Revision;
+        }
         if (!started && (primaryPresent || usingFallback))
         {
             // A present executable that fails is a separate error; never mask
@@ -1847,6 +1887,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             _lsp.Stop();
             _pluginStatus.Remove("lsp");
             _lspDirty = false;
+            _lspSyncedRevision = -1;
         }
     }
 
