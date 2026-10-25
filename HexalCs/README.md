@@ -566,7 +566,8 @@ must be used instead, matching Helix's behaviour.
 `showDiffLines` controls the Git diff markers in the line-number gutter. They
 are enabled by default and use green for added lines, red for deleted lines and
 blue for modified lines. The sidebar also marks modified and renamed files with
-an `M` at its right edge, including parent folders that contain such files.
+an `M` at its right edge and untracked files with an `N`, including parent
+folders that contain such files.
 `diagnosticLineHighlight` is enabled by default and tints whole lines that
 contain language-server diagnostics. The tint is based on the most severe
 diagnostic on the line: muted red for errors, amber for warnings, blue for
@@ -610,7 +611,7 @@ Malformed theme files are logged and skipped.
 
 Colours can be an ANSI palette index (`0`-`255`), a name such as `"bright-cyan"`
 or `"black"`, or a `"#RRGGBB"` true-colour value. Missing entries inherit the
-default palette. `gitModified` controls the sidebar's Git status marker.
+default palette. `gitModified` controls the sidebar's Git status markers (`M` and `N`).
 `dimmed` colours muted code annotations such as unnecessary LSP diagnostics;
 when omitted it inherits `muted`.
 

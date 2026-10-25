@@ -38,6 +38,7 @@ internal static class Program
         TestFileSearch();
         TestGitDiff();
         TestGitDiffCompute();
+        TestGitStatus();
         TestUnifiedDiff();
         TestFilePreview();
         TestHexalConfig();
@@ -1080,6 +1081,49 @@ internal static class Program
         Check(
             diff.TryGetValue(1, out kind) && kind == GitDiffLineKind.Deleted,
             "deleted line is marked"
+        );
+    }
+
+    private static void TestGitStatus()
+    {
+        using var directory = new TempDir();
+        string repo = directory.Path("repo");
+        Directory.CreateDirectory(repo);
+        if (!RunGit(repo, "init", "-q"))
+        {
+            return;
+        }
+
+        RunGit(repo, "config", "user.email", "test@example.com");
+        RunGit(repo, "config", "user.name", "Hexal Test");
+
+        string tracked = System.IO.Path.Combine(repo, "tracked.txt");
+        Check(WriteBytes(tracked, "one\n"u8), "write tracked git status file");
+        Check(RunGit(repo, "add", "tracked.txt"), "stage tracked git status file");
+        Check(RunGit(repo, "commit", "-q", "-m", "initial"), "commit git status file");
+
+        Check(WriteBytes(tracked, "two\n"u8), "modify tracked git status file");
+
+        string untracked = System.IO.Path.Combine(repo, "new.txt");
+        Check(WriteBytes(untracked, "new\n"u8), "write untracked git status file");
+
+        string nestedDirectory = System.IO.Path.Combine(repo, "nested");
+        Directory.CreateDirectory(nestedDirectory);
+        string nested = System.IO.Path.Combine(nestedDirectory, "deep.txt");
+        Check(WriteBytes(nested, "deep\n"u8), "write nested untracked git status file");
+
+        GitStatusSnapshot status = GitStatus.Load(repo);
+        string trackedFull = System.IO.Path.GetFullPath(tracked);
+        string untrackedFull = System.IO.Path.GetFullPath(untracked);
+        string nestedFull = System.IO.Path.GetFullPath(nested);
+
+        Check(status.ModifiedPaths.Contains(trackedFull), "modified file is reported");
+        Check(!status.UntrackedPaths.Contains(trackedFull), "modified file is not untracked");
+        Check(status.UntrackedPaths.Contains(untrackedFull), "untracked file is reported");
+        Check(!status.ModifiedPaths.Contains(untrackedFull), "untracked file is not modified");
+        Check(
+            status.UntrackedPaths.Contains(nestedFull),
+            "untracked file inside a new folder is reported"
         );
     }
 

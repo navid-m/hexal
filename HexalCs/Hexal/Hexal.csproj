@@ -49,6 +49,48 @@
   </ItemGroup>
 
   <!--
+    Embed the commit that was checked out when the editor was built. The
+    generated source is refreshed on every build (but only rewritten when the
+    hash changes), so both regular builds and single-file/AOT publishes report
+    the same revision. Building outside a Git checkout falls back to "unknown".
+  -->
+  <Target Name="_HexalGenerateBuildInfo" BeforeTargets="BeforeCompile;CoreCompile">
+    <PropertyGroup>
+      <_HexalCommitHash>unknown</_HexalCommitHash>
+    </PropertyGroup>
+
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short HEAD"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="Low"
+          StandardErrorImportance="Low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_HexalGitOutput" />
+      <Output TaskParameter="ExitCode" PropertyName="_HexalGitExitCode" />
+    </Exec>
+
+    <PropertyGroup Condition="'$(_HexalGitExitCode)' == '0'">
+      <_HexalCommitHash>$([System.String]::Copy('$(_HexalGitOutput)').Trim())</_HexalCommitHash>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_HexalBuildInfoLine Include="// &lt;auto-generated /&gt;" />
+      <_HexalBuildInfoLine Include="namespace Hexal%3B" />
+      <_HexalBuildInfoLine Include="internal static class BuildInfo" />
+      <_HexalBuildInfoLine Include="{" />
+      <_HexalBuildInfoLine Include="public const string CommitHash = &quot;$(_HexalCommitHash)&quot;%3B" />
+      <_HexalBuildInfoLine Include="}" />
+
+      <Compile Remove="$(IntermediateOutputPath)HexalBuildInfo.g.cs" />
+      <Compile Include="$(IntermediateOutputPath)HexalBuildInfo.g.cs" />
+    </ItemGroup>
+
+    <WriteLinesToFile File="$(IntermediateOutputPath)HexalBuildInfo.g.cs"
+                      Lines="@(_HexalBuildInfoLine)"
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <!--
     Obfuscation is opt-in at publish time:
 
       dotnet tool restore

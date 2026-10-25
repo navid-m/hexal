@@ -5,7 +5,7 @@ namespace Hexal.Ui;
 
 public sealed partial class Editor
 {
-    private const int AboutHeaderRows = 3;
+    private const int AboutHeaderRows = 4;
     private const int AboutHintRows = 1;
 
     private static readonly string[] AboutBannerLines = Branding.Banner.Split('\n');
@@ -122,6 +122,7 @@ public sealed partial class Editor
 
         DrawCenteredLine(headerY, Branding.Title, _theme.AccentStyle);
         DrawCenteredLine(headerY + 1, Branding.Author, _theme.MutedStyle);
+        DrawCenteredLine(headerY + 2, Branding.Commit, _theme.MutedStyle);
 
         _aboutLeft = Math.Clamp(_aboutLeft, 0, AboutMaxLeft());
         int artX = AboutBannerWidth <= _columns ? (_columns - AboutBannerWidth) / 2 : 0;

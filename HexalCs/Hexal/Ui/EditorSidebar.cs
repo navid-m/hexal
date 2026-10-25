@@ -103,6 +103,8 @@ public sealed partial class Editor
     private readonly HashSet<string> _sidebarExpanded = new(SidebarPathComparison);
     private readonly HashSet<string> _sidebarGitModifiedFiles = new(SidebarPathComparison);
     private readonly HashSet<string> _sidebarGitModifiedDirectories = new(SidebarPathComparison);
+    private readonly HashSet<string> _sidebarGitUntrackedFiles = new(SidebarPathComparison);
+    private readonly HashSet<string> _sidebarGitUntrackedDirectories = new(SidebarPathComparison);
     private long _sidebarGitStatusAt = long.MinValue / 2;
     private const int SidebarGitStatusCacheMs = 500;
     private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes = new();
@@ -2154,6 +2156,8 @@ public sealed partial class Editor
         {
             _sidebarGitModifiedFiles.Clear();
             _sidebarGitModifiedDirectories.Clear();
+            _sidebarGitUntrackedFiles.Clear();
+            _sidebarGitUntrackedDirectories.Clear();
             return;
         }
 
@@ -2166,9 +2170,33 @@ public sealed partial class Editor
 
         _sidebarGitModifiedFiles.Clear();
         _sidebarGitModifiedDirectories.Clear();
+        _sidebarGitUntrackedFiles.Clear();
+        _sidebarGitUntrackedDirectories.Clear();
 
         string root = SidebarFullPath(ProjectRoot());
-        foreach (string path in GitStatus.LoadModifiedPaths(root))
+        GitStatusSnapshot status = GitStatus.Load(root);
+        AddSidebarGitStatusPaths(
+            root,
+            status.ModifiedPaths,
+            _sidebarGitModifiedFiles,
+            _sidebarGitModifiedDirectories
+        );
+        AddSidebarGitStatusPaths(
+            root,
+            status.UntrackedPaths,
+            _sidebarGitUntrackedFiles,
+            _sidebarGitUntrackedDirectories
+        );
+    }
+
+    private static void AddSidebarGitStatusPaths(
+        string root,
+        IEnumerable<string> paths,
+        HashSet<string> files,
+        HashSet<string> directories
+    )
+    {
+        foreach (string path in paths)
         {
             string fullPath = SidebarFullPath(path);
             if (!SamePath(fullPath, root) && !IsPathInside(root, fullPath))
@@ -2176,7 +2204,7 @@ public sealed partial class Editor
                 continue;
             }
 
-            _sidebarGitModifiedFiles.Add(fullPath);
+            files.Add(fullPath);
             string? parent = Path.GetDirectoryName(fullPath);
             while (
                 !string.IsNullOrEmpty(parent)
@@ -2184,7 +2212,7 @@ public sealed partial class Editor
                 && IsPathInside(root, parent)
             )
             {
-                _sidebarGitModifiedDirectories.Add(parent);
+                directories.Add(parent);
                 string? next = Path.GetDirectoryName(parent);
                 if (string.Equals(parent, next, StringComparison.Ordinal))
                 {
@@ -2509,6 +2537,11 @@ public sealed partial class Editor
                 node.IsDirectory
                     ? _sidebarGitModifiedDirectories.Contains(node.Path)
                     : _sidebarGitModifiedFiles.Contains(node.Path);
+            bool untracked =
+                node.IsDirectory
+                    ? _sidebarGitUntrackedDirectories.Contains(node.Path)
+                    : _sidebarGitUntrackedFiles.Contains(node.Path);
+            int markerCount = (modified ? 1 : 0) + (untracked ? 1 : 0);
 
             if (selected)
             {
@@ -2523,21 +2556,29 @@ public sealed partial class Editor
             if (nameX < width - 1)
             {
                 int nameWidth = width - nameX - 1;
-                if (modified)
+                if (markerCount > 0)
                 {
-                    nameWidth = Math.Max(0, nameWidth - 2);
+                    nameWidth = Math.Max(0, nameWidth - markerCount - 1);
                 }
                 _screen.PutString(nameX, screenRow, node.Name, style, nameWidth);
             }
 
-            if (modified && width > 3)
+            int markerX = width - 2 - markerCount;
+            if (markerCount > 0 && markerX >= 0)
             {
                 Style markerStyle = _theme.GitModifiedStyle;
                 if (selected)
                 {
                     markerStyle.Bg = _theme.SelectionBackground;
                 }
-                _screen.Put(width - 3, screenRow, 'M', markerStyle);
+                if (modified)
+                {
+                    _screen.Put(markerX++, screenRow, 'M', markerStyle);
+                }
+                if (untracked)
+                {
+                    _screen.Put(markerX, screenRow, 'N', markerStyle);
+                }
             }
         }
 

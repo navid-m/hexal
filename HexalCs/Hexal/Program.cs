@@ -244,7 +244,7 @@ internal static class Program
     {
         Console.Out.Write(
             $"""
-            Hexal v{Version}
+            Hexal v{Version} ({BuildInfo.CommitHash})
             https://hexal.pages.dev
             By Navid Momtahen (C) 2026
 

@@ -5,16 +5,17 @@ namespace Hexal.Util;
 
 /// <summary>
 /// Reads the workspace's Git status and reports files that are modified,
-/// renamed, copied or type-changed relative to HEAD. The sidebar uses this to
-/// show the familiar "M" marker on files and their parent folders.
+/// renamed, copied or type-changed, plus files that are untracked. The sidebar
+/// uses this to show the familiar "M" and "N" markers on files and their parent
+/// folders.
 /// </summary>
 public static class GitStatus
 {
     private const int HelperTimeoutMilliseconds = 3000;
 
-    public static HashSet<string> LoadModifiedPaths(string workspaceRoot)
+    public static GitStatusSnapshot Load(string workspaceRoot)
     {
-        var result = new HashSet<string>(
+        var result = new GitStatusSnapshot(
             OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal
         );
 
@@ -29,7 +30,7 @@ public static class GitStatus
             "status",
             "--porcelain=v1",
             "-z",
-            "--untracked-files=no"
+            "--untracked-files=all"
         );
         if (string.IsNullOrEmpty(status))
         {
@@ -64,10 +65,11 @@ public static class GitStatus
                 position = oldEnd + 1;
             }
 
+            bool untracked = indexStatus is '?' && workTreeStatus is '?';
             bool modified =
                 indexStatus is 'M' or 'T' or 'R' or 'C'
                 || workTreeStatus is 'M' or 'T' or 'R' or 'C';
-            if (!modified)
+            if (!untracked && !modified)
             {
                 continue;
             }
@@ -75,7 +77,15 @@ public static class GitStatus
             try
             {
                 string relative = path.Replace('/', Path.DirectorySeparatorChar);
-                result.Add(Path.GetFullPath(Path.Combine(repositoryRoot, relative)));
+                string fullPath = Path.GetFullPath(Path.Combine(repositoryRoot, relative));
+                if (untracked)
+                {
+                    result.UntrackedPaths.Add(fullPath);
+                }
+                if (modified)
+                {
+                    result.ModifiedPaths.Add(fullPath);
+                }
             }
             catch (Exception ex)
                 when (ex is ArgumentException or NotSupportedException or PathTooLongException) { }
@@ -83,6 +93,9 @@ public static class GitStatus
 
         return result;
     }
+
+    public static HashSet<string> LoadModifiedPaths(string workspaceRoot) =>
+        Load(workspaceRoot).ModifiedPaths;
 
     private static string? RunGit(string directory, params string[] arguments)
     {
@@ -152,4 +165,21 @@ public static class GitStatus
             return null;
         }
     }
+}
+
+/// <summary>
+/// Paths reported by <see cref="GitStatus.Load"/>: tracked files with working
+/// tree changes and untracked files.
+/// </summary>
+public sealed class GitStatusSnapshot
+{
+    internal GitStatusSnapshot(StringComparer pathComparer)
+    {
+        ModifiedPaths = new HashSet<string>(pathComparer);
+        UntrackedPaths = new HashSet<string>(pathComparer);
+    }
+
+    public HashSet<string> ModifiedPaths { get; }
+
+    public HashSet<string> UntrackedPaths { get; }
 }
