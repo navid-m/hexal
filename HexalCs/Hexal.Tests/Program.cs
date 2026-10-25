@@ -50,6 +50,7 @@ internal static class Program
         TestLspStartsForNewFile();
         TestLspDocumentSymbols();
         TestLspCompletions();
+        TestLspOmniSharpMetadataDefinition();
         TestDapLldbBreakpoint();
         TestLanguageGrammars();
         TestThemes();
@@ -2133,6 +2134,152 @@ internal static class Program
             CheckEqual(lspEvent.Completions[1].Detail, "void", "completion detail", "void");
         }
         Check(seen, "completion event received");
+    }
+
+    private static void TestLspOmniSharpMetadataDefinition()
+    {
+        using var directory = new TempDir();
+        string path = directory.Path("metadata.cs");
+        Check(WriteBytes(path, "Console.WriteLine(1);\n"u8), "write metadata definition document");
+
+        using var manager = new LspManager();
+        var transport = new FakeLspTransport();
+        Check(
+            manager.TryStart(
+                new LspServerConfig
+                {
+                    Name = "OmniSharp",
+                    Transport = transport,
+                    LanguageId = "csharp",
+                },
+                path,
+                "Console.WriteLine(1);\n",
+                directory.Path("."),
+                out string error
+            ),
+            $"metadata LSP started ({error})"
+        );
+
+        transport.Incoming.Enqueue("""{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}""");
+        manager.Pump();
+        Check(manager.SupportsMetadataNavigation, "OmniSharp metadata navigation detected");
+
+        Check(
+            manager.RequestDefinitionWithMetadata(path, 0, 1),
+            "request OmniSharp definition"
+        );
+        string definitionRequest = transport.Sent.Last(message =>
+            message.Contains("o#/v2/gotodefinition", StringComparison.Ordinal)
+        );
+        using (
+            System.Text.Json.JsonDocument requestDocument =
+                System.Text.Json.JsonDocument.Parse(definitionRequest)
+        )
+        {
+            var roots = requestDocument.RootElement;
+            Check(
+                roots.GetProperty("params").GetProperty("WantMetadata").GetBoolean(),
+                "OmniSharp definition requests metadata"
+            );
+        }
+
+        transport.Incoming.Enqueue(
+            """
+            {"jsonrpc":"2.0","id":2,"result":{"Definitions":[
+              {"Location":{"FileName":"$metadata$/Project/app/Assembly/System/Console/Symbol/System/Console.cs",
+                            "Range":{"Start":{"Line":17,"Column":24},
+                                     "End":{"Line":17,"Column":31}}},
+               "MetadataSource":{"AssemblyName":"System.Console","TypeName":"System.Console",
+                                 "ProjectName":"app","VersionNumber":null,"Language":null},
+               "SourceGeneratedFileInfo":null}
+            ]}}
+            """
+        );
+        manager.Pump();
+
+        LspDefinitionTarget? target = null;
+        while (manager.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (
+                lspEvent.Kind == LspEventKind.Definition
+                && lspEvent.DefinitionTargets.Count == 1
+            )
+            {
+                target = lspEvent.DefinitionTargets[0];
+                CheckEqual(lspEvent.Locations.Count, 0, "metadata location count", "0");
+            }
+        }
+
+        Check(target is not null, "OmniSharp definition target received");
+        if (target is null || target.MetadataSource is null)
+        {
+            return;
+        }
+
+        CheckEqual(target.Line, 17, "metadata definition line", "17");
+        CheckEqual(target.Character, 24, "metadata definition column", "24");
+        CheckEqual(
+            target.MetadataSource.AssemblyName,
+            "System.Console",
+            "metadata assembly name",
+            "System.Console"
+        );
+
+        Check(
+            manager.RequestMetadataSource(target.MetadataSource, target.Line, target.Character),
+            "request metadata source"
+        );
+        string metadataRequest = transport.Sent.Last(message =>
+            message.Contains("o#/metadata", StringComparison.Ordinal)
+        );
+        int metadataId;
+        using (
+            System.Text.Json.JsonDocument requestDocument =
+                System.Text.Json.JsonDocument.Parse(metadataRequest)
+        )
+        {
+            metadataId = requestDocument.RootElement.GetProperty("id").GetInt32();
+        }
+
+        transport.Incoming.Enqueue(
+            $$$$$"""
+            {"jsonrpc":"2.0","id":{{{{{metadataId}}}}},"result":{
+              "SourceName":"$metadata$/Project/app/Assembly/System/Console/Symbol/System/Console.cs",
+              "Source":"namespace System { public static class Console { } }"}}
+            """
+        );
+        manager.Pump();
+
+        bool sourceSeen = false;
+        while (manager.TryDequeueEvent(out LspEvent lspEvent))
+        {
+            if (
+                lspEvent.Kind == LspEventKind.MetadataSource
+                && lspEvent.MetadataDocument is { } metadata
+                && metadata.Source.Contains("class Console", StringComparison.Ordinal)
+                && metadata.Line == 17
+                && metadata.Character == 24
+            )
+            {
+                sourceSeen = true;
+            }
+        }
+        Check(sourceSeen, "metadata source event received");
+
+        Document virtualDocument = Document.CreateVirtual(
+            "Console.cs",
+            "class Console {}\n"u8,
+            "csharp"
+        );
+        Check(virtualDocument.IsVirtual, "virtual document is marked virtual");
+        Check(!virtualDocument.HasFile, "virtual document has no file path");
+        CheckEqual(virtualDocument.DisplayName, "Console.cs", "virtual display name", "Console.cs");
+        CheckEqual(
+            virtualDocument.VirtualLanguageId,
+            "csharp",
+            "virtual language id",
+            "csharp"
+        );
     }
 
     private static void TestDapLldbBreakpoint()

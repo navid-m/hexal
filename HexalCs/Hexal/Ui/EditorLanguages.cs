@@ -6,7 +6,12 @@ public sealed partial class Editor
 {
     private void RefreshLanguage()
     {
-        SetLanguage(_document.Path is null ? null : _languages.Detect(_document.Path));
+        string? languageId = _document.VirtualLanguageId;
+        SetLanguage(
+            languageId is not null ? _languages.Find(languageId)
+            : _document.Path is null ? null
+            : _languages.Detect(_document.Path)
+        );
     }
 
     private void SetLanguage(LanguageDefinition? language)

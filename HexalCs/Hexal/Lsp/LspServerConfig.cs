@@ -89,6 +89,40 @@ public sealed class LspCompletionItem
 public sealed record LspLocation(string Uri, int Line, int Character);
 
 /// <summary>
+/// The assembly metadata that owns a definition which has no source file in
+/// the workspace, as reported by OmniSharp's extended definition command.
+/// </summary>
+public sealed record LspMetadataSource(
+    string AssemblyName,
+    string TypeName,
+    string ProjectName,
+    string VersionNumber,
+    string Language
+);
+
+/// <summary>
+/// One result from OmniSharp's <c>o#/v2/gotodefinition</c> command. Unlike the
+/// standard LSP shape this can point at metadata for a referenced assembly.
+/// </summary>
+public sealed record LspDefinitionTarget(
+    string Uri,
+    int Line,
+    int Character,
+    LspMetadataSource? MetadataSource
+);
+
+/// <summary>
+/// Source text fetched from OmniSharp for a metadata definition, with the
+/// position that should be shown when the document opens.
+/// </summary>
+public sealed record LspMetadataDocument(
+    string SourceName,
+    string Source,
+    int Line,
+    int Character
+);
+
+/// <summary>
 /// A symbol returned by <c>textDocument/documentSymbol</c>. Positions use the
 /// LSP coordinate system: zero-based lines and UTF-16 code units.
 /// </summary>
@@ -116,6 +150,7 @@ public enum LspEventKind
     WorkspaceDiagnostics,
     DocumentSymbols,
     Completions,
+    MetadataSource,
 }
 
 public sealed class LspEvent
@@ -128,6 +163,9 @@ public sealed class LspEvent
     public string Text { get; init; } = string.Empty;
     public IReadOnlyList<LspDiagnostic> Diagnostics { get; init; } = Array.Empty<LspDiagnostic>();
     public IReadOnlyList<LspLocation> Locations { get; init; } = Array.Empty<LspLocation>();
+    public IReadOnlyList<LspDefinitionTarget> DefinitionTargets { get; init; } =
+        Array.Empty<LspDefinitionTarget>();
+    public LspMetadataDocument? MetadataDocument { get; init; }
     public IReadOnlyList<LspCodeAction> CodeActions { get; init; } = Array.Empty<LspCodeAction>();
     public IReadOnlyList<LspDocumentDiagnostics> DocumentDiagnostics { get; init; } =
         Array.Empty<LspDocumentDiagnostics>();

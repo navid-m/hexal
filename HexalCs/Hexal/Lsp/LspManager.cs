@@ -23,6 +23,7 @@ public sealed class LspManager : IDisposable
     private readonly object _logLock = new();
     private readonly ConcurrentQueue<LspEvent> _events = new();
     private readonly Dictionary<long, string> _pendingRequests = new();
+    private readonly Dictionary<long, (int Line, int Character)> _pendingMetadataTargets = new();
     private readonly Dictionary<string, List<LspDiagnostic>> _diagnostics = new(
         StringComparer.Ordinal
     );
@@ -79,6 +80,34 @@ public sealed class LspManager : IDisposable
             lock (_stateLock)
             {
                 return _config?.Name ?? string.Empty;
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when the active server is OmniSharp, which can return definitions
+    /// that live in referenced assembly metadata rather than in the workspace.
+    /// </summary>
+    public bool SupportsMetadataNavigation
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                string name = _config?.Name ?? string.Empty;
+                string command = _config?.Command ?? string.Empty;
+                string executable = string.Empty;
+                try
+                {
+                    executable = Path.GetFileName(command);
+                }
+                catch (ArgumentException)
+                {
+                    executable = command;
+                }
+
+                return name.Contains("omnisharp", StringComparison.OrdinalIgnoreCase)
+                    || executable.Contains("omnisharp", StringComparison.OrdinalIgnoreCase);
             }
         }
     }
@@ -351,6 +380,7 @@ public sealed class LspManager : IDisposable
                 _workspaceDiagnosticsSupported = false;
                 _completionTriggerCharacters.Clear();
                 _pendingRequests.Clear();
+                _pendingMetadataTargets.Clear();
                 _diagnostics.Clear();
                 _initializeId = Interlocked.Increment(ref _nextRequestId);
                 _transport = config.Transport;
@@ -383,6 +413,7 @@ public sealed class LspManager : IDisposable
             _workspaceDiagnosticsSupported = false;
             _completionTriggerCharacters.Clear();
             _pendingRequests.Clear();
+            _pendingMetadataTargets.Clear();
             _diagnostics.Clear();
             _initializeId = Interlocked.Increment(ref _nextRequestId);
 
@@ -542,6 +573,7 @@ public sealed class LspManager : IDisposable
         _currentText = text;
         _version = 1;
         _pendingRequests.Clear();
+        _pendingMetadataTargets.Clear();
 
         if (initialized)
         {
@@ -680,6 +712,85 @@ public sealed class LspManager : IDisposable
             };
 
             SendRequestLocked("textDocument/definition", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Requests a definition through OmniSharp's extended command. Responses
+    /// include a metadata source when the symbol comes from a referenced
+    /// assembly (for example a NuGet package) instead of workspace source.
+    /// </summary>
+    public bool RequestDefinitionWithMetadata(string documentPath, int line, int character)
+    {
+        lock (_stateLock)
+        {
+            if (!CanRequestForPathLocked(documentPath))
+            {
+                return false;
+            }
+
+            string fullPath;
+            try
+            {
+                fullPath = Path.GetFullPath(documentPath);
+            }
+            catch (Exception ex)
+                when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return false;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["FileName"] = fullPath,
+                ["Line"] = line,
+                ["Column"] = character,
+                ["WantMetadata"] = true,
+                ["Timeout"] = 10000,
+            };
+
+            SendRequestLocked("o#/v2/gotodefinition", parameters);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Fetches the source text for a definition that lives in assembly
+    /// metadata. The returned document is emitted as
+    /// <see cref="LspEventKind.MetadataSource"/>.
+    /// </summary>
+    public bool RequestMetadataSource(
+        LspMetadataSource source,
+        int line,
+        int character
+    )
+    {
+        lock (_stateLock)
+        {
+            if ((_process is null && _transport is null) || !_initialized)
+            {
+                return false;
+            }
+
+            var parameters = new JsonObject
+            {
+                ["AssemblyName"] = source.AssemblyName,
+                ["TypeName"] = source.TypeName,
+                ["ProjectName"] = source.ProjectName,
+                ["Timeout"] = 10000,
+            };
+            if (source.VersionNumber.Length > 0)
+            {
+                parameters["VersionNumber"] = source.VersionNumber;
+            }
+            if (source.Language.Length > 0)
+            {
+                parameters["Language"] = source.Language;
+            }
+
+            long id = SendRequestLocked("o#/metadata", parameters);
+            _pendingMetadataTargets[id] = (line, character);
             return true;
         }
     }
@@ -1144,7 +1255,7 @@ public sealed class LspManager : IDisposable
         }
     }
 
-    private void SendRequestLocked(string method, JsonObject parameters)
+    private long SendRequestLocked(string method, JsonObject parameters)
     {
         long id = Interlocked.Increment(ref _nextRequestId);
         _pendingRequests[id] = method;
@@ -1157,6 +1268,7 @@ public sealed class LspManager : IDisposable
             ["params"] = parameters,
         };
         SendMessage(message);
+        return id;
     }
 
     private void SendResponse(JsonElement id, JsonNode? result)
@@ -1373,7 +1485,7 @@ public sealed class LspManager : IDisposable
 
             if (!string.IsNullOrEmpty(method))
             {
-                HandleResponse(method, root);
+                HandleResponse(method, root, id);
             }
         }
     }
@@ -1452,12 +1564,13 @@ public sealed class LspManager : IDisposable
         }
     }
 
-    private void HandleResponse(string method, JsonElement root)
+    private void HandleResponse(string method, JsonElement root, long requestId)
     {
         string serverName = ServerName;
 
         if (root.TryGetProperty("error", out JsonElement error))
         {
+            _pendingMetadataTargets.Remove(requestId);
             string message = error.TryGetProperty("message", out JsonElement text)
                 ? text.GetString() ?? $"{method} failed"
                 : $"{method} failed";
@@ -1513,6 +1626,74 @@ public sealed class LspManager : IDisposable
                         ServerName = serverName,
                         Method = method,
                         Locations = locations,
+                    }
+                );
+                return;
+            }
+
+            case "o#/v2/gotodefinition":
+            {
+                List<LspDefinitionTarget> targets = ParseOmniSharpDefinitions(result);
+                var locations = new List<LspLocation>(targets.Count);
+                foreach (LspDefinitionTarget target in targets)
+                {
+                    if (target.MetadataSource is null)
+                    {
+                        locations.Add(
+                            new LspLocation(target.Uri, target.Line, target.Character)
+                        );
+                    }
+                }
+
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.Definition,
+                        ServerName = serverName,
+                        Method = method,
+                        Locations = locations,
+                        DefinitionTargets = targets,
+                    }
+                );
+                return;
+            }
+
+            case "o#/metadata":
+            {
+                (int line, int character) = _pendingMetadataTargets.TryGetValue(
+                    requestId,
+                    out (int Line, int Character) pending
+                )
+                    ? pending
+                    : (0, 0);
+                _pendingMetadataTargets.Remove(requestId);
+
+                LspMetadataDocument? metadata = ParseMetadataDocument(
+                    result,
+                    line,
+                    character
+                );
+                if (metadata is null)
+                {
+                    Enqueue(
+                        new LspEvent
+                        {
+                            Kind = LspEventKind.Error,
+                            ServerName = serverName,
+                            Method = method,
+                            Message = "the metadata source is not available",
+                        }
+                    );
+                    return;
+                }
+
+                Enqueue(
+                    new LspEvent
+                    {
+                        Kind = LspEventKind.MetadataSource,
+                        ServerName = serverName,
+                        Method = method,
+                        MetadataDocument = metadata,
                     }
                 );
                 return;
@@ -2068,6 +2249,147 @@ public sealed class LspManager : IDisposable
         locations.Add(new LspLocation(uri, line, character));
     }
 
+    private static List<LspDefinitionTarget> ParseOmniSharpDefinitions(JsonElement result)
+    {
+        var targets = new List<LspDefinitionTarget>();
+        if (
+            result.ValueKind != JsonValueKind.Object
+            || !TryGetProperty(result, "Definitions", out JsonElement definitions)
+            || definitions.ValueKind != JsonValueKind.Array
+        )
+        {
+            return targets;
+        }
+
+        foreach (JsonElement definition in definitions.EnumerateArray())
+        {
+            if (
+                definition.ValueKind != JsonValueKind.Object
+                || !TryGetProperty(definition, "Location", out JsonElement location)
+                || location.ValueKind != JsonValueKind.Object
+            )
+            {
+                continue;
+            }
+
+            string fileName = ReadString(location, "FileName");
+            if (fileName.Length == 0)
+            {
+                continue;
+            }
+
+            int line = 0;
+            int character = 0;
+            if (
+                TryGetProperty(location, "Range", out JsonElement range)
+                && range.ValueKind == JsonValueKind.Object
+                && TryGetProperty(range, "Start", out JsonElement start)
+                && start.ValueKind == JsonValueKind.Object
+            )
+            {
+                line = ReadInt(start, "Line", 0);
+                character = ReadInt(start, "Column", 0);
+            }
+
+            LspMetadataSource? metadata = null;
+            if (
+                TryGetProperty(definition, "MetadataSource", out JsonElement metadataElement)
+                && metadataElement.ValueKind == JsonValueKind.Object
+            )
+            {
+                metadata = new LspMetadataSource(
+                    ReadString(metadataElement, "AssemblyName"),
+                    ReadString(metadataElement, "TypeName"),
+                    ReadString(metadataElement, "ProjectName"),
+                    ReadString(metadataElement, "VersionNumber"),
+                    ReadString(metadataElement, "Language")
+                );
+            }
+
+            targets.Add(
+                new LspDefinitionTarget(
+                    DefinitionFileToUri(fileName),
+                    line,
+                    character,
+                    metadata
+                )
+            );
+        }
+
+        return targets;
+    }
+
+    private static string DefinitionFileToUri(string fileName)
+    {
+        if (
+            fileName.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("$metadata$", StringComparison.Ordinal)
+        )
+        {
+            return fileName;
+        }
+
+        try
+        {
+            return new Uri(Path.GetFullPath(fileName)).AbsoluteUri;
+        }
+        catch (Exception ex)
+            when (ex
+                    is ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException
+                        or UriFormatException
+            )
+        {
+            return fileName;
+        }
+    }
+
+    private static LspMetadataDocument? ParseMetadataDocument(
+        JsonElement result,
+        int line,
+        int character
+    )
+    {
+        if (result.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        string source = ReadString(result, "Source");
+        if (source.Length == 0)
+        {
+            return null;
+        }
+
+        return new LspMetadataDocument(
+            ReadString(result, "SourceName"),
+            source,
+            line,
+            character
+        );
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.TryGetProperty(name, out value))
+        {
+            return true;
+        }
+
+        if (name.Length > 0)
+        {
+            string camelCase = char.ToLowerInvariant(name[0]) + name[1..];
+            if (element.TryGetProperty(camelCase, out value))
+            {
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
     private static List<LspCodeAction> ParseCodeActions(JsonElement result)
     {
         var actions = new List<LspCodeAction>();
@@ -2560,6 +2882,7 @@ public sealed class LspManager : IDisposable
         _currentText = string.Empty;
         _documentUri = string.Empty;
         _pendingRequests.Clear();
+        _pendingMetadataTargets.Clear();
         _diagnostics.Clear();
 
         Enqueue(new LspEvent { Kind = LspEventKind.Stopped });

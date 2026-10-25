@@ -57,10 +57,10 @@ public sealed partial class Editor
             return;
         }
 
-        _lspCompletionItems.Clear();
-        _lspCompletionItems.AddRange(items);
-        _lspCompletionSelected = 0;
-        _lspCompletionTop = 0;
+        _lspCompletionAllItems.Clear();
+        _lspCompletionAllItems.AddRange(items);
+        _lspCompletionFilter = string.Empty;
+        ApplyLspCompletionFilter();
         _lspCompletionVisible = true;
         ClearMessage();
     }
@@ -69,7 +69,9 @@ public sealed partial class Editor
     {
         _lspCompletionVisible = false;
         _lspCompletionPending = false;
+        _lspCompletionAllItems.Clear();
         _lspCompletionItems.Clear();
+        _lspCompletionFilter = string.Empty;
         _lspCompletionSelected = 0;
         _lspCompletionTop = 0;
     }
@@ -105,12 +107,89 @@ public sealed partial class Editor
                 return true;
             case Key.Enter:
             case Key.Tab:
+                // With no matching item there is nothing to accept; let the
+                // key through so Enter inserts a newline and Tab indents.
+                if (_lspCompletionItems.Count == 0)
+                {
+                    CloseLspCompletion();
+                    return false;
+                }
+
                 AcceptLspCompletion();
                 return true;
+            case Key.Backspace:
+                if (_lspCompletionFilter.Length > 0)
+                {
+                    _lspCompletionFilter = RemoveLastRune(_lspCompletionFilter);
+                    ApplyLspCompletionFilter();
+                    // Let the backspace edit the buffer so the filter text and
+                    // the document stay in sync.
+                    return false;
+                }
+
+                CloseLspCompletion();
+                return false;
+            case Key.Character:
+                if (
+                    !inputEvent.Ctrl
+                    && !inputEvent.Alt
+                    && IsLspCompletionFilterCharacter(inputEvent.Character)
+                )
+                {
+                    _lspCompletionFilter += inputEvent.Character.ToString();
+                    ApplyLspCompletionFilter();
+                    // Let the character be inserted after the list is filtered.
+                    return false;
+                }
+                break;
         }
 
         CloseLspCompletion();
         return false;
+    }
+
+    private static string RemoveLastRune(string text)
+    {
+        int index = text.Length - 1;
+        if (index > 0 && char.IsLowSurrogate(text[index]) && char.IsHighSurrogate(text[index - 1]))
+        {
+            --index;
+        }
+
+        return text[..index];
+    }
+
+    private static bool IsLspCompletionFilterCharacter(Rune rune)
+    {
+        if (Rune.IsLetterOrDigit(rune))
+        {
+            return true;
+        }
+
+        return rune.Value is '_' or '$';
+    }
+
+    private void ApplyLspCompletionFilter()
+    {
+        _lspCompletionItems.Clear();
+        if (_lspCompletionFilter.Length == 0)
+        {
+            _lspCompletionItems.AddRange(_lspCompletionAllItems);
+        }
+        else
+        {
+            foreach (LspCompletionItem item in _lspCompletionAllItems)
+            {
+                string candidate = item.FilterText.Length > 0 ? item.FilterText : item.Label;
+                if (candidate.StartsWith(_lspCompletionFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    _lspCompletionItems.Add(item);
+                }
+            }
+        }
+
+        _lspCompletionSelected = 0;
+        _lspCompletionTop = 0;
     }
 
     private int LspCompletionRows() => Math.Min(10, Math.Max(1, _lspCompletionItems.Count));
@@ -146,9 +225,28 @@ public sealed partial class Editor
         );
     }
 
-    private void AcceptLspCompletion()
+    private long LspPositionToDocumentOffset(long line, int character)
     {
-        if (
+        if (line < 0)
+        {
+            return 0;
+        }
+
+        if (line >= _document.LineCount)
+        {
+            return _document.Size;
+        }
+
+        int length = _document.CopyLineText(line, ref _lineBuffer, out _);
+        int local = LspPositions.Utf16ColumnToByteOffset(
+            _lineBuffer.AsSpan(0, length),
+            character
+        );
+        return _document.LineStart(line) + local;
+    }
+
+    private void AcceptLspCompletion()
+    {        if (
             !_lspCompletionVisible
             || _lspCompletionItems.Count == 0
             || _lspCompletionSelected < 0
@@ -163,14 +261,22 @@ public sealed partial class Editor
         long end = _cursor;
         if (item.HasTextEdit && _document.Path is not null)
         {
-            start = LspColumnToByteOffset(_document.Path, item.StartLine, item.StartCharacter);
-            end = LspColumnToByteOffset(_document.Path, item.EndLine, item.EndCharacter);
+            start = LspPositionToDocumentOffset(item.StartLine, item.StartCharacter);
+            end = LspPositionToDocumentOffset(item.EndLine, item.EndCharacter);
             if (end < start)
             {
                 (start, end) = (end, start);
             }
             start = Math.Clamp(start, 0, _document.Size);
             end = Math.Clamp(end, start, _document.Size);
+
+            // Typing after the completion request filters the list, but the
+            // server's text edit still ends at the position from that request.
+            // Extend the replacement over the characters typed since then.
+            if (_lspCompletionFilter.Length > 0 && _cursor >= end)
+            {
+                end = _cursor;
+            }
         }
 
         string text = item.InsertText;

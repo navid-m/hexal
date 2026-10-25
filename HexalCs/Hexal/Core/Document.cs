@@ -49,6 +49,8 @@ public sealed class Document
     private readonly List<Group> _redo = new();
 
     private string? _path;
+    private string? _virtualName;
+    private string? _virtualLanguageId;
     private string _eol = "\n";
     private bool _bom;
     private long _historyBytes;
@@ -67,12 +69,46 @@ public sealed class Document
     public bool HasFile => _path is not null;
 
     /// <summary>
+    /// True for an in-memory buffer such as decompiled assembly metadata.
+    /// Virtual buffers have no path and are never reloaded from disk.
+    /// </summary>
+    public bool IsVirtual => _virtualName is not null;
+
+    /// <summary>
+    /// Language id used for a virtual buffer, since there is no file extension
+    /// to detect it from.
+    /// </summary>
+    public string? VirtualLanguageId => _virtualLanguageId;
+
+    /// <summary>
+    /// Creates an in-memory document for content that has no backing file,
+    /// such as an assembly metadata definition returned by a language server.
+    /// </summary>
+    public static Document CreateVirtual(
+        string name,
+        ReadOnlySpan<byte> text,
+        string? languageId
+    )
+    {
+        var document = new Document
+        {
+            _virtualName = string.IsNullOrWhiteSpace(name) ? "[No Name]" : name,
+            _virtualLanguageId = languageId,
+        };
+        document._table.SetOriginal(text);
+        document._eol = document._table.DetectedEol;
+        return document;
+    }
+
+    /// <summary>
     /// Updates the file associated with this buffer after an external rename.
     /// The buffer contents and undo history are kept intact.
     /// </summary>
     public void ChangePath(string path)
     {
         _path = path;
+        _virtualName = null;
+        _virtualLanguageId = null;
     }
 
     public bool IsDirty => _savedPose < 0 || _savedPose != _undo.Count;
@@ -314,6 +350,11 @@ public sealed class Document
     {
         get
         {
+            if (_virtualName is not null)
+            {
+                return _virtualName;
+            }
+
             if (_path is null)
             {
                 return "[No Name]";

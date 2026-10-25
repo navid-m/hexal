@@ -384,6 +384,39 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                         break;
                     }
                     _definitionRequestPending = false;
+                    if (lspEvent.DefinitionTargets.Count > 0)
+                    {
+                        LspDefinitionTarget target = lspEvent.DefinitionTargets[0];
+                        if (target.MetadataSource is not null)
+                        {
+                            if (
+                                _lsp.RequestMetadataSource(
+                                    target.MetadataSource,
+                                    target.Line,
+                                    target.Character
+                                )
+                            )
+                            {
+                                _metadataRequestPending = true;
+                                SetMessage(
+                                    $"Loading metadata for {target.MetadataSource.TypeName}..."
+                                );
+                            }
+                            else
+                            {
+                                SetMessage(
+                                    "The definition is in assembly metadata and cannot be opened."
+                                );
+                            }
+                            break;
+                        }
+
+                        NavigateToDefinition(
+                            new LspLocation(target.Uri, target.Line, target.Character)
+                        );
+                        break;
+                    }
+
                     if (lspEvent.Locations.Count == 0)
                     {
                         SetMessage("No definition found.");
@@ -392,6 +425,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                     {
                         NavigateToDefinition(lspEvent.Locations[0]);
                     }
+                    break;
+                case LspEventKind.MetadataSource:
+                    if (!_metadataRequestPending || lspEvent.MetadataDocument is null)
+                    {
+                        break;
+                    }
+                    _metadataRequestPending = false;
+                    OpenMetadataDefinition(lspEvent.MetadataDocument);
                     break;
                 case LspEventKind.CodeActions:
                     if (!_codeActionRequestPending)
@@ -454,6 +495,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
                     break;
                 case LspEventKind.Error:
                     _pendingCodeActionResolve = false;
+                    _metadataRequestPending = false;
                     SetError($"LSP {lspEvent.ServerName}: {lspEvent.Message}");
                     break;
                 case LspEventKind.Stopped:
@@ -463,7 +505,12 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             }
         }
 
-        if (_lspDirty && _lsp.IsInitialized && Environment.TickCount64 - _lspDirtySince >= 150)
+        if (
+            _lspDirty
+            && _document.Path is not null
+            && _lsp.IsInitialized
+            && Environment.TickCount64 - _lspDirtySince >= 150
+        )
         {
             _lsp.DidChange(GetText());
             _lspDirty = false;
@@ -487,6 +534,7 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         _diagnosticLineSeverity.Clear();
         _hoverRequestPending = false;
         _definitionRequestPending = false;
+        _metadataRequestPending = false;
         _codeActionRequestPending = false;
         _symbolRequestPending = false;
         CloseLspCompletion();
@@ -496,6 +544,14 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
     private void StopLspIfNotServingCurrentDocument()
     {
+        // A virtual buffer (for example decompiled metadata) has no document
+        // URI of its own. Keep the current server alive so navigating back to
+        // workspace source reuses it.
+        if (_document.IsVirtual)
+        {
+            return;
+        }
+
         if (_document.Path is null || !_lsp.IsServing(_document.Path))
         {
             ResetLsp();
@@ -672,7 +728,10 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
 
         (int line, int character) = CursorLspPosition();
-        if (!_lsp.RequestDefinition(_document.Path!, line, character))
+        bool requested = _lsp.SupportsMetadataNavigation
+            ? _lsp.RequestDefinitionWithMetadata(_document.Path!, line, character)
+            : _lsp.RequestDefinition(_document.Path!, line, character);
+        if (!requested)
         {
             SetError("No LSP configured");
             return;
@@ -680,6 +739,59 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
 
         _definitionRequestPending = true;
         SetMessage("Requesting definition...");
+    }
+
+    /// <summary>
+    /// Shows a definition that lives in referenced assembly metadata (a NuGet
+    /// package or framework assembly) in a virtual, in-memory buffer. This is
+    /// what OmniSharp returns for a <c>$metadata$</c> definition target.
+    /// </summary>
+    private void OpenMetadataDefinition(LspMetadataDocument metadata)
+    {
+        string displayName = Path.GetFileName(metadata.SourceName);
+        if (displayName.Length == 0)
+        {
+            displayName = "metadata.cs";
+        }
+
+        byte[] bytes = Encoding.UTF8.GetBytes(metadata.Source);
+        string? languageId = _language?.Id ?? "csharp";
+        Document loaded = Document.CreateVirtual(displayName, bytes, languageId);
+
+        PrepareLspForBufferSwitch();
+        _document = loaded;
+        RefreshLanguage();
+        AutoDetectIndentationOnOpen();
+        _cursor = 0;
+        _topLine = 0;
+        _leftColumn = 0;
+        _preferredColumnValid = false;
+        _selectionLinewise = false;
+        _extraSelections.Clear();
+        _pendingG = false;
+        _mode = Mode.Normal;
+        _commandLine.Clear();
+        _commandCursor = 0;
+
+        if (loaded.LineCount > 0)
+        {
+            long targetLine = Math.Clamp(metadata.Line, 0, loaded.LineCount - 1);
+            long start = loaded.LineStart(targetLine);
+            int length = loaded.CopyLineText(targetLine, ref _lineBuffer, out _);
+            int local = LspPositions.Utf16ColumnToByteOffset(
+                _lineBuffer.AsSpan(0, length),
+                metadata.Character
+            );
+            _cursor = start + local;
+            int rows = ActivePaneRows();
+            _topLine = Math.Max(0, targetLine - Math.Max(0, rows / 2));
+        }
+
+        SnapCursor();
+        _selectionAnchor = _cursor;
+        RefreshFileStamp();
+        RefreshDiffLines();
+        SetMessage($"Opened metadata definition {displayName}");
     }
 
     private void NavigateToDefinition(LspLocation location)

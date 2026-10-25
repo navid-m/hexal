@@ -249,6 +249,7 @@ public sealed partial class Editor
     private int _hoverTop;
     private bool _hoverRequestPending;
     private bool _definitionRequestPending;
+    private bool _metadataRequestPending;
     private bool _codeActionRequestPending;
     private bool _symbolRequestPending;
 
@@ -344,7 +345,9 @@ public sealed partial class Editor
     private readonly List<string> _completionItems = new();
     private bool _lspCompletionVisible;
     private bool _lspCompletionPending;
+    private readonly List<LspCompletionItem> _lspCompletionAllItems = new();
     private readonly List<LspCompletionItem> _lspCompletionItems = new();
+    private string _lspCompletionFilter = string.Empty;
     private int _lspCompletionSelected;
     private int _lspCompletionTop;
     private int _completionSelected;
