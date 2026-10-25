@@ -45,7 +45,7 @@ internal static class Program
 
             if (!optionsEnded && (argument == "-v" || argument == "--version"))
             {
-                Console.Out.WriteLine($"hexal {Version}");
+                Console.Out.WriteLine($"hexal {Version} ({BuildInfo.CommitHash})");
                 return 0;
             }
 

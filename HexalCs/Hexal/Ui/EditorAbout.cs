@@ -122,7 +122,6 @@ public sealed partial class Editor
 
         DrawCenteredLine(headerY, Branding.Title, _theme.AccentStyle);
         DrawCenteredLine(headerY + 1, Branding.Author, _theme.MutedStyle);
-        DrawCenteredLine(headerY + 2, Branding.Commit, _theme.MutedStyle);
 
         _aboutLeft = Math.Clamp(_aboutLeft, 0, AboutMaxLeft());
         int artX = AboutBannerWidth <= _columns ? (_columns - AboutBannerWidth) / 2 : 0;
