@@ -9,6 +9,7 @@ public sealed partial class Editor
     private Task<LanguageRegistry>? _startupGrammarTask;
     private long _startupGrammarStarted;
     private bool _postRenderStartupDone;
+    private bool _sidebarPrewarmed;
 
     /// <summary>
     /// Completes work that is not needed for the first frame. This is polled
@@ -27,6 +28,15 @@ public sealed partial class Editor
             RefreshDiffLines();
             _benchmark?.AddSince("Startup", "Post-render initialization", postRenderStarted);
             redraw = true;
+        }
+
+        if (!_sidebarPrewarmed)
+        {
+            _sidebarPrewarmed = true;
+            // Warm the sidebar snapshot after the first frame so the first
+            // Ctrl+B has a tree ready even on slow filesystems.
+            ExpandSidebarToPath(_document.Path);
+            RefreshSidebar(_document.Path);
         }
 
         if (_startupGrammarTask is not { IsCompleted: true } completed)

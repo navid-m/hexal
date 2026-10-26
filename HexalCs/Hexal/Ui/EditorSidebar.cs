@@ -86,6 +86,45 @@ public sealed partial class Editor
         public bool Expanded;
     }
 
+    private sealed class SidebarScanOperation
+    {
+        public long Generation;
+        public string Root = string.Empty;
+        public bool ShowGitIgnored;
+        public string? SelectPath;
+        public Task<SidebarScanResult> Task = null!;
+    }
+
+    private sealed class SidebarScanResult
+    {
+        public long Generation;
+        public string Root = string.Empty;
+        public bool ShowGitIgnored;
+        public string? SelectPath;
+        public List<SidebarNode> Nodes = new();
+        public bool HasGitStatus;
+        public long GitStatusVersion;
+        public HashSet<string> GitModifiedFiles = new(SidebarPathComparison);
+        public HashSet<string> GitModifiedDirectories = new(SidebarPathComparison);
+        public HashSet<string> GitUntrackedFiles = new(SidebarPathComparison);
+        public HashSet<string> GitUntrackedDirectories = new(SidebarPathComparison);
+    }
+
+    private sealed class SidebarGitStatusOperation
+    {
+        public long Version;
+        public Task<SidebarGitStatusResult> Task = null!;
+    }
+
+    private sealed class SidebarGitStatusResult
+    {
+        public long Version;
+        public HashSet<string> GitModifiedFiles = new(SidebarPathComparison);
+        public HashSet<string> GitModifiedDirectories = new(SidebarPathComparison);
+        public HashSet<string> GitUntrackedFiles = new(SidebarPathComparison);
+        public HashSet<string> GitUntrackedDirectories = new(SidebarPathComparison);
+    }
+
     private bool _sidebarVisible;
     private bool _sidebarFocused;
     private bool _sidebarMenuVisible;
@@ -107,6 +146,14 @@ public sealed partial class Editor
     private readonly HashSet<string> _sidebarGitUntrackedDirectories = new(SidebarPathComparison);
     private long _sidebarGitStatusAt = long.MinValue / 2;
     private const int SidebarGitStatusCacheMs = 500;
+    private SidebarScanOperation? _sidebarScanOperation;
+    private long _sidebarScanGeneration;
+    private string _sidebarCacheRoot = string.Empty;
+    private bool _sidebarCacheShowGitIgnored;
+    private bool _sidebarCacheValid;
+    private SidebarGitStatusOperation? _sidebarGitStatusOperation;
+    private long _sidebarGitStatusVersion;
+    private long _sidebarGitStatusAppliedVersion = long.MinValue;
     private readonly List<(string Path, bool IsDirectory)> _pendingSidebarDeletes = new();
     private string _pendingSidebarDiff = string.Empty;
     private string _pendingSidebarDiffLabel = string.Empty;
@@ -2126,14 +2173,170 @@ public sealed partial class Editor
         _pendingSidebarDeletes.Clear();
     }
 
+    /// <summary>
+    /// Rebuilds the tree in the background. A previous tree for the same root
+    /// stays on screen while the scan runs so opening the sidebar never waits
+    /// for a slow disk, endpoint scanner, or Git process.
+    /// </summary>
     private void RefreshSidebar(string? selectPath)
     {
         InvalidateFileListCaches();
-        string? selectedPath = selectPath ?? SelectedSidebarNode?.Path;
-        RefreshSidebarGitStatus();
+        string root = SidebarFullPath(ProjectRoot());
+        bool showGitIgnored = _showGitIgnored;
+        var expanded = new HashSet<string>(_sidebarExpanded, SidebarPathComparison);
+
+        if (
+            !_sidebarCacheValid
+            || !SamePath(_sidebarCacheRoot, root)
+            || _sidebarCacheShowGitIgnored != showGitIgnored
+        )
+        {
+            _sidebarNodes.Clear();
+            _sidebarSelected = 0;
+            _sidebarSelectionAnchor = 0;
+            _sidebarTop = 0;
+            _sidebarGitModifiedFiles.Clear();
+            _sidebarGitModifiedDirectories.Clear();
+            _sidebarGitUntrackedFiles.Clear();
+            _sidebarGitUntrackedDirectories.Clear();
+        }
+
+        bool includeGitStatus = _config.ShowModifiedIndicators;
+        long gitStatusVersion = 0;
+        if (includeGitStatus)
+        {
+            long now = Environment.TickCount64;
+            includeGitStatus = now - _sidebarGitStatusAt >= SidebarGitStatusCacheMs;
+            if (includeGitStatus)
+            {
+                _sidebarGitStatusAt = now;
+                gitStatusVersion = ++_sidebarGitStatusVersion;
+            }
+        }
+        else
+        {
+            ++_sidebarGitStatusVersion;
+            _sidebarGitStatusAppliedVersion = _sidebarGitStatusVersion;
+            _sidebarGitModifiedFiles.Clear();
+            _sidebarGitModifiedDirectories.Clear();
+            _sidebarGitUntrackedFiles.Clear();
+            _sidebarGitUntrackedDirectories.Clear();
+        }
+
+        long generation = ++_sidebarScanGeneration;
+        var operation = new SidebarScanOperation
+        {
+            Generation = generation,
+            Root = root,
+            ShowGitIgnored = showGitIgnored,
+            SelectPath = selectPath,
+        };
+
+        operation.Task = Task.Run(() =>
+        {
+            var result = new SidebarScanResult
+            {
+                Generation = generation,
+                Root = root,
+                ShowGitIgnored = showGitIgnored,
+                SelectPath = selectPath,
+            };
+
+            if (includeGitStatus)
+            {
+                GitStatusSnapshot status = GitStatus.Load(root);
+                result.HasGitStatus = true;
+                result.GitStatusVersion = gitStatusVersion;
+                AddSidebarGitStatusPaths(
+                    root,
+                    status.ModifiedPaths,
+                    result.GitModifiedFiles,
+                    result.GitModifiedDirectories
+                );
+                AddSidebarGitStatusPaths(
+                    root,
+                    status.UntrackedPaths,
+                    result.GitUntrackedFiles,
+                    result.GitUntrackedDirectories
+                );
+            }
+
+            GitIgnore? gitIgnore = showGitIgnored ? null : new GitIgnore(root);
+            AddSidebarDirectory(root, 0, root: true, gitIgnore, expanded, result.Nodes);
+            return result;
+        });
+
+        _sidebarScanOperation = operation;
+    }
+
+    private bool PollSidebarScan()
+    {
+        bool redraw = false;
+
+        if (_sidebarScanOperation is { Task.IsCompleted: true } scan)
+        {
+            _sidebarScanOperation = null;
+            if (scan.Generation == _sidebarScanGeneration)
+            {
+                try
+                {
+                    ApplySidebarScan(scan.Task.GetAwaiter().GetResult());
+                    redraw = true;
+                }
+                catch (Exception ex)
+                {
+                    SetError($"sidebar: {ex.Message}");
+                }
+            }
+        }
+
+        if (_sidebarGitStatusOperation is { Task.IsCompleted: true } status)
+        {
+            _sidebarGitStatusOperation = null;
+            try
+            {
+                SidebarGitStatusResult result = status.Task.GetAwaiter().GetResult();
+                if (result.Version > _sidebarGitStatusAppliedVersion)
+                {
+                    _sidebarGitStatusAppliedVersion = result.Version;
+                    ApplySidebarGitStatus(
+                        result.GitModifiedFiles,
+                        result.GitModifiedDirectories,
+                        result.GitUntrackedFiles,
+                        result.GitUntrackedDirectories
+                    );
+                    redraw = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                SetError($"git status: {ex.Message}");
+            }
+        }
+
+        return redraw;
+    }
+
+    private void ApplySidebarScan(SidebarScanResult result)
+    {
+        string? selectedPath = result.SelectPath ?? SelectedSidebarNode?.Path;
+
         _sidebarNodes.Clear();
-        GitIgnore? gitIgnore = _showGitIgnored ? null : new GitIgnore(ProjectRoot());
-        AddSidebarDirectory(ProjectRoot(), 0, root: true, gitIgnore);
+        _sidebarNodes.AddRange(result.Nodes);
+        _sidebarCacheRoot = result.Root;
+        _sidebarCacheShowGitIgnored = result.ShowGitIgnored;
+        _sidebarCacheValid = true;
+
+        if (result.HasGitStatus && result.GitStatusVersion > _sidebarGitStatusAppliedVersion)
+        {
+            _sidebarGitStatusAppliedVersion = result.GitStatusVersion;
+            ApplySidebarGitStatus(
+                result.GitModifiedFiles,
+                result.GitModifiedDirectories,
+                result.GitUntrackedFiles,
+                result.GitUntrackedDirectories
+            );
+        }
 
         if (_sidebarNodes.Count == 0)
         {
@@ -2148,14 +2351,34 @@ public sealed partial class Editor
             SelectSidebarPath(selectedPath);
         }
 
+        _sidebarSelected = Math.Clamp(_sidebarSelected, 0, _sidebarNodes.Count - 1);
         _sidebarSelectionAnchor = _sidebarSelected;
         EnsureSidebarSelectionVisible();
+    }
+
+    private void ApplySidebarGitStatus(
+        HashSet<string> modifiedFiles,
+        HashSet<string> modifiedDirectories,
+        HashSet<string> untrackedFiles,
+        HashSet<string> untrackedDirectories
+    )
+    {
+        _sidebarGitModifiedFiles.Clear();
+        _sidebarGitModifiedFiles.UnionWith(modifiedFiles);
+        _sidebarGitModifiedDirectories.Clear();
+        _sidebarGitModifiedDirectories.UnionWith(modifiedDirectories);
+        _sidebarGitUntrackedFiles.Clear();
+        _sidebarGitUntrackedFiles.UnionWith(untrackedFiles);
+        _sidebarGitUntrackedDirectories.Clear();
+        _sidebarGitUntrackedDirectories.UnionWith(untrackedDirectories);
     }
 
     private void RefreshSidebarGitStatus(bool force = false)
     {
         if (!_config.ShowModifiedIndicators)
         {
+            ++_sidebarGitStatusVersion;
+            _sidebarGitStatusAppliedVersion = _sidebarGitStatusVersion;
             _sidebarGitModifiedFiles.Clear();
             _sidebarGitModifiedDirectories.Clear();
             _sidebarGitUntrackedFiles.Clear();
@@ -2170,25 +2393,30 @@ public sealed partial class Editor
         }
         _sidebarGitStatusAt = now;
 
-        _sidebarGitModifiedFiles.Clear();
-        _sidebarGitModifiedDirectories.Clear();
-        _sidebarGitUntrackedFiles.Clear();
-        _sidebarGitUntrackedDirectories.Clear();
-
+        long version = ++_sidebarGitStatusVersion;
         string root = SidebarFullPath(ProjectRoot());
-        GitStatusSnapshot status = GitStatus.Load(root);
-        AddSidebarGitStatusPaths(
-            root,
-            status.ModifiedPaths,
-            _sidebarGitModifiedFiles,
-            _sidebarGitModifiedDirectories
-        );
-        AddSidebarGitStatusPaths(
-            root,
-            status.UntrackedPaths,
-            _sidebarGitUntrackedFiles,
-            _sidebarGitUntrackedDirectories
-        );
+        var operation = new SidebarGitStatusOperation { Version = version };
+
+        operation.Task = Task.Run(() =>
+        {
+            var result = new SidebarGitStatusResult { Version = version };
+            GitStatusSnapshot status = GitStatus.Load(root);
+            AddSidebarGitStatusPaths(
+                root,
+                status.ModifiedPaths,
+                result.GitModifiedFiles,
+                result.GitModifiedDirectories
+            );
+            AddSidebarGitStatusPaths(
+                root,
+                status.UntrackedPaths,
+                result.GitUntrackedFiles,
+                result.GitUntrackedDirectories
+            );
+            return result;
+        });
+
+        _sidebarGitStatusOperation = operation;
     }
 
     private static void AddSidebarGitStatusPaths(
@@ -2225,7 +2453,14 @@ public sealed partial class Editor
         }
     }
 
-    private void AddSidebarDirectory(string directory, int depth, bool root, GitIgnore? gitIgnore)
+    private static void AddSidebarDirectory(
+        string directory,
+        int depth,
+        bool root,
+        GitIgnore? gitIgnore,
+        HashSet<string> expandedDirectories,
+        List<SidebarNode> nodes
+    )
     {
         string[] directories;
         string[] files;
@@ -2286,8 +2521,8 @@ public sealed partial class Editor
                 continue;
             }
 
-            bool expanded = _sidebarExpanded.Contains(child);
-            _sidebarNodes.Add(
+            bool expanded = expandedDirectories.Contains(child);
+            nodes.Add(
                 new SidebarNode
                 {
                     Path = child,
@@ -2300,7 +2535,14 @@ public sealed partial class Editor
 
             if (expanded)
             {
-                AddSidebarDirectory(child, depth + 1, root: false, gitIgnore);
+                AddSidebarDirectory(
+                    child,
+                    depth + 1,
+                    root: false,
+                    gitIgnore,
+                    expandedDirectories,
+                    nodes
+                );
             }
         }
 
@@ -2317,7 +2559,7 @@ public sealed partial class Editor
                 continue;
             }
 
-            _sidebarNodes.Add(
+            nodes.Add(
                 new SidebarNode
                 {
                     Path = child,

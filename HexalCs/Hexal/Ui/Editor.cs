@@ -577,9 +577,12 @@ public sealed partial class Editor
             // consumes no CPU.
             bool busy =
                 _saveOperation is not null
+                || _diffLoadOperation is not null
                 || _formatOperation is not null
                 || _sidebarFormatOperation is not null
                 || _workspaceFormatOperation is not null
+                || _sidebarScanOperation is not null
+                || _sidebarGitStatusOperation is not null
                 || _pickerTask is not null
                 || _lsp.IsRunning
                 || _lspDirty
@@ -5742,6 +5745,14 @@ public sealed partial class Editor
         {
             redraw = true;
         }
+        if (PollDiffLoad())
+        {
+            redraw = true;
+        }
+        if (PollSidebarScan())
+        {
+            redraw = true;
+        }
         if (PollFormat())
         {
             redraw = true;
@@ -5958,7 +5969,7 @@ public sealed partial class Editor
     private void RequestOpen(string path, bool force, long line = -1, long column = -1)
     {
         path = FileSystemUtil.ExpandHomeDirectory(path);
-        if (File.Exists(path) && FileSearch.IsBinary(path))
+        if (FileSearch.IsBinary(path))
         {
             ShowBinaryFilePrompt(path, force, line, column);
             return;
