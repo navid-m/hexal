@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Hexal.Languages;
+using Hexal.Util;
 
 namespace Hexal.Ui;
 
@@ -24,8 +25,17 @@ public sealed partial class Editor
         {
             _postRenderStartupDone = true;
             long postRenderStarted = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+            long phaseStarted = StartupTrace.Timestamp();
             AutoDetectIndentationOnOpen();
+            StartupTrace.Mark("post-render indentation detection", phaseStarted);
+
+            phaseStarted = StartupTrace.Timestamp();
             RefreshDiffLines();
+            StartupTrace.Mark(
+                "post-render git diff lines",
+                phaseStarted,
+                $"{_diffLines.Count} marker(s)"
+            );
             _benchmark?.AddSince("Startup", "Post-render initialization", postRenderStarted);
             redraw = true;
         }
@@ -44,6 +54,7 @@ public sealed partial class Editor
             return redraw;
         }
 
+        long grammarCompleted = StartupTrace.Timestamp();
         _startupGrammarTask = null;
         LanguageRegistry languages;
         try
@@ -55,6 +66,7 @@ public sealed partial class Editor
             languages = new LanguageRegistry();
             SetError($"grammar: {ex.Message}");
         }
+        StartupTrace.Mark("collect grammar task result", grammarCompleted);
 
         _languages = languages;
         if (_benchmark is not null && _startupGrammarStarted != 0)
@@ -67,11 +79,24 @@ public sealed partial class Editor
             );
             _startupGrammarStarted = 0;
         }
+        StartupTrace.Note(
+            $"grammar registry applied: {_languages.Languages.Count} definitions, "
+                + $"{_languages.Errors.Count} error(s)"
+        );
 
+        long phaseStarted2 = StartupTrace.Timestamp();
         RefreshLanguage();
+        StartupTrace.Mark(
+            "post-grammar language detection",
+            phaseStarted2,
+            _language?.Id ?? "<none>"
+        );
+
         // Language detection can change the default indentation. Preserve the
         // original startup order where document auto-detection wins.
+        phaseStarted2 = StartupTrace.Timestamp();
         AutoDetectIndentationOnOpen();
+        StartupTrace.Mark("post-grammar indentation detection", phaseStarted2);
 
         if (_languages.Errors.Count > 0)
         {
@@ -80,7 +105,18 @@ public sealed partial class Editor
 
         // Language servers and lazy language plugins need the detected
         // language, which was not available for the first render.
+        phaseStarted2 = StartupTrace.Timestamp();
         FirePluginEvent("buffer_opened", CurrentBufferData());
+        StartupTrace.Mark(
+            "post-grammar buffer_opened event",
+            phaseStarted2,
+            $"language={_language?.Id ?? "<none>"}"
+        );
+        StartupTrace.DumpBenchmark(_benchmark, "after grammar/deferred plugins");
+        StartupTrace.Note(
+            $"startup work fully drained: main+{StartupTrace.SinceMainMilliseconds:F1} ms, "
+                + $"process+{StartupTrace.SinceProcessMilliseconds():F1} ms"
+        );
 
         _forceFullRedraw = true;
         return true;

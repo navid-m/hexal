@@ -32,9 +32,11 @@ public static class GitDiff
 
     public static Dictionary<long, GitDiffLineKind> Load(string? path, long lineCount)
     {
+        long loadStarted = StartupTrace.Timestamp();
         var result = new Dictionary<long, GitDiffLineKind>();
         if (string.IsNullOrEmpty(path) || lineCount <= 0)
         {
+            StartupTrace.Mark("git diff lines: load", loadStarted, "no path or empty buffer");
             return result;
         }
 
@@ -42,6 +44,7 @@ public static class GitDiff
         string fileName = Path.GetFileName(path);
         if (string.IsNullOrEmpty(directory) || fileName.Length == 0)
         {
+            StartupTrace.Mark("git diff lines: load", loadStarted, $"invalid path '{path}'");
             return result;
         }
 
@@ -56,6 +59,11 @@ public static class GitDiff
             Parse(output, lineCount, result);
         }
 
+        StartupTrace.Mark(
+            "git diff lines: load",
+            loadStarted,
+            $"{result.Count} marker(s) for '{path}' ({lineCount} line(s))"
+        );
         return result;
     }
 
@@ -70,8 +78,10 @@ public static class GitDiff
     /// </summary>
     public static ulong[]? LoadBaseline(string path)
     {
+        long baselineStarted = StartupTrace.Timestamp();
         if (string.IsNullOrEmpty(path))
         {
+            StartupTrace.Mark("git diff baseline: load", baselineStarted, "no path");
             return null;
         }
 
@@ -79,11 +89,18 @@ public static class GitDiff
         string fileName = Path.GetFileName(path);
         if (string.IsNullOrEmpty(directory) || fileName.Length == 0)
         {
+            StartupTrace.Mark("git diff baseline: load", baselineStarted, $"invalid path '{path}'");
             return null;
         }
 
         byte[]? content = RunShow(directory, "HEAD:./" + fileName);
-        return content is null ? null : HashLines(content);
+        ulong[]? hashes = content is null ? null : HashLines(content);
+        StartupTrace.Mark(
+            "git diff baseline: load",
+            baselineStarted,
+            content is null ? "unavailable" : $"{content.Length} byte(s)"
+        );
+        return hashes;
     }
 
     /// <summary>
@@ -404,6 +421,7 @@ public static class GitDiff
 
     private static byte[]? RunShow(string directory, string revisionPath)
     {
+        long commandStarted = StartupTrace.Timestamp();
         try
         {
             var startInfo = new ProcessStartInfo
@@ -463,7 +481,16 @@ public static class GitDiff
                         or UnauthorizedAccessException
             )
         {
+            StartupTrace.Note($"git show failed: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            StartupTrace.Mark(
+                "git show baseline",
+                commandStarted,
+                $"{revisionPath} (cwd {directory})"
+            );
         }
     }
 
@@ -476,6 +503,7 @@ public static class GitDiff
 
     private static string? Run(string directory, string fileName, bool useHead)
     {
+        long commandStarted = StartupTrace.Timestamp();
         try
         {
             var startInfo = new ProcessStartInfo
@@ -546,7 +574,16 @@ public static class GitDiff
                         or UnauthorizedAccessException
             )
         {
+            StartupTrace.Note($"git diff failed: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            StartupTrace.Mark(
+                $"git diff ({(useHead ? "HEAD" : "working tree")})",
+                commandStarted,
+                $"'{fileName}' (cwd {directory})"
+            );
         }
     }
 

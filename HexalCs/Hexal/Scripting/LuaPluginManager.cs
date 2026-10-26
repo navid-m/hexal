@@ -144,17 +144,26 @@ public sealed class LuaPluginManager : IDisposable
     {
         lock (WarmupLock)
         {
-            s_warmupTask ??= Task.Run(static () => WarmupRuntime());
+            if (s_warmupTask is null)
+            {
+                StartupTrace.Note("Lua runtime warmup scheduled");
+                s_warmupTask = Task.Run(static () => WarmupRuntime());
+            }
         }
     }
 
     private static void WarmupRuntime()
     {
+        long warmupStarted = StartupTrace.Timestamp();
+        StartupTrace.Note("Lua runtime warmup started");
         try
         {
+            long phaseStarted = StartupTrace.Timestamp();
             using var lua = new Lua();
             lua.State.Encoding = Encoding.UTF8;
             lua.NewTable("hexal");
+            StartupTrace.Mark("Lua warmup: create Lua state", phaseStarted);
+
             var plugin = new LoadedPlugin
             {
                 Id = "warmup",
@@ -167,11 +176,18 @@ public sealed class LuaPluginManager : IDisposable
             // complete hexal.* module surface. Do it here, concurrently with
             // grammar and theme loading, using a throwaway manager/state.
             var manager = new LuaPluginManager(null!, string.Empty, string.Empty);
+            phaseStarted = StartupTrace.Timestamp();
             manager.RegisterModules(plugin);
+            StartupTrace.Mark("Lua warmup: register modules API surface", phaseStarted);
         }
-        catch
+        catch (Exception ex)
         {
             // Warmup is best effort; real plugin loading reports errors.
+            StartupTrace.Note($"Lua warmup failed: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            StartupTrace.Mark("Lua warmup total", warmupStarted);
         }
     }
 
@@ -393,6 +409,10 @@ public sealed class LuaPluginManager : IDisposable
 
     public void LoadAll()
     {
+        long loadStarted = StartupTrace.Timestamp();
+        StartupTrace.Note($"plugin load started from '{_pluginsDirectory}'");
+
+        long phaseStarted = StartupTrace.Timestamp();
         try
         {
             Directory.CreateDirectory(_pluginsDirectory);
@@ -408,8 +428,10 @@ public sealed class LuaPluginManager : IDisposable
             _errors.Add($"cannot create plugin directory '{_pluginsDirectory}': {ex.Message}");
             return;
         }
+        StartupTrace.Mark("plugin dir create", phaseStarted);
 
         string[] directories;
+        phaseStarted = StartupTrace.Timestamp();
         try
         {
             directories = Directory.GetDirectories(_pluginsDirectory);
@@ -425,17 +447,31 @@ public sealed class LuaPluginManager : IDisposable
             _errors.Add($"cannot read plugin directory '{_pluginsDirectory}': {ex.Message}");
             return;
         }
+        StartupTrace.Mark(
+            "plugin dir enumerate",
+            phaseStarted,
+            $"{directories.Length} entries"
+        );
 
+        phaseStarted = StartupTrace.Timestamp();
         HashSet<string> disabled = LoadDisabledPlugins();
+        StartupTrace.Mark("plugin disabled-state read", phaseStarted, $"{disabled.Count} disabled");
 
         Array.Sort(directories, StringComparer.OrdinalIgnoreCase);
+        phaseStarted = StartupTrace.Timestamp();
         foreach (string directory in directories)
         {
             DiscoverPlugin(directory, disabled);
         }
+        StartupTrace.Mark("plugin discovery loop", phaseStarted, $"{directories.Length} entries");
 
         HexalPaths.Log(
             $"Plugins: {_pluginsDirectory} ({_plugins.Count} loaded, {_errors.Count} error(s))"
+        );
+        StartupTrace.Mark(
+            "plugin load total",
+            loadStarted,
+            $"{_plugins.Count} running, {DeferredPluginCount} deferred, {_errors.Count} error(s)"
         );
     }
 
@@ -555,6 +591,7 @@ public sealed class LuaPluginManager : IDisposable
 
     private void LoadDeferredPlugins(string language)
     {
+        StartupTrace.Note($"deferred plugin check for language '{language}'");
         foreach (PluginEntry entry in _entries.ToArray())
         {
             if (
@@ -567,6 +604,7 @@ public sealed class LuaPluginManager : IDisposable
                 continue;
             }
 
+            StartupTrace.Note($"deferred plugin loading: '{entry.Id}' for '{language}'");
             StartPlugin(entry);
         }
     }
@@ -754,14 +792,25 @@ public sealed class LuaPluginManager : IDisposable
         };
         _entries.Add(entry);
 
+        long phaseStarted = StartupTrace.Timestamp();
         if (
             File.Exists(manifestPath)
             && !TryParseManifest(manifestPath, manifest, out string manifestError)
         )
         {
             RecordDiscoveryError(entry, manifestError);
+            StartupTrace.Mark(
+                $"plugin discover '{entry.Id}': manifest parse",
+                phaseStarted,
+                manifestError
+            );
             return;
         }
+        StartupTrace.Mark(
+            $"plugin discover '{entry.Id}': manifest read",
+            phaseStarted,
+            $"{manifest.Count} key(s)"
+        );
 
         if (
             manifest.TryGetValue("id", out string? manifestId)
@@ -824,7 +873,14 @@ public sealed class LuaPluginManager : IDisposable
         }
 
         entry.EntryPath = entryPath;
-        if (!File.Exists(entryPath))
+        phaseStarted = StartupTrace.Timestamp();
+        bool entryExists = File.Exists(entryPath);
+        StartupTrace.Mark(
+            $"plugin discover '{entry.Id}': entry point check",
+            phaseStarted,
+            entryExists ? "found" : "missing"
+        );
+        if (!entryExists)
         {
             RecordDiscoveryError(entry, $"entry point '{entryFile}' not found");
             return;
@@ -842,9 +898,16 @@ public sealed class LuaPluginManager : IDisposable
         if (entry.Enabled && lazy && entry.LazyLanguage.Length > 0)
         {
             entry.Deferred = true;
+            StartupTrace.Note(
+                $"plugin discover '{entry.Id}': deferred until language '{entry.LazyLanguage}'"
+            );
             return;
         }
 
+        StartupTrace.Note(
+            $"plugin discover '{entry.Id}': enabled={entry.Enabled}, "
+                + $"lazy={lazy}, language='{entry.LazyLanguage}'"
+        );
         if (entry.Enabled)
         {
             StartPlugin(entry);
@@ -870,24 +933,41 @@ public sealed class LuaPluginManager : IDisposable
     /// </summary>
     private void StartPlugin(PluginEntry entry)
     {
-        if (_benchmark is null)
-        {
-            StartPluginCore(entry);
-            return;
-        }
+        long traceStarted = StartupTrace.Timestamp();
+        StartupTrace.Note(
+            $"plugin start: '{entry.Id}' (deferred={entry.Deferred}, " +
+                $"language='{entry.LazyLanguage}', entry='{entry.EntryPath}')"
+        );
 
-        long started = Stopwatch.GetTimestamp();
         try
         {
-            StartPluginCore(entry);
+            if (_benchmark is null)
+            {
+                StartPluginCore(entry);
+                return;
+            }
+
+            long started = Stopwatch.GetTimestamp();
+            try
+            {
+                StartPluginCore(entry);
+            }
+            finally
+            {
+                _benchmark.Add(
+                    "Plugins",
+                    entry.Id,
+                    Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                    entry.Enabled ? "started" : entry.Error
+                );
+            }
         }
         finally
         {
-            _benchmark.Add(
-                "Plugins",
-                entry.Id,
-                Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                entry.Enabled ? "started" : entry.Error
+            StartupTrace.Mark(
+                $"plugin start: '{entry.Id}'",
+                traceStarted,
+                entry.Enabled ? "ok" : entry.Error
             );
         }
     }
@@ -910,6 +990,7 @@ public sealed class LuaPluginManager : IDisposable
             EntryPath = entry.EntryPath,
         };
 
+        long phaseStarted = StartupTrace.Timestamp();
         string configDirectory = DefaultPluginConfigDirectory;
         string configPath = Path.Combine(configDirectory, SanitizeFileName(entry.Id) + ".json");
         plugin.Config = new PluginConfigStore(configPath);
@@ -917,23 +998,37 @@ public sealed class LuaPluginManager : IDisposable
         {
             _errors.Add($"{entry.Id}: config: {configError}");
         }
+        StartupTrace.Mark(
+            $"plugin '{entry.Id}': config load",
+            phaseStarted,
+            configError.Length == 0 ? configPath : configError
+        );
 
         try
         {
+            phaseStarted = StartupTrace.Timestamp();
             plugin.Lua = new Lua();
             plugin.Lua.State.Encoding = Encoding.UTF8;
             plugin.Lua.NewTable("hexal");
             plugin.Hexal = (LuaTable)plugin.Lua["hexal"];
             plugin.Hexal["api_version"] = 1;
+            StartupTrace.Mark($"plugin '{entry.Id}': create Lua state", phaseStarted);
 
             plugin.Lua["__hexal_plugin_dir"] = entry.Directory.Replace('\\', '/');
+            phaseStarted = StartupTrace.Timestamp();
             plugin.Lua.DoString(
                 "package.path = __hexal_plugin_dir .. '/?.lua;' .. "
                     + "__hexal_plugin_dir .. '/?/init.lua;' .. package.path"
             );
+            StartupTrace.Mark($"plugin '{entry.Id}': configure package.path", phaseStarted);
 
+            phaseStarted = StartupTrace.Timestamp();
             RegisterModules(plugin);
+            StartupTrace.Mark($"plugin '{entry.Id}': register hexal API modules", phaseStarted);
+
+            phaseStarted = StartupTrace.Timestamp();
             plugin.Lua.DoFile(entry.EntryPath);
+            StartupTrace.Mark($"plugin '{entry.Id}': execute entry script", phaseStarted);
             plugin.Running = true;
             _plugins.Add(plugin);
             entry.Plugin = plugin;

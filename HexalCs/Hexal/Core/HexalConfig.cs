@@ -139,10 +139,14 @@ public sealed class HexalConfig
 
     public static HexalConfig LoadDefault(out string error)
     {
+        long phaseStarted = StartupTrace.Timestamp();
         string path = ResolvePath();
+        StartupTrace.Mark("config: resolve path", phaseStarted, path);
+
         if (!File.Exists(path))
         {
             error = string.Empty;
+            StartupTrace.Note($"config: no config file at '{path}', using defaults");
             return new HexalConfig { SourcePath = path };
         }
 
@@ -152,14 +156,21 @@ public sealed class HexalConfig
     public static HexalConfig Load(string path, out string error)
     {
         error = string.Empty;
+        long loadStarted = StartupTrace.Timestamp();
 
         try
         {
+            long phaseStarted = StartupTrace.Timestamp();
             string json = File.ReadAllText(path);
+            StartupTrace.Mark("config: read file", phaseStarted, $"{json.Length} char(s)");
+
+            phaseStarted = StartupTrace.Timestamp();
             if (!TryParse(json, path, out HexalConfig? config, out error))
             {
+                StartupTrace.Mark("config: parse", phaseStarted, error);
                 return new HexalConfig { SourcePath = path };
             }
+            StartupTrace.Mark("config: parse", phaseStarted);
 
             return config!;
         }
@@ -172,7 +183,12 @@ public sealed class HexalConfig
             )
         {
             error = ex.Message;
+            StartupTrace.Note($"config: load failed: {ex.Message}");
             return new HexalConfig { SourcePath = path };
+        }
+        finally
+        {
+            StartupTrace.Mark("config: load total", loadStarted);
         }
     }
 

@@ -452,12 +452,28 @@ public sealed partial class Editor
         bool openFilePicker = false
     )
     {
+        long constructorStarted = StartupTrace.Timestamp();
+
+        long phaseStarted = StartupTrace.Timestamp();
         LuaPluginManager.BeginWarmup();
+        StartupTrace.Mark("Lua warmup schedule", phaseStarted);
+
         _terminal = terminal;
         _document = document;
+
+        phaseStarted = StartupTrace.Timestamp();
         _workspaceRoot = ResolveWorkspaceRoot(workspaceRoot);
+        StartupTrace.Mark("workspace root resolution", phaseStarted, _workspaceRoot);
+
         _openFilePickerOnStart = openFilePicker;
+
+        phaseStarted = StartupTrace.Timestamp();
         _config = HexalConfig.LoadDefault(out string configError);
+        StartupTrace.Mark(
+            "config load",
+            phaseStarted,
+            $"{_config.SourcePath} (benchmark={_config.StartupBenchmarker})"
+        );
         if (_config.StartupBenchmarker)
         {
             _benchmark = new StartupBenchmark();
@@ -473,10 +489,18 @@ public sealed partial class Editor
         // immediately; the registry is applied as soon as it is ready.
         _languages = new LanguageRegistry();
         _startupGrammarStarted = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        phaseStarted = StartupTrace.Timestamp();
         _startupGrammarTask = Task.Run(LanguageRegistry.LoadUserGrammars);
+        StartupTrace.Mark("grammar load schedule", phaseStarted);
 
         long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        phaseStarted = StartupTrace.Timestamp();
         _themes = ThemeRegistry.LoadDefault(out string themeError);
+        StartupTrace.Mark(
+            "theme registry load",
+            phaseStarted,
+            $"{_themes.Themes.Count} themes, errors={_themes.Errors.Count}"
+        );
         _benchmark?.AddSince(
             "Internal",
             "Theme registry",
@@ -486,11 +510,24 @@ public sealed partial class Editor
         _theme = _themes.ActiveTheme;
 
         phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        phaseStarted = StartupTrace.Timestamp();
         RefreshLanguage();
+        StartupTrace.Mark("initial language detection", phaseStarted, _language?.Id ?? "<none>");
+
+        phaseStarted = StartupTrace.Timestamp();
         RefreshFileStamp();
+        StartupTrace.Mark("first file stamp", phaseStarted, _fileStamp.Valid ? "valid" : "none");
+
+        phaseStarted = StartupTrace.Timestamp();
         SnapCursor();
+        StartupTrace.Mark("initial cursor snap", phaseStarted);
+
+        phaseStarted = StartupTrace.Timestamp();
         InitializePanes();
+        StartupTrace.Mark("pane initialization", phaseStarted);
+
         _benchmark?.AddSince("Internal", "Editor initialization", phaseStart);
+        StartupTrace.Mark("editor constructor total", constructorStarted);
 
         if (themeError.Length > 0)
         {
@@ -544,22 +581,52 @@ public sealed partial class Editor
 
     public int Run()
     {
+        long runStarted = StartupTrace.Timestamp();
+
+        long phaseStarted = StartupTrace.Timestamp();
         RefreshSize();
+        StartupTrace.Mark("refresh terminal size", phaseStarted, $"{_columns}x{_rows}");
+
         EnsureCursorVisible();
+
         if (_openFilePickerOnStart)
         {
+            phaseStarted = StartupTrace.Timestamp();
             OpenPicker(PickerKind.Files);
+            StartupTrace.Mark("initial file picker open", phaseStarted);
         }
 
         // Paint the editor before plugin loading, git diff inspection and
         // other startup work. This removes the blank-terminal flash on slow
         // filesystems and leaves the UI responsive during the remaining work.
+        phaseStarted = StartupTrace.Timestamp();
         Render();
+        StartupTrace.Mark(
+            "first render",
+            phaseStarted,
+            $"after main+{StartupTrace.SinceMainMilliseconds:F1} ms, "
+                + $"process+{StartupTrace.SinceProcessMilliseconds():F1} ms"
+        );
         _benchmark?.AddSince("Startup", "UI first render", _editorStartTimestamp);
 
+        phaseStarted = StartupTrace.Timestamp();
         PollStartupWork();
+        StartupTrace.Mark("first startup-work poll", phaseStarted);
+
+        phaseStarted = StartupTrace.Timestamp();
         LoadPlugins();
+        StartupTrace.Mark("load plugins", phaseStarted);
+        StartupTrace.DumpBenchmark(_benchmark, "after plugin load");
+
+        phaseStarted = StartupTrace.Timestamp();
         Render();
+        StartupTrace.Mark("render after plugins", phaseStarted);
+
+        StartupTrace.Note(
+            $"startup complete through first interactive frame: "
+                + $"main+{StartupTrace.SinceMainMilliseconds:F1} ms, "
+                + $"process+{StartupTrace.SinceProcessMilliseconds():F1} ms"
+        );
 
         while (_running)
         {
@@ -636,7 +703,10 @@ public sealed partial class Editor
             }
         }
 
+        long unloadStarted = StartupTrace.Timestamp();
         UnloadPlugins();
+        StartupTrace.Mark("unload plugins", unloadStarted);
+        StartupTrace.Mark("editor run total", runStarted);
         return 0;
     }
 

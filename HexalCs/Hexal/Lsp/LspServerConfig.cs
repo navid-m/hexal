@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
+using Hexal.Util;
 
 namespace Hexal.Lsp;
 
@@ -180,17 +182,29 @@ public static class ExecutableFinder
 {
     public static string? Find(string command)
     {
+        long findStarted = StartupTrace.Timestamp();
         if (string.IsNullOrWhiteSpace(command))
         {
+            StartupTrace.Mark("lsp: PATH lookup", findStarted, "empty command");
             return null;
         }
 
         if (Path.IsPathRooted(command))
         {
-            return IsUsableExecutable(command) ? command : null;
+            bool usable = IsUsableExecutable(command);
+            StartupTrace.Mark(
+                "lsp: PATH lookup",
+                findStarted,
+                $"rooted '{command}' usable={usable}"
+            );
+            return usable ? command : null;
         }
 
         string path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        string[] pathDirectories = path.Split(
+            Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries
+        );
         string[] extensions = OperatingSystem.IsWindows()
             ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT").Split(
                 ';',
@@ -198,13 +212,10 @@ public static class ExecutableFinder
             )
             : new[] { string.Empty };
 
-        foreach (
-            string directory in path.Split(
-                Path.PathSeparator,
-                StringSplitOptions.RemoveEmptyEntries
-            )
-        )
+        int checkedDirectories = 0;
+        foreach (string directory in pathDirectories)
         {
+            long directoryStarted = StartupTrace.Timestamp();
             foreach (string extension in extensions)
             {
                 string candidate;
@@ -219,11 +230,38 @@ public static class ExecutableFinder
 
                 if (IsUsableExecutable(candidate))
                 {
+                    StartupTrace.Mark(
+                        "lsp: PATH lookup",
+                        findStarted,
+                        $"found '{candidate}' in {checkedDirectories + 1} of "
+                            + $"{pathDirectories.Length} PATH entr(ies)"
+                    );
                     return candidate;
+                }
+            }
+            ++checkedDirectories;
+
+            if (StartupTrace.Enabled)
+            {
+                double directoryMilliseconds = Stopwatch.GetElapsedTime(
+                    directoryStarted
+                ).TotalMilliseconds;
+                if (directoryMilliseconds >= 5)
+                {
+                    StartupTrace.Mark(
+                        $"lsp: slow PATH entry for '{command}'",
+                        directoryStarted,
+                        directory
+                    );
                 }
             }
         }
 
+        StartupTrace.Mark(
+            "lsp: PATH lookup",
+            findStarted,
+            $"'{command}' not found in {checkedDirectories} PATH entr(ies)"
+        );
         return null;
     }
 

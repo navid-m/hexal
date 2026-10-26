@@ -29,9 +29,14 @@ public sealed class LanguageRegistry
 
     public static LanguageRegistry LoadUserGrammars()
     {
+        long loadStarted = StartupTrace.Timestamp();
         var registry = new LanguageRegistry();
-        string directory = DefaultGrammarDirectory;
 
+        long phaseStarted = StartupTrace.Timestamp();
+        string directory = DefaultGrammarDirectory;
+        StartupTrace.Mark("grammars: resolve directory", phaseStarted, directory);
+
+        phaseStarted = StartupTrace.Timestamp();
         try
         {
             Directory.CreateDirectory(directory);
@@ -45,12 +50,22 @@ public sealed class LanguageRegistry
             )
         {
             registry._errors.Add($"cannot create grammar directory '{directory}': {ex.Message}");
+            StartupTrace.Mark("grammars: create directory", phaseStarted, ex.Message);
             return registry;
         }
+        StartupTrace.Mark("grammars: create directory", phaseStarted);
 
+        phaseStarted = StartupTrace.Timestamp();
         registry.LoadDirectory(directory);
+        StartupTrace.Mark("grammars: load directory", phaseStarted);
+
         HexalPaths.Log(
             $"Grammars: {directory} ({registry._byId.Count} loaded, {registry._errors.Count} error(s))"
+        );
+        StartupTrace.Mark(
+            "grammars: load total",
+            loadStarted,
+            $"{registry._byId.Count} loaded, {registry._errors.Count} error(s)"
         );
         return registry;
     }
@@ -58,6 +73,7 @@ public sealed class LanguageRegistry
     public void LoadDirectory(string directory)
     {
         string[] files;
+        long phaseStarted = StartupTrace.Timestamp();
         try
         {
             files = Directory.GetFiles(directory, "*.hexdef");
@@ -71,8 +87,10 @@ public sealed class LanguageRegistry
             )
         {
             _errors.Add($"cannot read grammar directory '{directory}': {ex.Message}");
+            StartupTrace.Mark("grammars: enumerate files", phaseStarted, ex.Message);
             return;
         }
+        StartupTrace.Mark("grammars: enumerate files", phaseStarted, $"{files.Length} file(s)");
 
         Array.Sort(files, StringComparer.OrdinalIgnoreCase);
 
@@ -80,8 +98,10 @@ public sealed class LanguageRegistry
         // thread-pool startup and scheduling overhead, which is measurable for
         // the small number of bundled definitions.
         var parsed = new (LanguageDefinition? Definition, string? Error)[files.Length];
+        long parseStarted = StartupTrace.Timestamp();
         for (int index = 0; index < files.Length; ++index)
         {
+            long fileStarted = StartupTrace.Timestamp();
             string file = files[index];
             try
             {
@@ -112,8 +132,15 @@ public sealed class LanguageRegistry
             {
                 parsed[index] = (null, ex.Message);
             }
+            StartupTrace.Mark(
+                $"grammars: read/parse '{Path.GetFileName(file)}'",
+                fileStarted,
+                parsed[index].Error ?? "ok"
+            );
         }
+        StartupTrace.Mark("grammars: read/parse all", parseStarted, $"{files.Length} file(s)");
 
+        phaseStarted = StartupTrace.Timestamp();
         for (int index = 0; index < files.Length; ++index)
         {
             string file = files[index];
@@ -168,6 +195,11 @@ public sealed class LanguageRegistry
         // Prefer the most specific suffix so compound extensions such as
         // .blade.php win over .php.
         _orderedExtensions.Sort((left, right) => right.Length.CompareTo(left.Length));
+        StartupTrace.Mark(
+            "grammars: register definitions",
+            phaseStarted,
+            $"{_byId.Count} language(s), {_byExtension.Count} extension(s)"
+        );
     }
 
     public LanguageDefinition? Find(string id)

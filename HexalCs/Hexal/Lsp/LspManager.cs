@@ -310,10 +310,12 @@ public sealed class LspManager : IDisposable
         out string error
     )
     {
+        long startStarted = StartupTrace.Timestamp();
         error = string.Empty;
         if (string.IsNullOrWhiteSpace(config.Command) && config.Transport is null)
         {
             error = "language server command is empty";
+            StartupTrace.Mark("lsp: start total", startStarted, error);
             return false;
         }
 
@@ -338,11 +340,17 @@ public sealed class LspManager : IDisposable
             return false;
         }
 
+        long phaseStarted = StartupTrace.Timestamp();
         string workingDirectory =
             !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
                 ? Path.GetFullPath(workspaceRoot)
                 : Path.GetDirectoryName(fullPath) ?? ".";
         string documentUri = PathToUri(fullPath);
+        StartupTrace.Mark(
+            "lsp: resolve workspace/document",
+            phaseStarted,
+            $"file='{fullPath}', cwd='{workingDirectory}'"
+        );
 
         lock (_stateLock)
         {
@@ -396,10 +404,17 @@ public sealed class LspManager : IDisposable
                 return true;
             }
 
+            phaseStarted = StartupTrace.Timestamp();
             string? executable = ExecutableFinder.Find(config.Command);
+            StartupTrace.Mark(
+                "lsp: resolve executable",
+                phaseStarted,
+                $"{config.Command} -> {executable ?? "<not found>"}"
+            );
             if (executable is null)
             {
                 error = $"language server not found in PATH: {config.Command}";
+                StartupTrace.Mark("lsp: start total", startStarted, error);
                 return false;
             }
 
@@ -443,10 +458,17 @@ public sealed class LspManager : IDisposable
 
             try
             {
+                long processStartedAt = StartupTrace.Timestamp();
                 _process = Process.Start(startInfo);
+                StartupTrace.Mark(
+                    "lsp: spawn process",
+                    processStartedAt,
+                    $"{config.Name}: {executable}"
+                );
                 if (_process is null)
                 {
                     error = $"failed to start language server: {config.Command}";
+                    StartupTrace.Mark("lsp: start total", startStarted, error);
                     return false;
                 }
 
@@ -465,12 +487,21 @@ public sealed class LspManager : IDisposable
                 _cancellation = new CancellationTokenSource();
                 CancellationToken token = _cancellation.Token;
 
+                phaseStarted = StartupTrace.Timestamp();
                 _readerTask = Task.Run(() => ReadLoop(_process.StandardOutput.BaseStream, token));
                 _stderrTask = Task.Run(() => ReadStandardError(_process.StandardError, token));
+                StartupTrace.Mark("lsp: start reader tasks", phaseStarted);
 
+                phaseStarted = StartupTrace.Timestamp();
                 SendInitializeLocked();
+                StartupTrace.Mark("lsp: send initialize", phaseStarted);
                 Enqueue(new LspEvent { Kind = LspEventKind.Started, ServerName = config.Name });
                 HexalPaths.Log($"LSP started: {config.Name} ({executable}) for {fullPath}");
+                StartupTrace.Mark(
+                    "lsp: start total",
+                    startStarted,
+                    $"{config.Name}, pid={processId}"
+                );
                 return true;
             }
             catch (Exception ex)
@@ -483,6 +514,7 @@ public sealed class LspManager : IDisposable
                 )
             {
                 error = $"cannot start language server '{config.Command}': {ex.Message}";
+                StartupTrace.Mark("lsp: start total", startStarted, error);
                 StopLocked();
                 return false;
             }

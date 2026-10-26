@@ -35,10 +35,17 @@ internal static class LinuxDesktopEntry
         }
 
         _checked = true;
+        long launcherStarted = StartupTrace.Timestamp();
 
         try
         {
+            long phaseStarted = StartupTrace.Timestamp();
             string? executable = Environment.ProcessPath;
+            StartupTrace.Mark(
+                "launcher: resolve process path",
+                phaseStarted,
+                executable ?? "<null>"
+            );
             if (string.IsNullOrWhiteSpace(executable))
             {
                 LogFailure("could not resolve the executable path");
@@ -51,11 +58,14 @@ internal static class LinuxDesktopEntry
                 || string.Equals(executableName, "dotnet.exe", StringComparison.OrdinalIgnoreCase)
             )
             {
+                StartupTrace.Note("launcher: managed dotnet host; skipping");
                 return;
             }
 
+            phaseStarted = StartupTrace.Timestamp();
             executable = Path.GetFullPath(executable);
             string? executableDirectory = Path.GetDirectoryName(executable);
+            StartupTrace.Mark("launcher: resolve executable path", phaseStarted, executable);
             if (string.IsNullOrEmpty(executableDirectory))
             {
                 LogFailure($"could not resolve the directory for '{executable}'");
@@ -68,23 +78,42 @@ internal static class LinuxDesktopEntry
                 return;
             }
 
+            phaseStarted = StartupTrace.Timestamp();
             string contents = BuildContents(executable);
+            StartupTrace.Mark(
+                "launcher: build desktop contents",
+                phaseStarted,
+                $"{contents.Length} char(s)"
+            );
+
+            phaseStarted = StartupTrace.Timestamp();
             string? applicationsDirectory = ApplicationsDirectory();
+            StartupTrace.Mark(
+                "launcher: resolve applications directory",
+                phaseStarted,
+                applicationsDirectory ?? "<null>"
+            );
+
             if (applicationsDirectory is not null)
             {
                 string applicationsPath = Path.Combine(
                     applicationsDirectory,
                     DesktopFileName
                 );
-                if (
-                    TryInstallLauncher(
-                        applicationsPath,
-                        contents,
-                        createDirectory: true,
-                        out bool changed,
-                        out string error
-                    )
-                )
+                phaseStarted = StartupTrace.Timestamp();
+                bool installed = TryInstallLauncher(
+                    applicationsPath,
+                    contents,
+                    createDirectory: true,
+                    out bool changed,
+                    out string error
+                );
+                StartupTrace.Mark(
+                    "launcher: install in XDG applications",
+                    phaseStarted,
+                    installed ? $"changed={changed}" : error
+                );
+                if (installed)
                 {
                     if (changed)
                     {
@@ -101,6 +130,7 @@ internal static class LinuxDesktopEntry
             }
 
             string fallbackPath = Path.Combine(executableDirectory, DesktopFileName);
+            phaseStarted = StartupTrace.Timestamp();
             if (
                 !TryInstallLauncher(
                     fallbackPath,
@@ -111,9 +141,19 @@ internal static class LinuxDesktopEntry
                 )
             )
             {
+                StartupTrace.Mark(
+                    "launcher: install fallback",
+                    phaseStarted,
+                    fallbackError
+                );
                 LogFailure(fallbackError);
                 return;
             }
+            StartupTrace.Mark(
+                "launcher: install fallback",
+                phaseStarted,
+                $"changed={fallbackChanged}"
+            );
 
             if (fallbackChanged)
             {
@@ -131,6 +171,10 @@ internal static class LinuxDesktopEntry
             )
         {
             LogFailure(ex.Message);
+        }
+        finally
+        {
+            StartupTrace.Mark("launcher: total", launcherStarted);
         }
     }
 
@@ -164,14 +208,17 @@ internal static class LinuxDesktopEntry
 
         try
         {
+            long phaseStarted = StartupTrace.Timestamp();
             string? directory = Path.GetDirectoryName(path);
             if (createDirectory && !string.IsNullOrEmpty(directory))
             {
                 Directory.CreateDirectory(directory);
             }
+            StartupTrace.Mark("launcher: ensure applications directory", phaseStarted, path);
 
             if (File.Exists(path))
             {
+                phaseStarted = StartupTrace.Timestamp();
                 try
                 {
                     if (
@@ -182,6 +229,7 @@ internal static class LinuxDesktopEntry
                         )
                     )
                     {
+                        StartupTrace.Mark("launcher: read/compare existing", phaseStarted, "unchanged");
                         return true;
                     }
                 }
@@ -193,14 +241,27 @@ internal static class LinuxDesktopEntry
                     )
                 {
                     // Replace the existing launcher if it cannot be read.
+                    StartupTrace.Mark(
+                        "launcher: read/compare existing",
+                        phaseStarted,
+                        $"read failed: {ex.Message}"
+                    );
                 }
+                StartupTrace.Mark("launcher: read/compare existing", phaseStarted, "changed");
+            }
+            else
+            {
+                StartupTrace.Note($"launcher: no existing file at '{path}'");
             }
 
+            phaseStarted = StartupTrace.Timestamp();
             File.WriteAllText(path, contents, new UTF8Encoding(false));
             changed = true;
+            StartupTrace.Mark("launcher: write file", phaseStarted, $"{contents.Length} char(s)");
 
             if (OperatingSystem.IsLinux())
             {
+                phaseStarted = StartupTrace.Timestamp();
                 try
                 {
                     File.SetUnixFileMode(path, DesktopFileMode);
@@ -214,7 +275,9 @@ internal static class LinuxDesktopEntry
                     )
                 {
                     // The file is still usable without the executable bit.
+                    StartupTrace.Mark("launcher: set file mode", phaseStarted, ex.Message);
                 }
+                StartupTrace.Mark("launcher: set file mode", phaseStarted);
             }
 
             return true;
@@ -236,6 +299,7 @@ internal static class LinuxDesktopEntry
 
     private static void TryUpdateDesktopDatabase(string applicationsDirectory)
     {
+        long updateStarted = StartupTrace.Timestamp();
         try
         {
             var startInfo = new ProcessStartInfo
@@ -249,7 +313,9 @@ internal static class LinuxDesktopEntry
             };
             startInfo.ArgumentList.Add(applicationsDirectory);
 
+            long phaseStarted = StartupTrace.Timestamp();
             using Process? process = Process.Start(startInfo);
+            StartupTrace.Mark("launcher: start update-desktop-database", phaseStarted);
             if (process is null)
             {
                 return;
@@ -258,7 +324,14 @@ internal static class LinuxDesktopEntry
             process.StandardInput.Close();
             _ = process.StandardOutput.ReadToEndAsync();
             _ = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(2000))
+            phaseStarted = StartupTrace.Timestamp();
+            bool exited = process.WaitForExit(2000);
+            StartupTrace.Mark(
+                "launcher: wait for update-desktop-database",
+                phaseStarted,
+                exited ? $"exit={process.ExitCode}" : "timed out after 2000 ms"
+            );
+            if (!exited)
             {
                 process.Kill(entireProcessTree: true);
             }
@@ -273,6 +346,11 @@ internal static class LinuxDesktopEntry
             )
         {
             // The desktop database is an optional cache refresh.
+            StartupTrace.Note($"launcher: update-desktop-database failed: {ex.Message}");
+        }
+        finally
+        {
+            StartupTrace.Mark("launcher: update-desktop-database total", updateStarted);
         }
     }
 

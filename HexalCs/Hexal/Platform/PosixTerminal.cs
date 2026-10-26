@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
+using Hexal.Util;
 
 namespace Hexal.Platform;
 
@@ -143,8 +144,10 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
 
     public bool Init(out string error)
     {
+        long initStarted = StartupTrace.Timestamp();
         error = string.Empty;
 
+        long phaseStarted = StartupTrace.Timestamp();
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
         {
             // Editors such as git may launch Hexal with stdin redirected (for
@@ -153,10 +156,21 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             // usable and commits can be written normally.
             if (!RedirectToControllingTerminal(out error))
             {
+                StartupTrace.Mark("terminal: redirect to /dev/tty", phaseStarted, error);
                 return false;
             }
+            StartupTrace.Mark("terminal: redirect to /dev/tty", phaseStarted, "redirected");
+        }
+        else
+        {
+            StartupTrace.Mark(
+                "terminal: redirect to /dev/tty",
+                phaseStarted,
+                "not needed (stdin/stdout are terminals)"
+            );
         }
 
+        phaseStarted = StartupTrace.Timestamp();
         if (_isMac)
         {
             if (TcGetAttrMac(StdinFd, out _originalMac) != 0)
@@ -208,8 +222,10 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
             }
         }
 
+        StartupTrace.Mark("terminal: raw mode", phaseStarted);
         _rawMode = true;
 
+        phaseStarted = StartupTrace.Timestamp();
         try
         {
             _resizeRegistration = PosixSignalRegistration.Create(
@@ -224,16 +240,25 @@ internal sealed unsafe partial class PosixTerminal : ITerminal
         catch (Exception ex) when (ex is PlatformNotSupportedException or IOException)
         {
             error = $"cannot install resize handler: {ex.Message}";
+            StartupTrace.Mark("terminal: SIGWINCH handler", phaseStarted, error);
             Shutdown();
             return false;
         }
+        StartupTrace.Mark("terminal: SIGWINCH handler", phaseStarted);
 
+        phaseStarted = StartupTrace.Timestamp();
         _output = Console.OpenStandardOutput();
         // 1004 enables terminal focus reporting so the editor can check for
         // external file changes when the window regains focus. 1000/1006
         // enable button and wheel reporting using the extended SGR encoding.
         Write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1002h\x1b[?1006h"u8);
+        StartupTrace.Mark(
+            "terminal: open output and enter alternate screen",
+            phaseStarted,
+            $"{_output.GetType().Name}"
+        );
         _initialized = true;
+        StartupTrace.Mark("terminal: init total", initStarted);
         return true;
     }
 

@@ -11,10 +11,16 @@ internal static class Program
 {
     public const string Version = "0.2.0";
 
-    public static int Main(string[] args) => RunHexal(args);
+    public static int Main(string[] args)
+    {
+        StartupTrace.Begin(args);
+        return RunHexal(args);
+    }
 
     public static int RunHexal(string[] arguments)
     {
+        long parseStarted = StartupTrace.Timestamp();
+
         if (
             arguments.Length > 0
             && string.Equals(arguments[0], "install-plugin", StringComparison.OrdinalIgnoreCase)
@@ -47,6 +53,13 @@ internal static class Program
             {
                 Console.Out.WriteLine($"hexal {Version} ({BuildInfo.CommitHash})");
                 return 0;
+            }
+
+            if (!optionsEnded && (argument == "-vv" || argument == "--verbose"))
+            {
+                // StartupTrace.Begin already enabled logging from Main. The
+                // parser only needs to accept and ignore the flag.
+                continue;
             }
 
             if (!optionsEnded && argument == "--health")
@@ -91,6 +104,12 @@ internal static class Program
 
             file = argument;
         }
+
+        StartupTrace.Mark(
+            "argument parsing",
+            parseStarted,
+            $"{arguments.Length} argument(s), file='{file}', directory='{directory ?? string.Empty}'"
+        );
 
         if (health)
         {
@@ -201,13 +220,21 @@ internal static class Program
     {
         try
         {
+            long phaseStarted = StartupTrace.Timestamp();
             LinuxDesktopEntry.EnsureLauncher();
+            StartupTrace.Mark("desktop launcher check", phaseStarted);
 
             var document = new Document();
             if (file.Length > 0)
             {
                 string openPath = FileSystemUtil.ExpandHomeDirectory(file);
+                phaseStarted = StartupTrace.Timestamp();
                 Document? loaded = Document.Open(openPath, out string openError);
+                StartupTrace.Mark(
+                    "document open",
+                    phaseStarted,
+                    $"'{openPath}' ({loaded?.Size ?? 0} bytes)"
+                );
                 if (loaded is null)
                 {
                     Console.Error.WriteLine($"hexal: {openError}");
@@ -216,20 +243,30 @@ internal static class Program
                 document = loaded;
             }
 
+            phaseStarted = StartupTrace.Timestamp();
             using ITerminal terminal = TerminalFactory.Create();
+            StartupTrace.Mark("terminal create", phaseStarted, terminal.GetType().Name);
+
+            phaseStarted = StartupTrace.Timestamp();
             if (!terminal.Init(out string terminalError))
             {
                 Console.Error.WriteLine($"hexal: {terminalError}");
                 return 1;
             }
+            StartupTrace.Mark("terminal init", phaseStarted);
 
+            phaseStarted = StartupTrace.Timestamp();
             using var editor = new Editor(
                 terminal,
                 document,
                 directory,
                 openFilePicker: directory is not null
             );
+            StartupTrace.Mark("editor constructor", phaseStarted);
+
+            phaseStarted = StartupTrace.Timestamp();
             int result = editor.Run();
+            StartupTrace.Mark("editor session (until quit)", phaseStarted);
             terminal.Shutdown();
             return result;
         }
@@ -256,6 +293,7 @@ internal static class Program
             Options:
               -h, --help        Show this help message and exit
               -v, --version     Show version information and exit
+              -vv, --verbose    Write detailed startup timings to ~/.hexal/hexal.log
               --health [lang]   Show language support health and exit
               --                Treat the remaining arguments as file names
 

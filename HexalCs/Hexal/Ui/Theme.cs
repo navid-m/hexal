@@ -600,13 +600,22 @@ public sealed class ThemeRegistry
 
     public static ThemeRegistry LoadDefault(out string error)
     {
+        long loadStarted = StartupTrace.Timestamp();
         var registry = new ThemeRegistry();
-        string directory = DefaultThemeDirectory;
 
+        long phaseStarted = StartupTrace.Timestamp();
+        string directory = DefaultThemeDirectory;
+        StartupTrace.Mark("themes: resolve directory", phaseStarted, directory);
+
+        phaseStarted = StartupTrace.Timestamp();
         try
         {
             Directory.CreateDirectory(directory);
+            StartupTrace.Mark("themes: create directory", phaseStarted);
+
+            phaseStarted = StartupTrace.Timestamp();
             registry.LoadDirectory(directory);
+            StartupTrace.Mark("themes: load directory", phaseStarted);
         }
         catch (Exception ex)
             when (ex
@@ -617,6 +626,7 @@ public sealed class ThemeRegistry
             )
         {
             registry._errors.Add($"cannot create theme directory '{directory}': {ex.Message}");
+            StartupTrace.Note($"themes: directory setup failed: {ex.Message}");
         }
 
         if (registry._themes.Count == 0)
@@ -624,14 +634,25 @@ public sealed class ThemeRegistry
             registry.AddTheme(Theme.CreateDefault());
         }
 
+        phaseStarted = StartupTrace.Timestamp();
         string activeId = ReadActiveThemeId();
         Theme? active = registry.Find(activeId);
         registry.ActiveTheme = active ?? registry._themes[0];
+        StartupTrace.Mark(
+            "themes: restore active theme",
+            phaseStarted,
+            $"requested='{activeId}', active='{registry.ActiveTheme.Id}'"
+        );
 
         error = registry._errors.Count > 0 ? registry._errors[0] : string.Empty;
         HexalPaths.Log(
             $"Themes: {directory} ({registry._themes.Count} loaded, "
                 + $"{registry._errors.Count} error(s), active '{registry.ActiveTheme.Id}')"
+        );
+        StartupTrace.Mark(
+            "themes: load total",
+            loadStarted,
+            $"{registry._themes.Count} theme(s), {registry._errors.Count} error(s)"
         );
         return registry;
     }
@@ -639,6 +660,7 @@ public sealed class ThemeRegistry
     public void LoadDirectory(string directory)
     {
         string[] files;
+        long phaseStarted = StartupTrace.Timestamp();
         try
         {
             files = Directory.GetFiles(directory, "*.json");
@@ -652,19 +674,23 @@ public sealed class ThemeRegistry
             )
         {
             _errors.Add($"cannot read theme directory '{directory}': {ex.Message}");
+            StartupTrace.Mark("themes: enumerate files", phaseStarted, ex.Message);
             return;
         }
+        StartupTrace.Mark("themes: enumerate files", phaseStarted, $"{files.Length} file(s)");
 
         Array.Sort(files, StringComparer.OrdinalIgnoreCase);
 
         // Theme files are independent; parse them concurrently and merge in
         // sorted file order for stable duplicate handling.
         var parsed = new (Theme? Theme, string? Error)[files.Length];
+        phaseStarted = StartupTrace.Timestamp();
         Parallel.For(
             0,
             files.Length,
             index =>
             {
+                long fileStarted = StartupTrace.Timestamp();
                 string file = files[index];
                 try
                 {
@@ -688,9 +714,16 @@ public sealed class ThemeRegistry
                 {
                     parsed[index] = (null, ex.Message);
                 }
+                StartupTrace.Mark(
+                    $"themes: parse '{Path.GetFileName(file)}'",
+                    fileStarted,
+                    parsed[index].Error ?? "ok"
+                );
             }
         );
+        StartupTrace.Mark("themes: parse files (parallel)", phaseStarted, $"{files.Length} file(s)");
 
+        phaseStarted = StartupTrace.Timestamp();
         for (int index = 0; index < files.Length; ++index)
         {
             string file = files[index];
@@ -709,6 +742,7 @@ public sealed class ThemeRegistry
 
             AddTheme(theme);
         }
+        StartupTrace.Mark("themes: merge parsed files", phaseStarted, $"{files.Length} file(s)");
     }
 
     public Theme? Find(string id)

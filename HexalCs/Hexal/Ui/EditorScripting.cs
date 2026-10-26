@@ -40,14 +40,24 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             return;
         }
 
+        long phaseStarted = StartupTrace.Timestamp();
         _plugins = new LuaPluginManager(this);
         if (_benchmark is not null)
         {
             _plugins.SetBenchmark(_benchmark);
         }
+        StartupTrace.Mark("plugin manager create", phaseStarted);
 
         long phaseStart = _benchmark is null ? 0 : Stopwatch.GetTimestamp();
+        phaseStarted = StartupTrace.Timestamp();
         _plugins.LoadAll();
+        StartupTrace.Mark(
+            "plugin discovery/load all",
+            phaseStarted,
+            $"{_plugins.PluginCount} running, "
+                + $"{_plugins.DeferredPluginCount} deferred, "
+                + $"{_plugins.Errors.Count} error(s)"
+        );
         _benchmark?.AddSince(
             "Plugins",
             "Load all",
@@ -72,12 +82,24 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
             SetMessage(message);
         }
 
+        phaseStarted = StartupTrace.Timestamp();
         _plugins.FireEvent(
             "editor_started",
             new Dictionary<string, object?> { ["api_version"] = 1 }
         );
+        StartupTrace.Mark("editor_started plugin event", phaseStarted);
+
+        phaseStarted = StartupTrace.Timestamp();
         _plugins.FireEvent("buffer_opened", CurrentBufferData());
+        StartupTrace.Mark(
+            "initial buffer_opened plugin event",
+            phaseStarted,
+            $"language={_language?.Id ?? "<none>"}"
+        );
+
+        phaseStarted = StartupTrace.Timestamp();
         _plugins.ActivateLuaLsp();
+        StartupTrace.Mark("activate Lua LSP servers", phaseStarted);
     }
 
     public void Dispose()
@@ -1835,25 +1857,41 @@ public sealed partial class Editor : IEditorApi, ILuaLspHost, IDisposable
         }
 
         LspServerConfig selected = config;
+        long phaseStarted = StartupTrace.Timestamp();
         bool primaryPresent = ExecutableFinder.Find(config.Command) is not null;
+        StartupTrace.Mark(
+            "startup LSP: primary executable check",
+            phaseStarted,
+            $"{config.Command} present={primaryPresent}"
+        );
+
         bool usingFallback = false;
         LanguageDefinition? language = _languages.Find(config.LanguageId) ?? _language;
         if (
             !primaryPresent
             && !_lspFallbackBlocked
             && language?.FallbackLsp is { } fallback
-            && ExecutableFinder.Find(fallback.Command) is not null
         )
         {
-            selected = new LspServerConfig
+            phaseStarted = StartupTrace.Timestamp();
+            bool fallbackPresent = ExecutableFinder.Find(fallback.Command) is not null;
+            StartupTrace.Mark(
+                "startup LSP: fallback executable check",
+                phaseStarted,
+                $"{fallback.Command} present={fallbackPresent}"
+            );
+            if (fallbackPresent)
             {
-                Name = fallback.Name,
-                Command = fallback.Command,
-                Arguments = fallback.Arguments,
-                LanguageId =
-                    config.LanguageId.Length > 0 ? config.LanguageId : fallback.LanguageId,
-            };
-            usingFallback = true;
+                selected = new LspServerConfig
+                {
+                    Name = fallback.Name,
+                    Command = fallback.Command,
+                    Arguments = fallback.Arguments,
+                    LanguageId =
+                        config.LanguageId.Length > 0 ? config.LanguageId : fallback.LanguageId,
+                };
+                usingFallback = true;
+            }
         }
 
         _lspDirty = false;

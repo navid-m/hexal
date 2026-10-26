@@ -231,6 +231,7 @@ public sealed class Document
 
     public static Document? Open(string path, out string error)
     {
+        long openStarted = StartupTrace.Timestamp();
         error = string.Empty;
 
         if (string.IsNullOrEmpty(path))
@@ -240,17 +241,20 @@ public sealed class Document
         }
 
         FileAttributes attributes;
+        long phaseStarted = StartupTrace.Timestamp();
         try
         {
             attributes = File.GetAttributes(path);
         }
         catch (FileNotFoundException)
         {
+            StartupTrace.Mark("document: stat", phaseStarted, "not found; new buffer");
             return OpenNew(path, out error);
         }
         catch (DirectoryNotFoundException)
         {
             error = $"parent directory does not exist: '{FileSystemUtil.ParentDirectory(path)}'";
+            StartupTrace.Mark("document: stat", phaseStarted, error);
             return null;
         }
         catch (Exception ex)
@@ -262,8 +266,10 @@ public sealed class Document
             )
         {
             error = $"cannot access '{path}': {ex.Message}";
+            StartupTrace.Mark("document: stat", phaseStarted, error);
             return null;
         }
+        StartupTrace.Mark("document: stat", phaseStarted);
 
         if ((attributes & FileAttributes.Directory) != 0)
         {
@@ -275,6 +281,7 @@ public sealed class Document
 
         try
         {
+            phaseStarted = StartupTrace.Timestamp();
             using var stream = new FileStream(
                 path,
                 FileMode.Open,
@@ -307,6 +314,12 @@ public sealed class Document
 
             document._table.SetOriginal(stream);
             document._eol = document._table.DetectedEol;
+            StartupTrace.Mark(
+                "document: read original bytes",
+                phaseStarted,
+                $"{document.Size} byte(s), {document.LineCount} line(s)"
+            );
+            StartupTrace.Mark("document: open total", openStarted);
             return document;
         }
         catch (Exception ex)
@@ -318,6 +331,7 @@ public sealed class Document
             )
         {
             error = $"cannot open '{path}' for reading: {ex.Message}";
+            StartupTrace.Mark("document: read original bytes", phaseStarted, error);
             return null;
         }
     }

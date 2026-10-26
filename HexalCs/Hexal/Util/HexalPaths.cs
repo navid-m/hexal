@@ -142,13 +142,38 @@ public static class HexalPaths
             }
             _resolved = true;
 
+            long resolvedStarted = StartupTrace.Timestamp();
+            long phaseStarted = StartupTrace.Timestamp();
             string binaryData = BinaryDataDirectory;
+            StartupTrace.Mark("paths: binary data directory", phaseStarted, binaryData);
+
             string portableGrammars = Path.Combine(binaryData, "grammars");
             string portablePlugins = Path.Combine(binaryData, "plugins");
             string portableThemes = Path.Combine(binaryData, "themes");
+
+            phaseStarted = StartupTrace.Timestamp();
             bool hasPortableGrammars = Directory.Exists(portableGrammars);
+            StartupTrace.Mark(
+                "paths: check portable grammars",
+                phaseStarted,
+                $"{hasPortableGrammars} {portableGrammars}"
+            );
+
+            phaseStarted = StartupTrace.Timestamp();
             bool hasPortablePlugins = Directory.Exists(portablePlugins);
+            StartupTrace.Mark(
+                "paths: check portable plugins",
+                phaseStarted,
+                $"{hasPortablePlugins} {portablePlugins}"
+            );
+
+            phaseStarted = StartupTrace.Timestamp();
             bool hasPortableThemes = Directory.Exists(portableThemes);
+            StartupTrace.Mark(
+                "paths: check portable themes",
+                phaseStarted,
+                $"{hasPortableThemes} {portableThemes}"
+            );
 
             string homeData = FallbackDataDirectory;
             _grammarDirectory = hasPortableGrammars
@@ -159,8 +184,11 @@ public static class HexalPaths
                 : Path.Combine(homeData, "plugins");
             _themeDirectory = hasPortableThemes ? portableThemes : Path.Combine(homeData, "themes");
 
+            phaseStarted = StartupTrace.Timestamp();
             Log($"Hexal binary directory: {BinaryDirectory}");
+            StartupTrace.Mark("paths: log binary directory", phaseStarted);
 
+            phaseStarted = StartupTrace.Timestamp();
             if (!hasPortableGrammars && !hasPortablePlugins && !hasPortableThemes)
             {
                 Log(
@@ -186,6 +214,8 @@ public static class HexalPaths
                         : $"Could not find themes relative to binary path, falling back to {_themeDirectory}"
                 );
             }
+            StartupTrace.Mark("paths: log resolution details", phaseStarted);
+            StartupTrace.Mark("paths: resolution total", resolvedStarted);
         }
     }
 }
