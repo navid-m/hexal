@@ -491,12 +491,110 @@ public sealed partial class Editor
             return;
         }
 
-        if (!_sidebarExpanded.Remove(node.Path))
+        if (_sidebarExpanded.Remove(node.Path))
+        {
+            CollapseSidebarDirectory(node);
+        }
+        else
         {
             _sidebarExpanded.Add(node.Path);
+            ExpandSidebarDirectory(node);
         }
 
+        // Revalidate the whole tree in the background without blocking the
+        // immediate expand/collapse update above.
         RefreshSidebar(node.Path);
+    }
+
+    /// <summary>
+    /// Inserts the selected directory's children immediately. Only that one
+    /// directory is listed on the UI thread; the rest of the tree is left
+    /// untouched so expanding does not wait for a full workspace scan.
+    /// </summary>
+    private void ExpandSidebarDirectory(SidebarNode node)
+    {
+        int index = _sidebarNodes.IndexOf(node);
+        if (index < 0)
+        {
+            return;
+        }
+
+        RemoveSidebarDescendants(index);
+        node.Expanded = true;
+
+        var children = new List<SidebarNode>();
+        GitIgnore? gitIgnore = _showGitIgnored
+            ? null
+            : new GitIgnore(SidebarFullPath(ProjectRoot()));
+        AddSidebarDirectory(
+            node.Path,
+            node.Depth + 1,
+            root: false,
+            gitIgnore,
+            _sidebarExpanded,
+            children
+        );
+
+        if (children.Count > 0)
+        {
+            _sidebarNodes.InsertRange(index + 1, children);
+        }
+
+        _sidebarSelected = index;
+        _sidebarSelectionAnchor = index;
+        EnsureSidebarSelectionVisible();
+    }
+
+    /// <summary>
+    /// Removes a directory's descendants from the in-memory tree. No
+    /// filesystem work is needed to collapse a folder.
+    /// </summary>
+    private void CollapseSidebarDirectory(SidebarNode node)
+    {
+        int index = _sidebarNodes.IndexOf(node);
+        if (index < 0)
+        {
+            return;
+        }
+
+        RemoveSidebarDescendants(index);
+        node.Expanded = false;
+
+        if (_sidebarSelected > index)
+        {
+            _sidebarSelected = index;
+        }
+        if (_sidebarSelectionAnchor > index)
+        {
+            _sidebarSelectionAnchor = index;
+        }
+
+        _sidebarSelected = Math.Clamp(_sidebarSelected, 0, _sidebarNodes.Count - 1);
+        _sidebarSelectionAnchor = Math.Clamp(
+            _sidebarSelectionAnchor,
+            0,
+            _sidebarNodes.Count - 1
+        );
+        EnsureSidebarSelectionVisible();
+    }
+
+    private void RemoveSidebarDescendants(int parentIndex)
+    {
+        int depth = _sidebarNodes[parentIndex].Depth;
+        int removeStart = parentIndex + 1;
+        int removeCount = 0;
+        while (
+            removeStart + removeCount < _sidebarNodes.Count
+            && _sidebarNodes[removeStart + removeCount].Depth > depth
+        )
+        {
+            ++removeCount;
+        }
+
+        if (removeCount > 0)
+        {
+            _sidebarNodes.RemoveRange(removeStart, removeCount);
+        }
     }
 
     private void CollapseSidebarOrSelectParent()
@@ -510,6 +608,7 @@ public sealed partial class Editor
         if (node.IsDirectory && node.Expanded)
         {
             _sidebarExpanded.Remove(node.Path);
+            CollapseSidebarDirectory(node);
             RefreshSidebar(node.Path);
             return;
         }
@@ -536,6 +635,7 @@ public sealed partial class Editor
         if (!node.Expanded)
         {
             _sidebarExpanded.Add(node.Path);
+            ExpandSidebarDirectory(node);
             RefreshSidebar(node.Path);
             return;
         }
@@ -2462,12 +2562,13 @@ public sealed partial class Editor
         List<SidebarNode> nodes
     )
     {
-        string[] directories;
-        string[] files;
+        FileSystemInfo[] entries;
         try
         {
-            directories = Directory.GetDirectories(directory);
-            files = Directory.GetFiles(directory);
+            // A single directory enumeration carries attributes with each
+            // entry, avoiding one extra metadata round-trip per child on slow
+            // or network-backed filesystems.
+            entries = new DirectoryInfo(directory).GetFileSystemInfos();
         }
         catch (Exception ex)
             when (ex
@@ -2480,15 +2581,19 @@ public sealed partial class Editor
             return;
         }
 
-        Array.Sort(directories, SidebarPathComparison);
-        Array.Sort(files, SidebarPathComparison);
-
-        foreach (string child in directories)
+        var directories = new List<string>();
+        var files = new List<string>();
+        foreach (FileSystemInfo entry in entries)
         {
+            bool isDirectory = entry is DirectoryInfo;
             try
             {
-                FileAttributes attributes = File.GetAttributes(child);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                // Directory symlinks are never followed. A symlinked file is
+                // kept, matching the previous GetDirectories/GetFiles split.
+                if (
+                    (entry.Attributes & FileAttributes.ReparsePoint) != 0
+                    && (isDirectory || Directory.Exists(entry.FullName))
+                )
                 {
                     continue;
                 }
@@ -2504,6 +2609,21 @@ public sealed partial class Editor
                 continue;
             }
 
+            if (isDirectory)
+            {
+                directories.Add(entry.FullName);
+            }
+            else
+            {
+                files.Add(entry.FullName);
+            }
+        }
+
+        directories.Sort(SidebarPathComparison);
+        files.Sort(SidebarPathComparison);
+
+        foreach (string child in directories)
+        {
             string name = Path.GetFileName(child);
             if (name.Length == 0)
             {
