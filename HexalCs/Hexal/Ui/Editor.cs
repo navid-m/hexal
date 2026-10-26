@@ -913,6 +913,11 @@ public sealed partial class Editor
 
     private void HandleFocusGained()
     {
+        if (_sidebarVisible && _config.ShowModifiedIndicators)
+        {
+            RefreshSidebarGitStatus();
+        }
+
         // A save can be writing the file while focus changes. Defer the stat
         // until the writer has finished so our own output is not mistaken for
         // an external modification.
