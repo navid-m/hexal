@@ -101,6 +101,7 @@ public sealed partial class Editor
         public string Root = string.Empty;
         public bool ShowGitIgnored;
         public string? SelectPath;
+        public long SelectionVersion;
         public List<SidebarNode> Nodes = new();
         public bool HasGitStatus;
         public long GitStatusVersion;
@@ -132,6 +133,7 @@ public sealed partial class Editor
     private int _sidebarSelected;
     private int _sidebarSelectionAnchor;
     private int _sidebarTop;
+    private long _sidebarSelectionVersion;
     private int _sidebarMenuSelected;
     private int _editorLeft;
     private int _sidebarWidthOverride;
@@ -425,6 +427,8 @@ public sealed partial class Editor
 
     private void SetSidebarSelection(int index, bool extend = false)
     {
+        ++_sidebarSelectionVersion;
+
         if (_sidebarNodes.Count == 0)
         {
             _sidebarSelected = 0;
@@ -2324,6 +2328,7 @@ public sealed partial class Editor
         }
 
         long generation = ++_sidebarScanGeneration;
+        long selectionVersion = _sidebarSelectionVersion;
         var operation = new SidebarScanOperation
         {
             Generation = generation,
@@ -2340,6 +2345,7 @@ public sealed partial class Editor
                 Root = root,
                 ShowGitIgnored = showGitIgnored,
                 SelectPath = selectPath,
+                SelectionVersion = selectionVersion,
             };
 
             if (includeGitStatus)
@@ -2419,7 +2425,14 @@ public sealed partial class Editor
 
     private void ApplySidebarScan(SidebarScanResult result)
     {
-        string? selectedPath = result.SelectPath ?? SelectedSidebarNode?.Path;
+        // The scan runs in the background. If the user moved the selection
+        // while it was running, keep that newer selection instead of snapping
+        // back to the path the scan was started with.
+        string? selectedPath =
+            result.SelectionVersion == _sidebarSelectionVersion
+                ? result.SelectPath ?? SelectedSidebarNode?.Path
+                : SelectedSidebarNode?.Path;
+        selectedPath ??= result.SelectPath;
 
         _sidebarNodes.Clear();
         _sidebarNodes.AddRange(result.Nodes);
@@ -2697,6 +2710,7 @@ public sealed partial class Editor
         {
             if (SamePath(_sidebarNodes[index].Path, path))
             {
+                ++_sidebarSelectionVersion;
                 _sidebarSelected = index;
                 _sidebarSelectionAnchor = index;
                 EnsureSidebarSelectionVisible();
