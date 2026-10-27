@@ -4249,7 +4249,7 @@ impl Editor {
             return "FIND";
         }
         if self.picker.kind != PickerKind::None {
-            return "PKR";
+            return "MODAL";
         }
         if self.goto_prompt.is_some() {
             return "GOTO";
