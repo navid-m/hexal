@@ -1,4 +1,4 @@
-//! Piece-table text buffer with a line-start index and grouped undo/redo.]
+//! Document model: piece table, line helpers, grouped undo/redo and file I/O.
 //!
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
@@ -7,245 +7,12 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::piece_table::PieceTable;
+
 const MAX_UNDO_GROUPS: usize = 4096;
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Eol {
-    Lf,
-    Crlf,
-}
-
-impl Eol {
-    pub fn label(self) -> &'static str {
-        match self {
-            Eol::Lf => "LF",
-            Eol::Crlf => "CRLF",
-        }
-    }
-
-    pub fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Eol::Lf => b"\n",
-            Eol::Crlf => b"\r\n",
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum Source {
-    Original,
-    Add,
-}
-
-#[derive(Clone, Copy)]
-struct Piece {
-    source: Source,
-    start: usize,
-    len: usize,
-}
-
-struct PieceTable {
-    original: Vec<u8>,
-    add: Vec<u8>,
-    pieces: Vec<Piece>,
-    line_starts: Vec<usize>,
-    len: usize,
-}
-
-impl PieceTable {
-    fn new() -> PieceTable {
-        PieceTable {
-            original: Vec::new(),
-            add: Vec::new(),
-            pieces: Vec::new(),
-            line_starts: vec![0],
-            len: 0,
-        }
-    }
-
-    fn set_original(&mut self, data: Vec<u8>) {
-        self.len = data.len();
-        if !data.is_empty() {
-            self.pieces.push(Piece {
-                source: Source::Original,
-                start: 0,
-                len: data.len(),
-            });
-        }
-        self.original = data;
-        self.rebuild_lines();
-    }
-
-    fn rebuild_lines(&mut self) {
-        let mut starts = Vec::with_capacity(self.line_starts.capacity().max(1));
-        starts.push(0);
-        let mut offset = 0usize;
-        for piece in &self.pieces {
-            let bytes = self.bytes(piece.source);
-            for &byte in &bytes[piece.start..piece.start + piece.len] {
-                offset += 1;
-                if byte == b'\n' {
-                    starts.push(offset);
-                }
-            }
-        }
-        self.line_starts = starts;
-    }
-
-    fn bytes(&self, source: Source) -> &[u8] {
-        match source {
-            Source::Original => &self.original,
-            Source::Add => &self.add,
-        }
-    }
-
-    fn split_at(&mut self, offset: usize) -> usize {
-        let mut position = 0usize;
-        let mut index = 0usize;
-        while index < self.pieces.len() {
-            let piece = self.pieces[index];
-            let end = position + piece.len;
-            if offset == position {
-                return index;
-            }
-            if offset < end {
-                let left = offset - position;
-                self.pieces[index].len = left;
-                self.pieces.insert(
-                    index + 1,
-                    Piece {
-                        source: piece.source,
-                        start: piece.start + left,
-                        len: piece.len - left,
-                    },
-                );
-                return index + 1;
-            }
-            if offset == end {
-                return index + 1;
-            }
-            position = end;
-            index += 1;
-        }
-        self.pieces.len()
-    }
-
-    fn insert(&mut self, offset: usize, text: &[u8]) {
-        if text.is_empty() {
-            return;
-        }
-        let offset = offset.min(self.len);
-        let index = self.split_at(offset);
-        let start = self.add.len();
-        self.add.extend_from_slice(text);
-        self.pieces.insert(
-            index,
-            Piece {
-                source: Source::Add,
-                start,
-                len: text.len(),
-            },
-        );
-        self.len += text.len();
-        self.rebuild_lines();
-    }
-
-    fn erase(&mut self, offset: usize, length: usize) {
-        if length == 0 || offset >= self.len {
-            return;
-        }
-        let actual = length.min(self.len - offset);
-        let start = self.split_at(offset);
-        let end = self.split_at(offset + actual);
-        if start < end {
-            self.pieces.drain(start..end);
-            self.len -= actual;
-            self.rebuild_lines();
-        }
-    }
-
-    fn replace(&mut self, offset: usize, length: usize, text: &[u8]) {
-        let offset = offset.min(self.len);
-        let actual = length.min(self.len - offset);
-        if actual == 0 && text.is_empty() {
-            return;
-        }
-        let start = self.split_at(offset);
-        let end = self.split_at(offset + actual);
-        if start < end {
-            self.pieces.drain(start..end);
-            self.len -= actual;
-        }
-        if !text.is_empty() {
-            let add_start = self.add.len();
-            self.add.extend_from_slice(text);
-            self.pieces.insert(
-                start,
-                Piece {
-                    source: Source::Add,
-                    start: add_start,
-                    len: text.len(),
-                },
-            );
-            self.len += text.len();
-        }
-        // One rebuild for the whole replacement instead of one per erase and
-        // insert. Bulk plugin edits use this path.
-        self.rebuild_lines();
-    }
-
-    fn range(&self, offset: usize, length: usize) -> Vec<u8> {
-        let offset = offset.min(self.len);
-        let end = (offset + length).min(self.len);
-        let mut result = Vec::with_capacity(end.saturating_sub(offset));
-        let mut position = 0usize;
-        for piece in &self.pieces {
-            let piece_end = position + piece.len;
-            let from = offset.max(position);
-            let to = end.min(piece_end);
-            if from < to {
-                let bytes = self.bytes(piece.source);
-                let local = from - position;
-                result.extend_from_slice(
-                    &bytes[piece.start + local..piece.start + local + (to - from)],
-                );
-            }
-            if piece_end >= end {
-                break;
-            }
-            position = piece_end;
-        }
-        result
-    }
-
-    fn all_text(&self) -> Vec<u8> {
-        self.range(0, self.len)
-    }
-
-    fn byte_at(&self, offset: usize) -> Option<u8> {
-        if offset >= self.len {
-            return None;
-        }
-        let mut position = 0usize;
-        for piece in &self.pieces {
-            if offset < position + piece.len {
-                let bytes = self.bytes(piece.source);
-                return Some(bytes[piece.start + (offset - position)]);
-            }
-            position += piece.len;
-        }
-        None
-    }
-
-    fn write_to(&self, writer: &mut impl Write) -> io::Result<()> {
-        for piece in &self.pieces {
-            let bytes = self.bytes(piece.source);
-            writer.write_all(&bytes[piece.start..piece.start + piece.len])?;
-        }
-        Ok(())
-    }
-}
+pub use crate::piece_table::Eol;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GroupKind {
@@ -254,10 +21,15 @@ enum GroupKind {
     Mixed,
 }
 
-struct Op {
-    offset: usize,
-    removed: Vec<u8>,
-    inserted: Vec<u8>,
+enum Op {
+    Edit {
+        offset: usize,
+        removed: Vec<u8>,
+        inserted: Vec<u8>,
+    },
+    /// A whole-buffer replacement. `stored` is the text that is *not* currently
+    /// installed in the piece table, so undo/redo can swap it without copying.
+    ReplaceAll { stored: Vec<u8> },
 }
 
 struct Group {
@@ -314,6 +86,22 @@ impl Document {
         Ok(doc)
     }
 
+    /// Build a scratch document from owned bytes, for example a sidebar diff.
+    pub fn from_bytes(path: Option<String>, mut data: Vec<u8>) -> Document {
+        let bom = data.len() >= 3 && data[..3] == BOM;
+        if bom {
+            data.drain(..3);
+        }
+        let eol = detect_eol(&data);
+        let mut doc = Document::new();
+        doc.table.set_original(data);
+        doc.path = path;
+        doc.eol = eol;
+        doc.bom = bom;
+        doc.saved_revision = doc.revision;
+        doc
+    }
+
     pub fn display_name(&self) -> String {
         match &self.path {
             Some(path) => {
@@ -340,20 +128,20 @@ impl Document {
     }
 
     pub fn size(&self) -> usize {
-        self.table.len
+        self.table.size()
     }
 
     pub fn line_count(&self) -> usize {
-        self.table.line_starts.len()
+        self.table.line_count()
     }
 
     pub fn line_start(&self, line: usize) -> usize {
-        self.table.line_starts[line.min(self.line_count() - 1)]
+        self.table.line_start(line)
     }
 
     pub fn line_end(&self, line: usize) -> usize {
         if line + 1 < self.line_count() {
-            let mut end = self.table.line_starts[line + 1];
+            let mut end = self.table.line_start(line + 1);
             if end > 0 && self.table.byte_at(end - 1) == Some(b'\n') {
                 end -= 1;
                 if end > 0 && self.table.byte_at(end - 1) == Some(b'\r') {
@@ -369,15 +157,21 @@ impl Document {
     pub fn line_text(&self, line: usize) -> Vec<u8> {
         let start = self.line_start(line);
         let end = self.line_end(line);
-        self.table.range(start, end.saturating_sub(start))
+        self.table.range_alloc(start, end.saturating_sub(start))
+    }
+
+    /// Copy a line into `buffer`, avoiding a fresh allocation in the renderer.
+    pub fn copy_line(&self, line: usize, buffer: &mut Vec<u8>) {
+        let start = self.line_start(line);
+        let end = self.line_end(line);
+        let length = end.saturating_sub(start);
+        buffer.clear();
+        buffer.resize(length, 0);
+        self.table.copy_range(start, length, buffer);
     }
 
     pub fn line_of_offset(&self, offset: usize) -> usize {
-        let offset = offset.min(self.size());
-        self.table
-            .line_starts
-            .partition_point(|&start| start <= offset)
-            .saturating_sub(1)
+        self.table.line_of_offset(offset.min(self.size()))
     }
 
     pub fn byte_at(&self, offset: usize) -> Option<u8> {
@@ -385,11 +179,15 @@ impl Document {
     }
 
     pub fn all_text(&self) -> Vec<u8> {
-        self.table.all_text()
+        self.table.range_alloc(0, self.size())
+    }
+
+    pub fn borrowed_text(&self) -> Option<(*const u8, usize)> {
+        self.table.borrowed_view()
     }
 
     pub fn range(&self, offset: usize, length: usize) -> Vec<u8> {
-        self.table.range(offset, length)
+        self.table.range_alloc(offset, length)
     }
 
     pub fn insert(&mut self, offset: usize, text: &[u8]) {
@@ -407,7 +205,7 @@ impl Document {
             self.start_group(GroupKind::Insert);
         }
         let group = self.undo.last_mut().expect("open group");
-        group.ops.push(Op {
+        group.ops.push(Op::Edit {
             offset: clamped,
             removed: Vec::new(),
             inserted: text.to_vec(),
@@ -422,7 +220,7 @@ impl Document {
             return;
         }
         let actual = length.min(self.size() - offset);
-        let removed = self.table.range(offset, actual);
+        let removed = self.table.range_alloc(offset, actual);
         let continuous = self.group_open
             && self.group_kind == GroupKind::Erase
             && (self.group_last_offset == offset || self.group_last_offset == offset + actual);
@@ -433,7 +231,7 @@ impl Document {
             self.start_group(GroupKind::Erase);
         }
         let group = self.undo.last_mut().expect("open group");
-        group.ops.push(Op {
+        group.ops.push(Op::Edit {
             offset,
             removed,
             inserted: Vec::new(),
@@ -446,18 +244,38 @@ impl Document {
     pub fn replace(&mut self, offset: usize, length: usize, text: &[u8]) {
         let clamped = offset.min(self.size());
         let actual = length.min(self.size() - clamped);
-        let removed = self.table.range(clamped, actual);
+        if clamped == 0 && actual == self.size() {
+            self.replace_all_owned(text.to_vec());
+            return;
+        }
+
+        let removed = self.table.range_alloc(clamped, actual);
         if self.group_open {
             self.close_group();
         }
         self.start_group(GroupKind::Mixed);
         let group = self.undo.last_mut().expect("open group");
-        group.ops.push(Op {
+        group.ops.push(Op::Edit {
             offset: clamped,
             removed,
             inserted: text.to_vec(),
         });
-        self.table.replace(clamped, actual, text);
+        self.table.erase(clamped, actual);
+        self.table.insert(clamped, text);
+        self.revision += 1;
+        self.close_group();
+    }
+
+    /// Replace the whole buffer while moving the new text into the piece table
+    /// instead of copying it through the add buffer. Used by bulk plugin edits.
+    pub fn replace_all_owned(&mut self, data: Vec<u8>) {
+        if self.group_open {
+            self.close_group();
+        }
+        self.start_group(GroupKind::Mixed);
+        let removed = self.table.replace_all_owned(data);
+        let group = self.undo.last_mut().expect("open group");
+        group.ops.push(Op::ReplaceAll { stored: removed });
         self.revision += 1;
         self.close_group();
     }
@@ -467,13 +285,25 @@ impl Document {
     }
 
     pub fn undo(&mut self) -> bool {
-        let Some(group) = self.undo.pop() else {
+        let Some(mut group) = self.undo.pop() else {
             return false;
         };
         self.close_group();
-        for op in group.ops.iter().rev() {
-            self.table.erase(op.offset, op.inserted.len());
-            self.table.insert(op.offset, &op.removed);
+        for op in group.ops.iter_mut().rev() {
+            match op {
+                Op::Edit {
+                    offset,
+                    removed,
+                    inserted,
+                } => {
+                    self.table.erase(*offset, inserted.len());
+                    self.table.insert(*offset, removed);
+                }
+                Op::ReplaceAll { stored } => {
+                    let current = self.table.replace_all_owned(std::mem::take(stored));
+                    *stored = current;
+                }
+            }
         }
         self.redo.push(group);
         self.revision += 1;
@@ -481,13 +311,25 @@ impl Document {
     }
 
     pub fn redo(&mut self) -> bool {
-        let Some(group) = self.redo.pop() else {
+        let Some(mut group) = self.redo.pop() else {
             return false;
         };
         self.close_group();
-        for op in &group.ops {
-            self.table.erase(op.offset, op.removed.len());
-            self.table.insert(op.offset, &op.inserted);
+        for op in group.ops.iter_mut() {
+            match op {
+                Op::Edit {
+                    offset,
+                    removed,
+                    inserted,
+                } => {
+                    self.table.erase(*offset, removed.len());
+                    self.table.insert(*offset, inserted);
+                }
+                Op::ReplaceAll { stored } => {
+                    let current = self.table.replace_all_owned(std::mem::take(stored));
+                    *stored = current;
+                }
+            }
         }
         self.undo.push(group);
         self.revision += 1;
@@ -555,6 +397,7 @@ fn detect_eol(data: &[u8]) -> Eol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::piece_table::count_newlines;
 
     #[test]
     fn edits_and_undo() {
@@ -580,6 +423,24 @@ mod tests {
         assert_eq!(doc.line_text(1), b"two");
         assert_eq!(doc.line_of_offset(5), 1);
         assert_eq!(doc.line_start(2), 9);
+    }
+
+    #[test]
+    fn bulk_replace_undo_redo() {
+        let mut doc = Document::new();
+        doc.insert(0, b"alpha\nbeta");
+        doc.replace_all_owned(b"first\nbuffer".to_vec());
+        assert_eq!(doc.all_text(), b"first\nbuffer");
+        doc.replace_all_owned(b"second\nbuffer".to_vec());
+        assert_eq!(doc.all_text(), b"second\nbuffer");
+        assert!(doc.undo());
+        assert_eq!(doc.all_text(), b"first\nbuffer");
+        assert!(doc.undo());
+        assert_eq!(doc.all_text(), b"alpha\nbeta");
+        assert!(doc.redo());
+        assert_eq!(doc.all_text(), b"first\nbuffer");
+        assert!(doc.redo());
+        assert_eq!(doc.all_text(), b"second\nbuffer");
     }
 
     #[test]
@@ -619,5 +480,18 @@ mod tests {
             assert_eq!(doc.line_count(), expected_lines);
             assert_eq!(doc.line_of_offset(reference.len()), expected_lines - 1);
         }
+    }
+
+    #[test]
+    fn line_index_scales_without_rebuild() {
+        let mut doc = Document::new();
+        doc.insert(0, &vec![b'x'; 1_000_000]);
+        for _ in 0..1000 {
+            let offset = doc.size() / 2;
+            doc.insert(offset, b"y");
+            doc.erase(offset, 1);
+        }
+        assert_eq!(doc.size(), 1_000_000);
+        assert_eq!(count_newlines(&doc.all_text()), 0);
     }
 }

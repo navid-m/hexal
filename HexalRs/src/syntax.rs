@@ -691,6 +691,21 @@ static CONFIG: Language = Language {
     case_insensitive: true,
 };
 
+static DIFF: Language = Language {
+    id: "diff",
+    name: "Diff",
+    extensions: &[],
+    keywords: &[],
+    control: &[],
+    types: &[],
+    constants: &[],
+    line_comment: "",
+    block_start: "",
+    block_end: "",
+    quotes: "",
+    case_insensitive: false,
+};
+
 static LANGUAGES: &[&Language] = &[
     &RUST,
     &ZIG,
@@ -707,6 +722,7 @@ static LANGUAGES: &[&Language] = &[
     &YAML,
     &MARKDOWN,
     &CONFIG,
+    &DIFF,
 ];
 
 pub fn from_path(path: &str) -> Option<&'static Language> {

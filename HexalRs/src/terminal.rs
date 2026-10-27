@@ -23,6 +23,8 @@ pub enum Key {
     PageUp,
     PageDown,
     Insert,
+    ScrollUp,
+    ScrollDown,
     Unknown,
 }
 

@@ -3,7 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use std::alloc::{alloc, dealloc, realloc, Layout};
+use std::alloc::{alloc as rust_alloc, dealloc as rust_dealloc, Layout};
 use std::cell::{RefCell, UnsafeCell};
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -14,12 +14,129 @@ use std::slice;
 
 use mlua::{ffi, Lua, StdLib};
 
+const LUA_GRAIN: usize = 16;
+const LUA_SMALL_LIMIT: usize = 1024;
+const LUA_CLASSES: usize = LUA_SMALL_LIMIT / LUA_GRAIN;
+const LUA_MAX_CACHED: u16 = 512;
+
+struct FreeNode {
+    next: *mut FreeNode,
+}
+
+/// Lua's allocator is extremely hot while `string.gmatch` creates short
+/// strings. Keep freed small blocks in size-class lists, mirroring the Zig
+/// host.
+struct LuaAllocator {
+    heads: [*mut FreeNode; LUA_CLASSES],
+    counts: [u16; LUA_CLASSES],
+}
+
+impl LuaAllocator {
+    fn new() -> Box<LuaAllocator> {
+        Box::new(LuaAllocator {
+            heads: [std::ptr::null_mut(); LUA_CLASSES],
+            counts: [0; LUA_CLASSES],
+        })
+    }
+
+    #[inline]
+    fn class(size: usize) -> Option<usize> {
+        if size == 0 || size > LUA_SMALL_LIMIT {
+            None
+        } else {
+            Some((size - 1) / LUA_GRAIN)
+        }
+    }
+
+    #[inline]
+    unsafe fn alloc(&mut self, size: usize) -> *mut u8 {
+        if let Some(class) = Self::class(size) {
+            let head = self.heads[class];
+            if !head.is_null() {
+                self.heads[class] = unsafe { (*head).next };
+                self.counts[class] -= 1;
+                return head as *mut u8;
+            }
+            let block = (class + 1) * LUA_GRAIN;
+            return unsafe {
+                rust_alloc(Layout::from_size_align_unchecked(block, LUA_GRAIN))
+            };
+        }
+        unsafe { rust_alloc(Layout::from_size_align_unchecked(size, LUA_GRAIN)) }
+    }
+
+    #[inline]
+    unsafe fn dealloc(&mut self, pointer: *mut u8, size: usize) {
+        if let Some(class) = Self::class(size) {
+            if self.counts[class] < LUA_MAX_CACHED {
+                let node = pointer as *mut FreeNode;
+                unsafe { (*node).next = self.heads[class] };
+                self.heads[class] = node;
+                self.counts[class] += 1;
+                return;
+            }
+            let block = (class + 1) * LUA_GRAIN;
+            unsafe {
+                rust_dealloc(pointer, Layout::from_size_align_unchecked(block, LUA_GRAIN))
+            };
+            return;
+        }
+        unsafe {
+            rust_dealloc(pointer, Layout::from_size_align_unchecked(size, LUA_GRAIN))
+        };
+    }
+
+    unsafe fn realloc(&mut self, pointer: *mut u8, old_size: usize, new_size: usize) -> *mut u8 {
+        if let (Some(old_class), Some(new_class)) =
+            (Self::class(old_size), Self::class(new_size))
+        {
+            if old_class == new_class {
+                return pointer;
+            }
+        }
+        let replacement = unsafe { self.alloc(new_size) };
+        if !replacement.is_null() && !pointer.is_null() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(pointer, replacement, old_size.min(new_size));
+            }
+        }
+        if !pointer.is_null() {
+            unsafe { self.dealloc(pointer, old_size) };
+        }
+        replacement
+    }
+}
+
+impl Drop for LuaAllocator {
+    fn drop(&mut self) {
+        for class in 0..LUA_CLASSES {
+            let mut node = self.heads[class];
+            while !node.is_null() {
+                let next = unsafe { (*node).next };
+                unsafe {
+                    rust_dealloc(
+                        node as *mut u8,
+                        Layout::from_size_align_unchecked(
+                            (class + 1) * LUA_GRAIN,
+                            LUA_GRAIN,
+                        ),
+                    )
+                };
+                node = next;
+            }
+        }
+    }
+}
+
 use crate::document::Document;
 
 /// In-memory buffer exposed to Lua. Keeping a snapshot makes plugin callbacks
 /// simple and lets commands be atomic from the editor's point of view.
 struct LuaHost {
     text: Vec<u8>,
+    /// Non-owning view of the document's original buffer after a write-back.
+    /// Materialised into `text` before any host-side mutation.
+    text_view: Option<(*const u8, usize)>,
     line_starts: Vec<usize>,
     cursor_line: usize,
     cursor_column: usize,
@@ -31,6 +148,7 @@ impl LuaHost {
     fn new() -> LuaHost {
         LuaHost {
             text: Vec::new(),
+            text_view: None,
             line_starts: vec![0],
             cursor_line: 0,
             cursor_column: 0,
@@ -41,6 +159,7 @@ impl LuaHost {
 
     fn load(&mut self, text: Vec<u8>, cursor_line: usize, cursor_column: usize) {
         self.text = text;
+        self.text_view = None;
         self.rebuild_lines();
         self.cursor_line = cursor_line.min(self.line_count().saturating_sub(1));
         self.cursor_column = cursor_column;
@@ -48,13 +167,44 @@ impl LuaHost {
         self.message = None;
     }
 
+    fn bytes(&self) -> &[u8] {
+        match self.text_view {
+            // Safety: the pointer is the document's immutable original buffer
+            // and is cleared before any host-side mutation or document edit.
+            Some((pointer, length)) => unsafe { slice::from_raw_parts(pointer, length) },
+            None => &self.text,
+        }
+    }
+
+    fn materialize(&mut self) {
+        let Some((pointer, length)) = self.text_view.take() else {
+            return;
+        };
+        // Safety: see `bytes`.
+        let bytes = unsafe { slice::from_raw_parts(pointer, length) };
+        self.text.clear();
+        self.text.extend_from_slice(bytes);
+    }
+
     fn rebuild_lines(&mut self) {
         self.line_starts.clear();
         self.line_starts.push(0);
-        for (index, &byte) in self.text.iter().enumerate() {
-            if byte == b'\n' {
-                self.line_starts.push(index + 1);
+        let bytes = &self.text;
+        let mut position = 0usize;
+        while position < bytes.len() {
+            let found = unsafe {
+                libc::memchr(
+                    bytes[position..].as_ptr() as *const c_void,
+                    b'\n' as c_int,
+                    bytes.len() - position,
+                )
+            };
+            if found.is_null() {
+                break;
             }
+            let index = found as usize - bytes.as_ptr() as usize;
+            self.line_starts.push(index + 1);
+            position = index + 1;
         }
     }
 
@@ -66,32 +216,43 @@ impl LuaHost {
         self.line_starts[line.min(self.line_count() - 1)]
     }
 
-    fn line_end(&self, line: usize) -> usize {
-        if line + 1 < self.line_count() {
-            let mut end = self.line_starts[line + 1];
-            if end > 0 && self.text.get(end - 1) == Some(&b'\n') {
-                end -= 1;
-                if end > 0 && self.text.get(end - 1) == Some(&b'\r') {
-                    end -= 1;
-                }
-            }
-            end
-        } else {
-            self.text.len()
-        }
-    }
-
-    fn line_bytes(&self, line: usize) -> Option<&[u8]> {
-        if line >= self.line_count() {
+    #[inline]
+    fn line_bounds(&self, line: usize) -> Option<(usize, usize)> {
+        if line >= self.line_starts.len() {
             return None;
         }
-        Some(&self.text[self.line_start(line)..self.line_end(line)])
+        let text = self.bytes();
+        let start = self.line_starts[line];
+        if line + 1 >= self.line_starts.len() {
+            return Some((start, text.len()));
+        }
+        // Line starts are recorded immediately after a newline, so the byte
+        // before the next start is the terminator and does not need a check.
+        let mut end = self.line_starts[line + 1] - 1;
+        if end > start && text[end - 1] == b'\r' {
+            end -= 1;
+        }
+        Some((start, end))
+    }
+
+    #[inline]
+    fn line_end(&self, line: usize) -> usize {
+        self.line_bounds(line)
+            .map(|(_, end)| end)
+            .unwrap_or_else(|| self.bytes().len())
+    }
+
+    #[inline]
+    fn line_bytes(&self, line: usize) -> Option<&[u8]> {
+        let (start, end) = self.line_bounds(line)?;
+        Some(&self.bytes()[start..end])
     }
 
     fn set_line(&mut self, line: usize, value: &[u8]) -> bool {
         if line >= self.line_count() {
             return false;
         }
+        self.materialize();
         let start = self.line_start(line);
         let end = self.line_end(line);
         self.text.splice(start..end, value.iter().copied());
@@ -101,6 +262,7 @@ impl LuaHost {
     }
 
     fn set_text(&mut self, value: &[u8]) {
+        self.text_view = None;
         self.text.clear();
         self.text.extend_from_slice(value);
         self.rebuild_lines();
@@ -110,18 +272,18 @@ impl LuaHost {
 
     fn byte_offset(&self) -> usize {
         let line = self.cursor_line.min(self.line_count() - 1);
-        let start = self.line_start(line);
-        let end = self.line_end(line);
+        let (start, end) = self.line_bounds(line).unwrap_or((0, 0));
         start + self.cursor_column.min(end.saturating_sub(start))
     }
 
     fn set_cursor(&mut self, line: usize, column: usize) {
         self.cursor_line = line.min(self.line_count().saturating_sub(1));
-        let max = self.line_end(self.cursor_line) - self.line_start(self.cursor_line);
-        self.cursor_column = column.min(max);
+        let (start, end) = self.line_bounds(self.cursor_line).unwrap_or((0, 0));
+        self.cursor_column = column.min(end.saturating_sub(start));
     }
 
     fn insert(&mut self, value: &[u8]) {
+        self.materialize();
         let offset = self.byte_offset();
         self.text.splice(offset..offset, value.iter().copied());
         self.rebuild_lines();
@@ -150,6 +312,7 @@ pub struct LuaRuntime {
     lua: &'static Lua,
     state: *mut ffi::lua_State,
     ctx: Box<RawContext>,
+    _allocator: Box<LuaAllocator>,
     loaded_revision: Option<u64>,
     synced_editor_cursor: Option<usize>,
     last_command: Option<(String, c_int)>,
@@ -160,7 +323,10 @@ impl LuaRuntime {
     pub fn new() -> Result<LuaRuntime, mlua::Error> {
         // Create the state with Rust's allocator so Lua strings and tables use
         // the same fast allocator as the rest of the editor.
-        let state = unsafe { ffi::lua_newstate(lua_alloc, ptr::null_mut()) };
+        let mut allocator = LuaAllocator::new();
+        let state = unsafe {
+            ffi::lua_newstate(lua_alloc, (&mut *allocator) as *mut LuaAllocator as *mut c_void)
+        };
         if state.is_null() {
             return Err(mlua::Error::RuntimeError("cannot create Lua state".into()));
         }
@@ -185,6 +351,7 @@ impl LuaRuntime {
             lua,
             state,
             ctx,
+            _allocator: allocator,
             loaded_revision: None,
             synced_editor_cursor: None,
             last_command: None,
@@ -270,8 +437,12 @@ impl LuaRuntime {
             (host.dirty, host.byte_offset())
         };
         if dirty {
-            let host = unsafe { host(&self.ctx) };
-            doc.replace(0, doc.size(), &host.text);
+            let host = unsafe { host_mut(&self.ctx) };
+            let data = std::mem::take(&mut host.text);
+            doc.replace_all_owned(data);
+            // The document now owns the moved buffer. Point the host at it so
+            // the next command can keep reading without another copy.
+            host.text_view = doc.borrowed_text();
         }
         *cursor = offset.min(doc.size());
         self.synced_editor_cursor = Some(*cursor);
@@ -429,7 +600,7 @@ unsafe extern "C-unwind" fn api_get_text(state: *mut ffi::lua_State) -> c_int {
     unsafe {
         let ctx = context(state);
         let host = host(ctx);
-        push_bytes(state, &host.text)
+        push_bytes(state, host.bytes())
     }
 }
 
@@ -534,29 +705,23 @@ impl Drop for LuaRuntime {
 }
 
 unsafe extern "C" fn lua_alloc(
-    _userdata: *mut c_void,
+    userdata: *mut c_void,
     pointer: *mut c_void,
     old_size: usize,
     new_size: usize,
 ) -> *mut c_void {
     unsafe {
+        let allocator = &mut *(userdata as *mut LuaAllocator);
         if new_size == 0 {
             if !pointer.is_null() {
-                dealloc(
-                    pointer as *mut u8,
-                    Layout::from_size_align_unchecked(old_size, 1),
-                );
+                allocator.dealloc(pointer as *mut u8, old_size);
             }
             return ptr::null_mut();
         }
         if pointer.is_null() {
-            alloc(Layout::from_size_align_unchecked(new_size, 1)) as *mut c_void
+            allocator.alloc(new_size) as *mut c_void
         } else {
-            realloc(
-                pointer as *mut u8,
-                Layout::from_size_align_unchecked(old_size, 1),
-                new_size,
-            ) as *mut c_void
+            allocator.realloc(pointer as *mut u8, old_size, new_size) as *mut c_void
         }
     }
 }

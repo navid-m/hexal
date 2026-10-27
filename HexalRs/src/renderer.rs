@@ -137,7 +137,14 @@ fn append_style(output: &mut Vec<u8>, style: Style) {
 }
 
 fn append_color(output: &mut Vec<u8>, color: u32, foreground: bool) {
-    if color < 8 {
+    if crate::theme::is_true_color(color) {
+        output.extend_from_slice(if foreground { b";38;2;" } else { b";48;2;" });
+        append_int(output, ((color >> 16) & 0xFF) as usize);
+        output.push(b';');
+        append_int(output, ((color >> 8) & 0xFF) as usize);
+        output.push(b';');
+        append_int(output, (color & 0xFF) as usize);
+    } else if color < 8 {
         output.extend_from_slice(if foreground { b";3" } else { b";4" });
         append_int(output, color as usize);
     } else if color < 16 {

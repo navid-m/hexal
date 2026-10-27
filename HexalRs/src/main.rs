@@ -3,75 +3,18 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::ptr;
 
-/// Large buffers (plugin snapshots, bulk replacements, big files) go through
-/// mimalloc. Small startup allocations stay on the system allocator so a
-/// plugin-free launch does not pay mimalloc's arena and RSS cost.
-struct HybridAllocator;
-
-const LARGE_ALLOCATION: usize = 1024 * 1024;
-static SYSTEM_ALLOCATOR: System = System;
-static MIMI_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-unsafe impl GlobalAlloc for HybridAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe {
-            if layout.size() >= LARGE_ALLOCATION {
-                MIMI_ALLOCATOR.alloc(layout)
-            } else {
-                SYSTEM_ALLOCATOR.alloc(layout)
-            }
-        }
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        unsafe {
-            if layout.size() >= LARGE_ALLOCATION {
-                MIMI_ALLOCATOR.dealloc(pointer, layout);
-            } else {
-                SYSTEM_ALLOCATOR.dealloc(pointer, layout);
-            }
-        }
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        unsafe {
-            let old_large = layout.size() >= LARGE_ALLOCATION;
-            let new_large = new_size >= LARGE_ALLOCATION;
-            match (old_large, new_large) {
-                (false, false) => SYSTEM_ALLOCATOR.realloc(pointer, layout, new_size),
-                (true, true) => MIMI_ALLOCATOR.realloc(pointer, layout, new_size),
-                (false, true) => {
-                    let new_layout = Layout::from_size_align_unchecked(new_size, layout.align());
-                    let new_pointer = MIMI_ALLOCATOR.alloc(new_layout);
-                    if !new_pointer.is_null() {
-                        ptr::copy_nonoverlapping(pointer, new_pointer, layout.size());
-                        SYSTEM_ALLOCATOR.dealloc(pointer, layout);
-                    }
-                    new_pointer
-                }
-                (true, false) => {
-                    let new_layout = Layout::from_size_align_unchecked(new_size, layout.align());
-                    let new_pointer = SYSTEM_ALLOCATOR.alloc(new_layout);
-                    if !new_pointer.is_null() {
-                        ptr::copy_nonoverlapping(pointer, new_pointer, new_size);
-                        MIMI_ALLOCATOR.dealloc(pointer, layout);
-                    }
-                    new_pointer
-                }
-            }
-        }
-    }
-}
-
-#[global_allocator]
-static GLOBAL: HybridAllocator = HybridAllocator;
-
+mod alloc;
+mod diff;
 mod document;
+mod format;
 mod editor;
 mod files;
+mod git;
+mod help;
+mod sidebar;
+mod json;
+mod piece_table;
 mod lua;
 mod renderer;
 mod screen;
@@ -79,6 +22,9 @@ mod syntax;
 mod terminal;
 mod theme;
 mod util;
+
+#[global_allocator]
+static GLOBAL: alloc::LargeCacheAllocator = alloc::LargeCacheAllocator::new();
 
 use document::Document;
 use editor::Editor;
