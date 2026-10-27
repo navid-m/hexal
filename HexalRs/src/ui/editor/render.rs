@@ -6,12 +6,12 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Viewport and rendering
-    // ---------------------------------------------------------------------
-
     pub(super) fn status_row(&self) -> usize {
-        if self.rows >= 2 { self.rows - 2 } else { 0 }
+        if self.rows >= 2 {
+            self.rows - 2
+        } else {
+            0
+        }
     }
 
     pub(super) fn command_row(&self) -> usize {

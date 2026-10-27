@@ -6,10 +6,6 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Commands and file operations
-    // ---------------------------------------------------------------------
-
     pub(super) fn load_plugins(&mut self) {
         let Ok(entries) = std::fs::read_dir(Path::new("plugins")) else {
             return;
@@ -124,8 +120,7 @@ impl Editor {
         let language_format = self
             .active_language()
             .and_then(|language| language.format_on_save);
-        let should_format = !skip_format
-            && language_format.unwrap_or(self.config.format_on_save);
+        let should_format = !skip_format && language_format.unwrap_or(self.config.format_on_save);
         if should_format {
             if let Some(formatter) = self
                 .active_language()
@@ -204,7 +199,6 @@ impl Editor {
         changed
     }
 }
-
 
 fn shift_after_removal(position: usize, remove_at: usize, removed: usize) -> usize {
     if position >= remove_at + removed {

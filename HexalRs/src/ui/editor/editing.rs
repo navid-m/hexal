@@ -6,10 +6,6 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Editing
-    // ---------------------------------------------------------------------
-
     pub(super) fn enter_insert(&mut self) {
         self.mode = Mode::Insert;
         self.doc.break_undo_group();

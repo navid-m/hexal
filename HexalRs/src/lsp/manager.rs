@@ -2,9 +2,8 @@
 //! initialization, full-document synchronization, diagnostics, hover,
 //! definitions, completions, code actions and document symbols.
 //!
-//! The UI thread never blocks on a server. A reader thread parses framed
-//! messages from stdout and forwards them to a channel; `poll` applies state
-//! changes and returns display events.
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
@@ -1844,7 +1843,7 @@ pub fn configs_for_language(language: &str) -> Vec<ServerConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, Manager, ServerConfig, path_to_uri};
+    use super::{path_to_uri, Event, Manager, ServerConfig};
     use std::fs;
     use std::time::Duration;
 

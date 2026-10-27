@@ -6,10 +6,6 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Modes
-    // ---------------------------------------------------------------------
-
     pub(super) fn handle_normal(&mut self, event: Event) {
         if event.key == Key::Char && event.ctrl {
             self.pending_g = false;

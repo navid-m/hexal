@@ -1,5 +1,7 @@
-//! ANSI diff renderer. It compares the new cell grid with the previous one and
-//! emits cursor-addressed SGR runs only for changed cells.
+//! ANSI diff renderer.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use crate::ui::screen::{Cell, Screen};
 use crate::ui::theme::Style;

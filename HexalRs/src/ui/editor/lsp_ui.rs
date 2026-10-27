@@ -1,14 +1,13 @@
 //! Language-server UI: lifecycle, completion, hover, code actions, symbols,
 //! diagnostics and debug traffic.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use super::*;
 use crate::languages::highlight;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Lifecycle
-    // ---------------------------------------------------------------------
-
     pub(super) fn start_lsp_for_buffer(&mut self) {
         let Some(path) = self.doc.path.clone() else {
             return;

@@ -5,6 +5,9 @@
 //! literals, escapes, character classes, `.`, groups, alternation and greedy
 //! quantifiers. Matching is byte-oriented so reported offsets can be used
 //! directly against the editor's UTF-8 buffers.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 #[derive(Clone, Debug)]
 enum Node {
@@ -382,7 +385,11 @@ fn class_matches(class: &Node, byte: u8, insensitive: bool) -> bool {
             (lower >= *start && lower <= *end) || (upper >= *start && upper <= *end)
         });
     }
-    if *negated { !found } else { found }
+    if *negated {
+        !found
+    } else {
+        found
+    }
 }
 
 fn match_node(node: &Node, text: &[u8], position: usize, insensitive: bool, out: &mut Vec<usize>) {

@@ -1,5 +1,3 @@
-//! Language grammars, highlighting and language-server associations.
-
 pub mod definition;
 pub mod highlight;
 pub mod regex;

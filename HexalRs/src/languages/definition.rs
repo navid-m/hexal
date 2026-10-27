@@ -2,6 +2,9 @@
 //!
 //! The schema and defaults mirror the C# editor's `LanguageDefinition`
 //! exactly, including the legacy aliases accepted by its JSON reader.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};

@@ -6,10 +6,6 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // File opening and pickers
-    // ---------------------------------------------------------------------
-
     pub(super) fn request_open(&mut self, raw_path: &str, line: usize, column: usize, force: bool) {
         let expanded = util::expand_home(raw_path);
         if self.doc.is_dirty() && !force {
@@ -462,11 +458,8 @@ impl Editor {
             let problem = self.picker.items[self.picker.selected].problem.clone();
             self.close_picker();
             if let Some((path, line, column)) = problem {
-                let byte = super::lsp_ui::lsp_column_to_byte_offset(
-                    &path,
-                    line as i64,
-                    column as i64,
-                );
+                let byte =
+                    super::lsp_ui::lsp_column_to_byte_offset(&path, line as i64, column as i64);
                 self.request_open(&path, line, byte, false);
             }
             return;
@@ -522,7 +515,11 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 { height - 3 } else { 1 }
+        if height >= 3 {
+            height - 3
+        } else {
+            1
+        }
     }
 }
 

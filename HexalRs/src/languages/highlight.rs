@@ -3,6 +3,9 @@
 //! Only visible lines are tokenized. The cache mirrors the reference editor:
 //! before trusting a cached predecessor its line signature is revalidated, so
 //! an edit never leaves a stale block-comment state behind.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use std::collections::HashMap;
 
@@ -374,7 +377,7 @@ fn merge_line_highlight(
 
 #[cfg(test)]
 mod tests {
-    use super::{Highlighter, tokenize_line};
+    use super::{tokenize_line, Highlighter};
     use crate::core::document::Document;
     use crate::languages::Registry;
     use crate::ui::theme::SyntaxKind;
@@ -415,24 +418,8 @@ mod tests {
     fn tokenizes_short_lines_for_every_grammar() {
         let registry = Registry::load();
         let lines: &[&[u8]] = &[
-            b"",
-            b"}",
-            b"{",
-            b"+",
-            b"-",
-            b"/",
-            b"*",
-            b"#",
-            b"--",
-            b"/*",
-            b"*/",
-            b"\"",
-            b"'",
-            b"<",
-            b">",
-            b"=",
-            b"1",
-            b"x",
+            b"", b"}", b"{", b"+", b"-", b"/", b"*", b"#", b"--", b"/*", b"*/", b"\"", b"'", b"<",
+            b">", b"=", b"1", b"x",
         ];
         for language in registry.languages() {
             let mut tokens = Vec::new();

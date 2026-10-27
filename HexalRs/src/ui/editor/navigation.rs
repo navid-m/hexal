@@ -6,10 +6,6 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Movement
-    // ---------------------------------------------------------------------
-
     pub(super) fn cursor_line(&self) -> usize {
         self.doc
             .line_of_offset(self.cursor)

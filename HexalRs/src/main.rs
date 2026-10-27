@@ -22,53 +22,17 @@ use ui::editor::Editor;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const HELP_TEXT: &str = "\
-hexalrs [options] [file]
+Hexal v0.3.0
 
-A small modal, terminal-based text editor written in Rust 2024.
+Usage: 
+  hexal [options] file
+  hexal [options] directory
+  hexal install-plugin <name>
 
 Options:
   -h, --help       Print this help and exit
   -v, --version    Print the version and exit
   --               Treat remaining arguments as file names
-
-Keys:
-  i / I            Insert mode
-  a / A            Append after cursor / at line end
-  o / O            Open line below / above
-  v / V            Character selection
-  x / X            Line selection
-  Esc              Normal mode / cancel selection
-  h j k l, arrows  Move
-  w / b            Next / previous word
-  Home / End       Line start / end
-  Ctrl+Home/End    Document start / end
-  PageUp/PageDown  Move by one screen
-  gg / ge / gp     First line / last line / previous location
-  d / Delete       Delete character or selection
-  u / U            Undo / redo
-  /                Find in file (n / p to step)
-  :                Ex command line (:w, :wq, :q, :e, :path, :cw)
-  Ctrl+C           Toggle comments on the selection or current line
-  :rc              Remove comments from the active selection
-  :fmt / :fmta     Format the buffer/selection or every file with an extension
-  :lang <id>       Override the language for the current buffer
-  :cfg             Open (or create) ~/.hexal/.hexcfg
-  :rcfg            Reload configuration, grammars, themes and language servers
-  :lua <file>      Load a Lua plugin from a file
-  :plugins         List registered Lua commands
-  Space            Open the SPACE menu (bottom-right)
-  Space f          File picker
-  Space /          Search across files
-  Space g          Go to line
-  Space K / A / S  Language-server hover / code actions / symbols
-  Space d / D / Z  Document / workspace diagnostics / line diagnostic
-  Space y / X      Yank / cut selection
-  Space p / P      Paste / paste on a new line
-
-Lua plugins:
-  Plugins in ./plugins/*.lua are loaded at startup.
-  Headless benchmark:
-    hexalrs --lua-bench <plugin.lua> <command> <iterations> [file]
 ";
 
 fn main() {

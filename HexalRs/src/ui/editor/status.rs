@@ -6,10 +6,6 @@
 use super::*;
 
 impl Editor {
-    // ---------------------------------------------------------------------
-    // Language lifecycle and small helpers
-    // ---------------------------------------------------------------------
-
     pub(super) fn active_language(&self) -> Option<std::rc::Rc<Language>> {
         if let Some(id) = &self.language_override {
             if let Some(language) = self.languages.find_shared(id) {

@@ -1,4 +1,7 @@
 //! Grammar-aware comment toggling and comment removal.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use std::collections::BTreeSet;
 

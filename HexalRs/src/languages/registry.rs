@@ -1,5 +1,8 @@
-//! Loads and indexes the bundled `.hexdef` grammars plus user overrides from
+//! Loads and indexes the bundled hexdef grammars plus user overrides from
 //! `~/.hexal/data/grammars`.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use std::collections::HashMap;
 use std::fs;

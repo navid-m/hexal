@@ -1,4 +1,4 @@
-//! Small, tolerant JSON parser for theme and configuration files.
+//! Small, fault-tolerant JSON parser for theme and configuration files.
 //!
 //! Supports the same conveniences as the C# reader: `//` and `/* */`
 //! comments, trailing commas and standard JSON escapes. It deliberately does
