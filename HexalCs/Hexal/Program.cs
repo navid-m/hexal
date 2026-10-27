@@ -220,10 +220,7 @@ internal static class Program
     {
         try
         {
-            long phaseStarted = StartupTrace.Timestamp();
-            LinuxDesktopEntry.EnsureLauncher();
-            StartupTrace.Mark("desktop launcher check", phaseStarted);
-
+            long phaseStarted;
             var document = new Document();
             if (file.Length > 0)
             {

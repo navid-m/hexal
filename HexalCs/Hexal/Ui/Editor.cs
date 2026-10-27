@@ -610,6 +610,13 @@ public sealed partial class Editor
         );
         _benchmark?.AddSince("Startup", "UI first render", _editorStartTimestamp);
 
+        // Installing the XDG desktop launcher can touch the desktop database
+        // and spawn update-desktop-database. It is not needed for the first
+        // frame, so keep it off the startup path and off the input thread.
+        long launcherStarted = StartupTrace.Timestamp();
+        Task.Run(LinuxDesktopEntry.EnsureLauncher);
+        StartupTrace.Mark("desktop launcher scheduled", launcherStarted);
+
         phaseStarted = StartupTrace.Timestamp();
         PollStartupWork();
         StartupTrace.Mark("first startup-work poll", phaseStarted);

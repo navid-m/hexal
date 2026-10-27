@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Hexal.Util;
 
 /// <summary>
@@ -185,35 +187,36 @@ public static class HexalPaths
             _themeDirectory = hasPortableThemes ? portableThemes : Path.Combine(homeData, "themes");
 
             phaseStarted = StartupTrace.Timestamp();
-            Log($"Hexal binary directory: {BinaryDirectory}");
-            StartupTrace.Mark("paths: log binary directory", phaseStarted);
-
-            phaseStarted = StartupTrace.Timestamp();
+            // Resolve everything first and write one log entry: each Log call
+            // is an open/append/close, and this path runs on every launch.
+            var details = new StringBuilder();
+            details.Append("Hexal binary directory: ").AppendLine(BinaryDirectory);
             if (!hasPortableGrammars && !hasPortablePlugins && !hasPortableThemes)
             {
-                Log(
+                details.AppendLine(
                     "Could not find grammars, plugins and themes relative to binary path, "
                         + "falling back to ~/.hexal directory"
                 );
             }
             else
             {
-                Log(
+                details.AppendLine(
                     hasPortableGrammars
                         ? $"Using grammars from binary-relative path: {_grammarDirectory}"
                         : $"Could not find grammars relative to binary path, falling back to {_grammarDirectory}"
                 );
-                Log(
+                details.AppendLine(
                     hasPortablePlugins
                         ? $"Using plugins from binary-relative path: {_pluginDirectory}"
                         : $"Could not find plugins relative to binary path, falling back to {_pluginDirectory}"
                 );
-                Log(
+                details.AppendLine(
                     hasPortableThemes
                         ? $"Using themes from binary-relative path: {_themeDirectory}"
                         : $"Could not find themes relative to binary path, falling back to {_themeDirectory}"
                 );
             }
+            Log(details.ToString().TrimEnd());
             StartupTrace.Mark("paths: log resolution details", phaseStarted);
             StartupTrace.Mark("paths: resolution total", resolvedStarted);
         }

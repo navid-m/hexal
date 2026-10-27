@@ -458,10 +458,44 @@ public sealed class LuaPluginManager : IDisposable
         StartupTrace.Mark("plugin disabled-state read", phaseStarted, $"{disabled.Count} disabled");
 
         Array.Sort(directories, StringComparer.OrdinalIgnoreCase);
+
+        // Manifests are independent, tiny and read for every bundled plugin.
+        // Parse them concurrently so the sequential discovery pass below only
+        // has to validate entry points and start enabled plugins.
+        var manifests = new (Dictionary<string, string> Values, string Error)[directories.Length];
         phaseStarted = StartupTrace.Timestamp();
-        foreach (string directory in directories)
+        Parallel.For(
+            0,
+            directories.Length,
+            index =>
+            {
+                string manifestPath = Path.Combine(directories[index], "plugin.toml");
+                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                string error = string.Empty;
+                if (File.Exists(manifestPath) && !TryParseManifest(manifestPath, values, out error))
+                {
+                    manifests[index] = (values, error);
+                    return;
+                }
+
+                manifests[index] = (values, string.Empty);
+            }
+        );
+        StartupTrace.Mark(
+            "plugin manifest prefetch",
+            phaseStarted,
+            $"{directories.Length} manifest(s)"
+        );
+
+        phaseStarted = StartupTrace.Timestamp();
+        for (int index = 0; index < directories.Length; ++index)
         {
-            DiscoverPlugin(directory, disabled);
+            DiscoverPlugin(
+                directories[index],
+                disabled,
+                manifests[index].Values,
+                manifests[index].Error
+            );
         }
         StartupTrace.Mark("plugin discovery loop", phaseStarted, $"{directories.Length} entries");
 
@@ -779,9 +813,27 @@ public sealed class LuaPluginManager : IDisposable
     /// </summary>
     private void DiscoverPlugin(string directory, HashSet<string> disabled)
     {
+        string manifestPath = Path.Combine(directory, "plugin.toml");
+        var manifest = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string error = string.Empty;
+        if (File.Exists(manifestPath) && !TryParseManifest(manifestPath, manifest, out error))
+        {
+            DiscoverPlugin(directory, disabled, manifest, error);
+            return;
+        }
+
+        DiscoverPlugin(directory, disabled, manifest, string.Empty);
+    }
+
+    private void DiscoverPlugin(
+        string directory,
+        HashSet<string> disabled,
+        Dictionary<string, string> manifest,
+        string manifestError
+    )
+    {
         string fallbackId = Path.GetFileName(directory);
         string manifestPath = Path.Combine(directory, "plugin.toml");
-        Dictionary<string, string> manifest = new(StringComparer.OrdinalIgnoreCase);
 
         var entry = new PluginEntry
         {
@@ -793,10 +845,7 @@ public sealed class LuaPluginManager : IDisposable
         _entries.Add(entry);
 
         long phaseStarted = StartupTrace.Timestamp();
-        if (
-            File.Exists(manifestPath)
-            && !TryParseManifest(manifestPath, manifest, out string manifestError)
-        )
+        if (manifestError.Length > 0)
         {
             RecordDiscoveryError(entry, manifestError);
             StartupTrace.Mark(
@@ -1128,7 +1177,7 @@ public sealed class LuaPluginManager : IDisposable
         LuaTable editor = NewModule(lua, root, "editor");
         editor["get_current_buffer"] = new Func<string>(() => _host.CurrentBufferId);
         editor["get_workspace_root"] = new Func<string?>(() => _host.WorkspaceRoot);
-        editor["get_text"] = new Func<string>(_host.GetText);
+        editor["get_text"] = new Func<string>(() => _host.GetText());
         editor["get_line"] = new Func<long, object?>(line =>
         {
             string? text = _host.GetLine(line, out string error);
