@@ -1,8 +1,8 @@
 [package]
-name = "hexalrs"
-version = "0.1.0"
+name = "hexal"
+version = "0.3.0"
 edition = "2024"
-description = "A small Rust prototype of the Hexal terminal editor"
+description = "A Modal Text Editor"
 
 [dependencies]
 libc = "0.2"

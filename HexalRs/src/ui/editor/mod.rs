@@ -3,6 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
+mod about;
 mod comments;
 mod editing;
 mod find;
@@ -81,6 +82,7 @@ enum PickerKind {
 enum PaletteAction {
     OpenFiles,
     SearchFiles,
+    OpenConfig,
     GotoLine,
     OpenThemes,
     ToggleSidebar,
@@ -400,6 +402,7 @@ pub struct Editor {
     themes: ThemeRegistry,
     theme_before_picker: Option<String>,
     help: HelpState,
+    about: about::AboutState,
     force_full_redraw: bool,
     sidebar: Sidebar,
     sidebar_prompt: Option<SidebarPrompt>,
@@ -486,6 +489,7 @@ impl Editor {
             themes,
             theme_before_picker: None,
             help: HelpState::new(),
+            about: about::AboutState::new(),
             force_full_redraw: true,
             sidebar: Sidebar::new(),
             sidebar_prompt: None,
@@ -587,6 +591,10 @@ impl Editor {
         }
         if self.hover.visible {
             self.handle_hover_input(event);
+            return;
+        }
+        if self.about.visible {
+            self.handle_about_input(event);
             return;
         }
         if self.help.visible {

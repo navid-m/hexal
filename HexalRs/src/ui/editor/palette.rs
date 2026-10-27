@@ -25,6 +25,11 @@ impl Editor {
             PaletteAction::SearchFiles,
         );
         self.add_palette_command(
+            "Open active .hexcfg",
+            "Open the active Hexal configuration, creating it with the default schema when missing.",
+            PaletteAction::OpenConfig,
+        );
+        self.add_palette_command(
             "Go to line",
             "Jump to a line number in the current buffer.",
             PaletteAction::GotoLine,
@@ -116,7 +121,7 @@ impl Editor {
         );
         self.add_palette_command(
             "About Hexal",
-            "Show the Hexal title, author and Rust version.",
+            "Show the Hexal title, author and ASCII branding.",
             PaletteAction::About,
         );
         self.add_palette_command(
@@ -164,6 +169,7 @@ impl Editor {
         match action {
             PaletteAction::OpenFiles => self.open_picker(PickerKind::Files),
             PaletteAction::SearchFiles => self.open_picker(PickerKind::Search),
+            PaletteAction::OpenConfig => self.open_config_file(),
             PaletteAction::GotoLine => self.open_goto_prompt(),
             PaletteAction::OpenThemes => self.open_picker(PickerKind::Themes),
             PaletteAction::ToggleSidebar => self.toggle_sidebar(),
@@ -192,9 +198,7 @@ impl Editor {
                 self.force_full_redraw = true;
                 self.clear_message();
             }
-            PaletteAction::About => {
-                self.set_message("HexalRs 0.1.0 - Rust 2024 prototype of the Hexal editor.")
-            }
+            PaletteAction::About => self.open_about(),
             PaletteAction::ShowPath => self.show_current_path(),
             PaletteAction::Quit => self.request_quit(false),
             PaletteAction::Plugin(name) => {

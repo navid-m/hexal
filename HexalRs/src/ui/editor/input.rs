@@ -513,7 +513,13 @@ impl Editor {
                     self.set_error("usage: :rcfg");
                 }
             }
-            "about" => self.set_message("HexalRs 0.1.0 - Rust 2024 prototype of the Hexal editor."),
+            "a" | "about" => {
+                if args.is_empty() {
+                    self.open_about();
+                } else {
+                    self.set_error("usage: :about");
+                }
+            }
             "cw" => self.trim_trailing_whitespace(),
             "rc" => {
                 if args.is_empty() {

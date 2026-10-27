@@ -1,10 +1,48 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+
+fn commit_hash(manifest: &str) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(manifest)
+        .args(["rev-parse", "--short", "HEAD"])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if hash.is_empty() {
+                "unknown".into()
+            } else {
+                hash
+            }
+        }
+        _ => "unknown".into(),
+    }
+}
 
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let grammar_dir = Path::new(&manifest).join("data").join("grammars");
     println!("cargo:rerun-if-changed={}", grammar_dir.display());
+
+    println!(
+        "cargo:rustc-env=HEXAL_COMMIT_HASH={}",
+        commit_hash(&manifest)
+    );
+    if let Ok(output) = Command::new("git")
+        .arg("-C")
+        .arg(&manifest)
+        .args(["rev-parse", "--absolute-git-dir"])
+        .output()
+    {
+        if output.status.success() {
+            let directory = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !directory.is_empty() {
+                println!("cargo:rerun-if-changed={directory}");
+            }
+        }
+    }
 
     let mut files: Vec<_> = fs::read_dir(&grammar_dir)
         .map(|entries| {

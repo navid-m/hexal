@@ -20,22 +20,27 @@ use scripting::lua::LuaRuntime;
 use ui::editor::Editor;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const COMMIT_HASH: &str = env!("HEXAL_COMMIT_HASH");
 
-const HELP_TEXT: &str = "\
-Hexal v0.3.0
-https://hexal.pages.dev
-(C) Navid Momtahen - 2026
-
-Usage: 
-  hexal [options] file
-  hexal [options] directory
-  hexal install-plugin <name>
-
-Options:
-  -h, --help       Print this help and exit
-  -v, --version    Print the version and exit
-  --               Treat remaining arguments as file names
-";
+const HELP_TEXT: &str = concat!(
+    "Hexal v",
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("HEXAL_COMMIT_HASH"),
+    ")\n",
+    "https://hexal.pages.dev\n",
+    "(C) Navid Momtahen - 2026\n",
+    "\n",
+    "Usage: \n",
+    "  hexal [options] file\n",
+    "  hexal [options] directory\n",
+    "  hexal install-plugin <name>\n",
+    "\n",
+    "Options:\n",
+    "  -h, --help       Print this help and exit\n",
+    "  -v, --version    Print the version and exit\n",
+    "  --               Treat remaining arguments as file names\n",
+);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -60,7 +65,7 @@ fn main() {
             return;
         }
         if !options_ended && (arg == "-v" || arg == "--version") {
-            println!("hexal {VERSION}");
+            println!("hexal {VERSION} ({COMMIT_HASH})");
             return;
         }
         if !options_ended && arg.len() > 1 && arg.starts_with('-') {

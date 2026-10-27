@@ -101,6 +101,7 @@ impl Editor {
         self.render_hover();
         self.render_completion();
         self.render_lsp_debug();
+        self.render_about();
         self.render_help();
 
         let force = self.force_full_redraw;
