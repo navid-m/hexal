@@ -14,6 +14,7 @@
     "consteval",
     "constexpr",
     "constinit",
+    "const",
     "decltype",
     "explicit",
     "export",
