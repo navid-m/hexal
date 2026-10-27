@@ -54,6 +54,8 @@ pub enum SyntaxKind {
     String,
     Comment,
     Number,
+    Added,
+    Deleted,
 }
 
 #[derive(Clone, Debug)]
@@ -323,24 +325,6 @@ impl Theme {
         }
     }
 
-    pub fn diff_added_style(&self) -> Style {
-        Style {
-            fg: self.diff_added,
-            bg: self.background,
-            bold: true,
-            ..Style::default()
-        }
-    }
-
-    pub fn diff_deleted_style(&self) -> Style {
-        Style {
-            fg: self.diff_deleted,
-            bg: self.background,
-            bold: true,
-            ..Style::default()
-        }
-    }
-
     #[allow(dead_code)]
     pub fn diff_modified_style(&self) -> Style {
         Style {
@@ -369,6 +353,8 @@ impl Theme {
             SyntaxKind::String => self.string,
             SyntaxKind::Comment => self.comment,
             SyntaxKind::Number => self.number,
+            SyntaxKind::Added => self.diff_added,
+            SyntaxKind::Deleted => self.diff_deleted,
             SyntaxKind::Default => self.foreground,
         };
         Style {
@@ -531,8 +517,7 @@ impl ThemeRegistry {
         let text = match fs::read_to_string(path) {
             Ok(text) => text,
             Err(error) => {
-                self.errors
-                    .push(format!("{}: {error}", path.display()));
+                self.errors.push(format!("{}: {error}", path.display()));
                 return;
             }
         };
@@ -548,9 +533,10 @@ impl ThemeRegistry {
                     self.themes.push(theme);
                 }
             }
-            Err(error) => self
-                .errors
-                .push(format!("{}: {error}", path.file_name().unwrap_or_default().to_string_lossy())),
+            Err(error) => self.errors.push(format!(
+                "{}: {error}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            )),
         }
     }
 }
@@ -593,12 +579,8 @@ impl Theme {
 
             (theme.alert_fg, theme.alert_bg) =
                 pair_field(colors, "alert", theme.alert_fg, theme.alert_bg)?;
-            (theme.selection_fg, theme.selection_bg) = pair_field(
-                colors,
-                "selection",
-                theme.selection_fg,
-                theme.selection_bg,
-            )?;
+            (theme.selection_fg, theme.selection_bg) =
+                pair_field(colors, "selection", theme.selection_fg, theme.selection_bg)?;
             (theme.status_fg, theme.status_bg) =
                 pair_field(colors, "status", theme.status_fg, theme.status_bg)?;
             (theme.insert_fg, theme.insert_bg) =
@@ -651,10 +633,7 @@ fn pair_field(colors: &Value, key: &str, fg: u32, bg: u32) -> Result<(u32, u32),
     if pair.as_object().is_none() {
         return Err(format!("{key} must be an object with fg and bg"));
     }
-    Ok((
-        color_field(pair, "fg", fg)?,
-        color_field(pair, "bg", bg)?,
-    ))
+    Ok((color_field(pair, "fg", fg)?, color_field(pair, "bg", bg)?))
 }
 
 fn color_field(value: &Value, key: &str, fallback: u32) -> Result<u32, String> {

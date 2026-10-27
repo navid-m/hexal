@@ -113,9 +113,51 @@ impl Editor {
     }
 
     pub(super) fn save_document(&mut self, path: Option<&str>) -> bool {
-        match self.doc.save(path) {
+        self.save_document_inner(path, false)
+    }
+
+    pub(super) fn save_document_skip_format(&mut self, path: Option<&str>) -> bool {
+        self.save_document_inner(path, true)
+    }
+
+    fn save_document_inner(&mut self, path: Option<&str>, skip_format: bool) -> bool {
+        let should_format = !skip_format
+            && self
+                .active_language()
+                .and_then(|language| language.format_on_save)
+                .unwrap_or(false);
+        if should_format {
+            if let Some(formatter) = self
+                .active_language()
+                .and_then(|language| language.resolve_formatter().cloned())
+            {
+                let input = self.doc.all_text();
+                let target = path
+                    .map(PathBuf::from)
+                    .or_else(|| self.doc.path.as_ref().map(PathBuf::from));
+                if let Ok(output) = format::run(&formatter, &input, target.as_deref()) {
+                    if output != input {
+                        self.doc.replace_all_owned(output);
+                        self.doc.break_undo_group();
+                    }
+                }
+            }
+        }
+
+        let previous_path = self.doc.path.clone();
+        let result = self.doc.save(path);
+        match result {
             Ok(()) => {
+                let path_changed = previous_path != self.doc.path;
                 self.set_message(&format!("Saved {}", self.doc.display_name()));
+                self.notify_lsp_saved();
+                if path_changed {
+                    self.refresh_language();
+                    self.auto_detect_indentation_on_open();
+                    self.restart_lsp_for_buffer();
+                } else if !self.lsp.is_running() {
+                    self.start_lsp_for_buffer();
+                }
                 true
             }
             Err(error) => {

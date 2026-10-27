@@ -48,6 +48,9 @@ pub struct Document {
     group_last_offset: usize,
     revision: u64,
     saved_revision: u64,
+    use_tabs: bool,
+    indent_width: usize,
+    tab_width: usize,
 }
 
 impl Document {
@@ -64,6 +67,9 @@ impl Document {
             group_last_offset: 0,
             revision: 0,
             saved_revision: 0,
+            use_tabs: false,
+            indent_width: 4,
+            tab_width: 4,
         }
     }
 
@@ -109,11 +115,7 @@ impl Document {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if name.is_empty() {
-                    path.clone()
-                } else {
-                    name
-                }
+                if name.is_empty() { path.clone() } else { name }
             }
             None => "[No Name]".to_string(),
         }
@@ -125,6 +127,67 @@ impl Document {
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub fn use_tabs(&self) -> bool {
+        self.use_tabs
+    }
+
+    pub fn indent_width(&self) -> usize {
+        self.indent_width
+    }
+
+    pub fn tab_width(&self) -> usize {
+        self.tab_width
+    }
+
+    pub fn set_indent_spaces(&mut self, width: usize) {
+        self.indent_width = width.clamp(1, 16);
+        self.use_tabs = false;
+    }
+
+    pub fn set_indent_tabs(&mut self, width: usize) {
+        let width = width.clamp(1, 16);
+        self.tab_width = width;
+        self.indent_width = width;
+        self.use_tabs = true;
+    }
+
+    pub fn set_indentation(&mut self, use_tabs: bool, indent_width: usize, tab_width: usize) {
+        self.tab_width = tab_width.clamp(1, 16);
+        self.indent_width = indent_width.clamp(1, 16);
+        self.use_tabs = use_tabs;
+    }
+
+    pub fn indent_unit(&self) -> Vec<u8> {
+        if self.use_tabs {
+            vec![b'\t']
+        } else {
+            vec![b' '; self.indent_width]
+        }
+    }
+
+    /// Number of leading whitespace bytes that form one indentation level.
+    pub fn unindent_length(&self, text: &[u8]) -> usize {
+        let mut offset = 0usize;
+        let mut columns = 0usize;
+        while offset < text.len() && columns < self.indent_width {
+            match text[offset] {
+                b'\t' => {
+                    offset += 1;
+                    if self.use_tabs {
+                        break;
+                    }
+                    columns += self.tab_width - (columns % self.tab_width);
+                }
+                b' ' => {
+                    offset += 1;
+                    columns += 1;
+                }
+                _ => break,
+            }
+        }
+        offset
     }
 
     pub fn size(&self) -> usize {

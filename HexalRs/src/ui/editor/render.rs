@@ -11,11 +11,7 @@ impl Editor {
     // ---------------------------------------------------------------------
 
     pub(super) fn status_row(&self) -> usize {
-        if self.rows >= 2 {
-            self.rows - 2
-        } else {
-            0
-        }
+        if self.rows >= 2 { self.rows - 2 } else { 0 }
     }
 
     pub(super) fn command_row(&self) -> usize {
@@ -89,7 +85,7 @@ impl Editor {
                 break;
             }
             self.render_line_number(line, row);
-            self.render_line_text(line, row, gutter, language);
+            self.render_line_text(line, row, gutter, language.as_deref());
         }
 
         self.render_selection(first_line, rows, gutter);
@@ -102,6 +98,9 @@ impl Editor {
         self.render_sidebar_context_menu();
         self.render_picker();
         self.render_find();
+        self.render_hover();
+        self.render_completion();
+        self.render_lsp_debug();
         self.render_help();
 
         let force = self.force_full_redraw;
@@ -128,33 +127,21 @@ impl Editor {
         line: usize,
         row: usize,
         gutter: usize,
-        language: Option<&'static Language>,
+        language: Option<&Language>,
     ) {
         if self.cols <= gutter {
             return;
         }
         self.doc.copy_line(line, &mut self.line_buffer);
         let text = std::mem::take(&mut self.line_buffer);
-        let line_override = if let Some(language) = language {
-            if language.id == "diff" {
-                match text.first() {
-                    Some(b'+') => Some(self.theme.diff_added_style()),
-                    Some(b'-') => Some(self.theme.diff_deleted_style()),
-                    Some(b'@') => Some(self.theme.accent_style()),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let tokens = if line_override.is_some() {
-            Vec::new()
-        } else {
-            syntax::tokenize_line(&text, language)
-        };
         let text_width = self.cols - gutter;
+        let mut tokens = std::mem::take(&mut self.line_tokens);
+        tokens.clear();
+        if let Some(language) = language {
+            self.highlighter
+                .get_line_tokens(&self.doc, language, line, &text, &mut tokens);
+        }
+        let tab_width = self.doc.tab_width().max(1);
 
         let mut offset = 0usize;
         let mut visual = 0usize;
@@ -173,7 +160,21 @@ impl Editor {
             } else {
                 SyntaxKind::Default
             };
-            let style = line_override.unwrap_or_else(|| self.theme.syntax_style(kind));
+            let mut style = self.theme.syntax_style(kind);
+            if let Some(ranges) = self.unnecessary_diagnostics.get(&line) {
+                for (start, end) in ranges {
+                    let start_byte = crate::lsp::utf16_column_to_byte_offset(&text, *start);
+                    let end_byte = if *end == i64::MAX {
+                        text.len()
+                    } else {
+                        crate::lsp::utf16_column_to_byte_offset(&text, *end)
+                    };
+                    if rune_start < end_byte && offset > start_byte {
+                        style.fg = self.theme.dimmed;
+                        break;
+                    }
+                }
+            }
 
             let (mut cp, length) = util::decode_at(&text, offset);
             if length == 0 {
@@ -182,7 +183,7 @@ impl Editor {
             offset += length;
 
             let mut width = if cp == '\t' {
-                TAB_WIDTH - (visual % TAB_WIDTH)
+                tab_width - (visual % tab_width)
             } else {
                 util::display_width(cp)
             };
@@ -245,6 +246,7 @@ impl Editor {
             }
         }
         self.line_buffer = text;
+        self.line_tokens = tokens;
     }
 
     pub(super) fn render_selection(&mut self, first_line: usize, rows: usize, gutter: usize) {
@@ -295,8 +297,8 @@ impl Editor {
             let text = self.doc.line_text(line);
             let local_from = (from - line_start).min(text.len());
             let local_to = (to - line_start).min(text.len());
-            let visual_from = util::visual_column(&text, local_from, TAB_WIDTH);
-            let visual_to = util::visual_column(&text, local_to, TAB_WIDTH);
+            let visual_from = util::visual_column(&text, local_from, self.doc.tab_width().max(1));
+            let visual_to = util::visual_column(&text, local_to, self.doc.tab_width().max(1));
             let first_x = gutter.max(gutter + visual_from.saturating_sub(self.left_column));
             let last_x = self
                 .cols
@@ -330,8 +332,8 @@ impl Editor {
             if local_to <= local_from {
                 continue;
             }
-            let visual_from = util::visual_column(&text, local_from, TAB_WIDTH);
-            let visual_to = util::visual_column(&text, local_to, TAB_WIDTH);
+            let visual_from = util::visual_column(&text, local_from, self.doc.tab_width().max(1));
+            let visual_to = util::visual_column(&text, local_to, self.doc.tab_width().max(1));
             if visual_to <= self.left_column {
                 continue;
             }
@@ -387,14 +389,46 @@ impl Editor {
         if let Some(language) = language {
             left.push_str(&format!("  [{}]", language.name));
         }
-        let mut right = format!(
-            "{}:{}  {}/{}  {}",
-            line + 1,
-            column + 1,
-            line + 1,
-            self.doc.line_count(),
-            self.doc.eol.label()
-        );
+        if self.lsp.is_running() {
+            let name = self.lsp.server_name();
+            let count = self
+                .doc
+                .path
+                .as_deref()
+                .map(|path| self.lsp.count_diagnostics_for_path(path))
+                .unwrap_or(0);
+            if count > 0 {
+                left.push_str(&format!("  LSP: {name} ({count})"));
+            } else {
+                left.push_str(&format!("  LSP: {name}"));
+            }
+        }
+        let diagnostic_count = self
+            .doc
+            .path
+            .as_deref()
+            .map(|path| self.lsp.count_diagnostics_for_path(path))
+            .unwrap_or(0);
+        let mut right = if diagnostic_count > 0 {
+            format!(
+                "● {}  {}:{}  {}/{}  {}",
+                diagnostic_count,
+                line + 1,
+                column + 1,
+                line + 1,
+                self.doc.line_count(),
+                self.doc.eol.label()
+            )
+        } else {
+            format!(
+                "{}:{}  {}/{}  {}",
+                line + 1,
+                column + 1,
+                line + 1,
+                self.doc.line_count(),
+                self.doc.eol.label()
+            )
+        };
         if self.doc.bom {
             right.push_str(" BOM");
         }
@@ -558,7 +592,14 @@ impl Editor {
         }
     }
 
-    pub(super) fn draw_box(&mut self, x: usize, y: usize, width: usize, height: usize, title: &str) {
+    pub(super) fn draw_box(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        title: &str,
+    ) {
         if width < 2 || height < 2 {
             return;
         }
@@ -626,6 +667,15 @@ impl Editor {
             PickerKind::Search => "Search across files",
             PickerKind::Themes => "Select theme",
             PickerKind::Palette => "Command palette",
+            PickerKind::CodeActions => "Code actions",
+            PickerKind::Symbols => "Symbols",
+            PickerKind::Problems => {
+                if self.problems_workspace {
+                    "Workspace diagnostics"
+                } else {
+                    "Document diagnostics"
+                }
+            }
             PickerKind::Folders => {
                 if self
                     .sidebar_transfer

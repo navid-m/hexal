@@ -190,7 +190,11 @@ impl Editor {
         self.run_sidebar_action(action, nodes);
     }
 
-    pub(super) fn run_sidebar_action(&mut self, action: SidebarAction, nodes: Vec<(PathBuf, bool)>) {
+    pub(super) fn run_sidebar_action(
+        &mut self,
+        action: SidebarAction,
+        nodes: Vec<(PathBuf, bool)>,
+    ) {
         let Some(node) = self.sidebar.selected_node().cloned() else {
             return;
         };
@@ -272,7 +276,12 @@ impl Editor {
         }
     }
 
-    pub(super) fn start_sidebar_prompt(&mut self, label: &str, initial: &str, kind: SidebarPromptKind) {
+    pub(super) fn start_sidebar_prompt(
+        &mut self,
+        label: &str,
+        initial: &str,
+        kind: SidebarPromptKind,
+    ) {
         self.sidebar.focused = self.sidebar.visible;
         self.sidebar_prompt = Some(SidebarPrompt {
             label: label.to_string(),
@@ -584,12 +593,12 @@ impl Editor {
                     continue;
                 }
             }
-            let language = syntax::from_path(&file.to_string_lossy());
+            let language = self.languages.detect(&file.to_string_lossy());
             let Some(language) = language else {
                 skipped += 1;
                 continue;
             };
-            let Some(formatter) = format::for_language(language.id) else {
+            let Some(formatter) = language.resolve_formatter() else {
                 skipped += 1;
                 continue;
             };
@@ -659,24 +668,40 @@ impl Editor {
             self.set_error("No language detected for the current buffer.");
             return;
         };
-        let Some(formatter) = format::for_language(language.id) else {
+        let Some(formatter) = language.resolve_formatter().cloned() else {
             self.set_error("No formatter configured for this language.");
             return;
         };
         let input = self.doc.all_text();
         let path = self.doc.path.clone().map(PathBuf::from);
+        let selection_only = !save_after && self.mode == Mode::Select && {
+            let (start, end) = self.selection_range();
+            end > start
+        };
+        if selection_only {
+            self.format_selection(&formatter, path.as_deref(), save_after);
+            return;
+        }
         match format::run(&formatter, &input, path.as_deref()) {
             Ok(output) => {
                 if output != input {
                     self.doc.replace_all_owned(output);
                     self.doc.break_undo_group();
+                    self.lsp_dirty = self.lsp.is_running();
+                    self.lsp_dirty_since = std::time::Instant::now();
                 }
                 if save_after && path.is_some() {
-                    self.save_document(None);
+                    self.save_document_skip_format(None);
                 }
                 self.set_message("Formatted buffer.");
             }
-            Err(error) => self.set_error(&error),
+            Err(error) => {
+                if save_after && path.is_some() {
+                    self.save_document_skip_format(None);
+                } else {
+                    self.set_error(&error);
+                }
+            }
         }
     }
 
@@ -711,6 +736,7 @@ impl Editor {
         self.sidebar.focused = false;
         self.doc = Document::from_bytes(None, diff.as_bytes().to_vec());
         self.language_override = Some("diff".into());
+        self.refresh_language();
         self.mode = Mode::Normal;
         self.cursor = 0;
         self.anchor = 0;
@@ -720,7 +746,9 @@ impl Editor {
         self.preferred_column = None;
         self.find = FindState::new();
         self.doc.break_undo_group();
+        self.last_revision = self.doc.revision();
         self.snap_cursor();
+        self.restart_lsp_for_buffer();
         self.set_message(&format!("Diff: {summary}"));
     }
 
@@ -942,11 +970,7 @@ impl Editor {
             let marker_count = modified as usize + untracked as usize;
             let indent = 1 + node.depth * 2;
             let marker = if node.is_directory {
-                if node.expanded {
-                    "▾"
-                } else {
-                    "▸"
-                }
+                if node.expanded { "▾" } else { "▸" }
             } else {
                 " "
             };
@@ -1090,4 +1114,343 @@ fn collect_files_inner(
             }
         }
     }
+}
+
+impl Editor {
+    pub(super) fn format_selection(
+        &mut self,
+        formatter: &FormatterConfig,
+        path: Option<&Path>,
+        save_after: bool,
+    ) {
+        let (range_start, range_end) = self.selection_range();
+        if range_end <= range_start {
+            self.format_current_document(save_after);
+            return;
+        }
+        let range_linewise = self.selection_linewise;
+        let selected = self.doc.range(range_start, range_end - range_start);
+        let range_ends_with_newline = selected
+            .last()
+            .is_some_and(|byte| *byte == b'\n' || *byte == b'\r');
+        let (input, indent_prefix) = remove_common_indent(&selected);
+
+        match format::run(formatter, &input, path) {
+            Ok(output) => {
+                let replacement =
+                    self.prepare_selection_output(&output, range_ends_with_newline, &indent_prefix);
+                self.doc.break_undo_group();
+                self.doc
+                    .replace(range_start, range_end - range_start, &replacement);
+                let mut cursor = (range_start + replacement.len()).min(self.doc.size());
+                if range_linewise && cursor > range_start {
+                    let end_line = self.doc.line_of_offset(cursor);
+                    let end_line_start = self.doc.line_start(end_line);
+                    if cursor == end_line_start && end_line > 0 {
+                        cursor = self.doc.line_end(end_line - 1);
+                    }
+                }
+                self.cursor = cursor;
+                self.anchor = range_start;
+                self.selection_linewise = range_linewise;
+                self.mode = Mode::Select;
+                self.preferred_column = None;
+                self.doc.break_undo_group();
+                self.lsp_dirty = self.lsp.is_running();
+                self.lsp_dirty_since = std::time::Instant::now();
+                if save_after {
+                    self.save_document_skip_format(None);
+                }
+                self.set_message(&format!(
+                    "Formatted selection in {}",
+                    self.doc.display_name()
+                ));
+            }
+            Err(error) => {
+                if save_after {
+                    self.save_document_skip_format(None);
+                } else {
+                    self.set_error(&error);
+                }
+            }
+        }
+    }
+
+    fn prepare_selection_output(
+        &self,
+        output: &[u8],
+        range_ends_with_newline: bool,
+        prefix: &str,
+    ) -> Vec<u8> {
+        let eol = self.doc.eol.as_bytes();
+        let mut normalized = normalize_eol(output, eol);
+        if range_ends_with_newline {
+            if normalized
+                .last()
+                .is_some_and(|byte| *byte != b'\n' && *byte != b'\r')
+            {
+                normalized.extend_from_slice(eol);
+            }
+        } else {
+            while normalized
+                .last()
+                .is_some_and(|byte| *byte == b'\n' || *byte == b'\r')
+            {
+                normalized.pop();
+            }
+        }
+        reindent_selection(&normalized, prefix)
+    }
+
+    pub(super) fn format_workspace_extension(&mut self, argument: &str) {
+        let mut extension = argument.trim().trim_start_matches('.').to_string();
+        if extension.is_empty()
+            || extension
+                .chars()
+                .any(|character| character.is_whitespace() || character == '/' || character == '\\')
+        {
+            self.set_error("usage: :fmta <extension>");
+            return;
+        }
+        extension.make_ascii_lowercase();
+        let Some(language) = self.languages.detect(&format!("file.{extension}")) else {
+            self.set_error(&format!(
+                "No language is configured for .{extension} files."
+            ));
+            return;
+        };
+        if language.formatter.is_none() {
+            self.set_error(&format!("No formatter configured for {}.", language.name));
+            return;
+        }
+
+        let suffix = format!(".{extension}");
+        let open_path = self.doc.path.clone().map(PathBuf::from);
+        let files = files::scan(50_000);
+        let mut matched = 0usize;
+        let mut formatted = 0usize;
+        let mut changed = 0usize;
+        let mut failed = 0usize;
+        let mut skipped = 0usize;
+        let mut skipped_open = 0usize;
+        let mut first_error: Option<String> = None;
+
+        for relative in files {
+            if !relative.to_ascii_lowercase().ends_with(&suffix) {
+                continue;
+            }
+            matched += 1;
+            let path = PathBuf::from(&relative);
+            if open_path
+                .as_ref()
+                .is_some_and(|open| git::same_path(open, &path))
+            {
+                skipped_open += 1;
+                continue;
+            }
+            let language = self.languages.detect(&relative);
+            let Some(formatter) = language.and_then(|language| language.resolve_formatter()) else {
+                skipped += 1;
+                continue;
+            };
+            let formatter = formatter.clone();
+            let input = match std::fs::read(&path) {
+                Ok(input) => input,
+                Err(error) => {
+                    failed += 1;
+                    first_error
+                        .get_or_insert_with(|| format!("{}: {error}", git::file_name(&path)));
+                    continue;
+                }
+            };
+            match format::run(&formatter, &input, Some(&path)) {
+                Ok(mut output) => {
+                    formatted += 1;
+                    if git::has_utf8_bom(&input) && !git::has_utf8_bom(&output) {
+                        let mut with_bom = Vec::with_capacity(output.len() + 3);
+                        with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+                        with_bom.extend_from_slice(&output);
+                        output = with_bom;
+                    }
+                    if output != input {
+                        if let Err(error) = git::atomic_write(&path, &output) {
+                            failed += 1;
+                            first_error.get_or_insert_with(|| {
+                                format!("{}: {error}", git::file_name(&path))
+                            });
+                        } else {
+                            changed += 1;
+                        }
+                    }
+                }
+                Err(error) => {
+                    failed += 1;
+                    first_error
+                        .get_or_insert_with(|| format!("{}: {error}", git::file_name(&path)));
+                }
+            }
+        }
+
+        if let Some(error) = first_error {
+            self.set_error(&format!(
+                "Formatted {formatted} .{extension} file(s), {failed} failed: {error}"
+            ));
+        } else if formatted == 0 {
+            if matched == 0 {
+                self.set_message(&format!("No .{extension} files found in the workspace."));
+            } else if skipped_open > 0 && skipped_open == matched {
+                self.set_message("Skipped the open buffer.");
+            } else {
+                self.set_message(&format!("No .{extension} files were formatted."));
+            }
+        } else {
+            let mut summary = format!("Formatted {formatted} .{extension} file(s)");
+            if changed > 0 {
+                summary.push_str(&format!(", {changed} changed"));
+            }
+            if skipped > 0 {
+                summary.push_str(&format!(", {skipped} skipped"));
+            }
+            if skipped_open > 0 {
+                summary.push_str(", open buffer skipped");
+            }
+            self.set_message(&summary);
+        }
+    }
+}
+
+fn normalize_eol(text: &[u8], eol: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(text.len() + eol.len());
+    let mut index = 0usize;
+    while index < text.len() {
+        match text[index] {
+            b'\r' => {
+                index += 1;
+                if index < text.len() && text[index] == b'\n' {
+                    index += 1;
+                }
+                output.extend_from_slice(eol);
+            }
+            b'\n' => {
+                index += 1;
+                output.extend_from_slice(eol);
+            }
+            byte => {
+                output.push(byte);
+                index += 1;
+            }
+        }
+    }
+    output
+}
+
+fn remove_common_indent(text: &[u8]) -> (Vec<u8>, String) {
+    if text.is_empty() {
+        return (text.to_vec(), String::new());
+    }
+    let mut common = usize::MAX;
+    let mut first_indent_start = 0usize;
+    let mut line_start = 0usize;
+    loop {
+        let line_end = text[line_start..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|index| line_start + index)
+            .unwrap_or(text.len());
+        let content_end = if line_end > line_start && text[line_end - 1] == b'\r' {
+            line_end - 1
+        } else {
+            line_end
+        };
+        let mut indent_end = line_start;
+        while indent_end < content_end && matches!(text[indent_end], b' ' | b'\t') {
+            indent_end += 1;
+        }
+        if indent_end < content_end {
+            let indent_length = indent_end - line_start;
+            if common == usize::MAX {
+                common = indent_length;
+                first_indent_start = line_start;
+            } else {
+                let mut matched = 0usize;
+                while matched < common.min(indent_length)
+                    && text[first_indent_start + matched] == text[line_start + matched]
+                {
+                    matched += 1;
+                }
+                common = matched;
+            }
+            if common == 0 {
+                return (text.to_vec(), String::new());
+            }
+        }
+        if line_end >= text.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+    if common == usize::MAX || common == 0 {
+        return (text.to_vec(), String::new());
+    }
+
+    let prefix = String::from_utf8_lossy(&text[first_indent_start..first_indent_start + common])
+        .into_owned();
+    let mut result = Vec::with_capacity(text.len());
+    line_start = 0usize;
+    loop {
+        let line_end = text[line_start..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|index| line_start + index)
+            .unwrap_or(text.len());
+        let content_end = if line_end > line_start && text[line_end - 1] == b'\r' {
+            line_end - 1
+        } else {
+            line_end
+        };
+        let non_blank = text[line_start..content_end]
+            .iter()
+            .any(|byte| !matches!(byte, b' ' | b'\t'));
+        let mut remove = 0usize;
+        if non_blank
+            && content_end - line_start >= common
+            && text[line_start..line_start + common]
+                == text[first_indent_start..first_indent_start + common]
+        {
+            remove = common;
+        }
+        result.extend_from_slice(&text[line_start + remove..line_end]);
+        if line_end >= text.len() {
+            break;
+        }
+        result.push(b'\n');
+        line_start = line_end + 1;
+    }
+    (result, prefix)
+}
+
+fn reindent_selection(text: &[u8], prefix: &str) -> Vec<u8> {
+    if text.is_empty() || prefix.is_empty() {
+        return text.to_vec();
+    }
+    let indent = prefix.as_bytes();
+    let mut result = Vec::with_capacity(text.len() + indent.len() * 4);
+    let mut line_start = true;
+    let mut index = 0usize;
+    while index < text.len() {
+        if line_start {
+            let empty = text[index] == b'\n'
+                || (text[index] == b'\r' && index + 1 < text.len() && text[index + 1] == b'\n');
+            if !empty {
+                result.extend_from_slice(indent);
+            }
+            line_start = false;
+        }
+        result.push(text[index]);
+        if text[index] == b'\n' {
+            line_start = true;
+        }
+        index += 1;
+    }
+    result
 }

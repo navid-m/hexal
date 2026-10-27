@@ -1,0 +1,1163 @@
+{
+  "ada": {
+    "language_id": "ada",
+    "servers": [
+      {
+        "name": "ada_language_server",
+        "command": "ada_language_server",
+        "args": []
+      },
+      {
+        "name": "als",
+        "command": "als",
+        "args": []
+      }
+    ]
+  },
+  "asciidoc": {
+    "language_id": "asciidoc",
+    "servers": [
+      {
+        "name": "asciidoc-language-server",
+        "command": "asciidoc-language-server",
+        "args": []
+      },
+      {
+        "name": "asciidoc-ls",
+        "command": "asciidoc-ls",
+        "args": []
+      }
+    ]
+  },
+  "awk": {
+    "language_id": "awk",
+    "servers": [
+      {
+        "name": "awk-language-server",
+        "command": "awk-language-server",
+        "args": []
+      }
+    ]
+  },
+  "bibtex": {
+    "language_id": "bibtex",
+    "servers": [
+      {
+        "name": "texlab",
+        "command": "texlab",
+        "args": []
+      },
+      {
+        "name": "bibtex-language-server",
+        "command": "bibtex-language-server",
+        "args": []
+      }
+    ]
+  },
+  "c": {
+    "language_id": "c",
+    "servers": [
+      {
+        "name": "clangd",
+        "command": "clangd",
+        "args": []
+      }
+    ]
+  },
+  "cmake": {
+    "language_id": "cmake",
+    "servers": [
+      {
+        "name": "neocmakelsp",
+        "command": "neocmakelsp",
+        "args": [
+          "stdio"
+        ]
+      },
+      {
+        "name": "cmake-language-server",
+        "command": "cmake-language-server",
+        "args": []
+      }
+    ]
+  },
+  "coffeescript": {
+    "language_id": "coffeescript",
+    "servers": [
+      {
+        "name": "coffeescript-language-server",
+        "command": "coffeescript-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "cpp": {
+    "language_id": "cpp",
+    "servers": [
+      {
+        "name": "clangd",
+        "command": "clangd",
+        "args": []
+      }
+    ]
+  },
+  "crystal": {
+    "language_id": "crystal",
+    "servers": [
+      {
+        "name": "liger",
+        "command": "liger",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "css": {
+    "language_id": "css",
+    "servers": [
+      {
+        "name": "vscode-css-language-server",
+        "command": "vscode-css-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "cython": {
+    "language_id": "cython",
+    "servers": [
+      {
+        "name": "cython-lsp",
+        "command": "cython-lsp",
+        "args": []
+      },
+      {
+        "name": "pyright",
+        "command": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "ty",
+        "command": "ty",
+        "args": [
+          "server"
+        ]
+      },
+      {
+        "name": "mypy",
+        "command": "mypy",
+        "args": [
+          "--lsp"
+        ]
+      }
+    ]
+  },
+  "dart": {
+    "language_id": "dart",
+    "servers": [
+      {
+        "name": "dart",
+        "command": "dart",
+        "args": [
+          "language-server",
+          "--client-id=hexal"
+        ]
+      }
+    ]
+  },
+  "dlang": {
+    "language_id": "dlang",
+    "servers": [
+      {
+        "name": "serve-d",
+        "command": "serve-d",
+        "args": []
+      },
+      {
+        "name": "dls",
+        "command": "dls",
+        "args": []
+      }
+    ]
+  },
+  "dockerfile": {
+    "language_id": "dockerfile",
+    "servers": [
+      {
+        "name": "docker-langserver",
+        "command": "docker-langserver",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "elixir": {
+    "language_id": "elixir",
+    "servers": [
+      {
+        "name": "elixir-ls",
+        "command": "elixir-ls",
+        "args": []
+      },
+      {
+        "name": "language_server.sh",
+        "command": "language_server.sh",
+        "args": []
+      },
+      {
+        "name": "elp",
+        "command": "elp",
+        "args": [
+          "server"
+        ]
+      }
+    ]
+  },
+  "elvish": {
+    "language_id": "elvish",
+    "servers": [
+      {
+        "name": "elvish-lsp",
+        "command": "elvish",
+        "args": [
+          "-lsp"
+        ]
+      }
+    ]
+  },
+  "erlang": {
+    "language_id": "erlang",
+    "servers": [
+      {
+        "name": "erlang_ls",
+        "command": "erlang_ls",
+        "args": []
+      },
+      {
+        "name": "elp",
+        "command": "elp",
+        "args": [
+          "server"
+        ]
+      }
+    ]
+  },
+  "fish": {
+    "language_id": "fish",
+    "servers": [
+      {
+        "name": "fish-lsp",
+        "command": "fish-lsp",
+        "args": [
+          "start"
+        ]
+      }
+    ]
+  },
+  "fortran": {
+    "language_id": "fortran",
+    "servers": [
+      {
+        "name": "fortls",
+        "command": "fortls",
+        "args": []
+      }
+    ]
+  },
+  "gdscript": {
+    "language_id": "gdscript",
+    "servers": [
+      {
+        "name": "gdscript-lsp",
+        "command": "gdscript-lsp",
+        "args": []
+      },
+      {
+        "name": "gdls",
+        "command": "gdls",
+        "args": []
+      }
+    ]
+  },
+  "glsl": {
+    "language_id": "glsl",
+    "servers": [
+      {
+        "name": "glsl_analyzer",
+        "command": "glsl_analyzer",
+        "args": []
+      },
+      {
+        "name": "glsl-language-server",
+        "command": "glsl-language-server",
+        "args": []
+      }
+    ]
+  },
+  "go": {
+    "language_id": "go",
+    "servers": [
+      {
+        "name": "gopls",
+        "command": "gopls",
+        "args": []
+      }
+    ]
+  },
+  "handlebars": {
+    "language_id": "handlebars",
+    "servers": [
+      {
+        "name": "ember-language-server",
+        "command": "ember-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "hare": {
+    "language_id": "hare",
+    "servers": [
+      {
+        "name": "hare-lsp",
+        "command": "hare-lsp",
+        "args": [
+          "-S"
+        ]
+      },
+      {
+        "name": "hare-ls",
+        "command": "hare-ls",
+        "args": []
+      },
+      {
+        "name": "harepls",
+        "command": "harepls",
+        "args": []
+      }
+    ]
+  },
+  "haskell": {
+    "language_id": "haskell",
+    "servers": [
+      {
+        "name": "haskell-language-server",
+        "command": "haskell-language-server-wrapper",
+        "args": [
+          "--lsp"
+        ]
+      },
+      {
+        "name": "haskell-language-server",
+        "command": "haskell-language-server",
+        "args": [
+          "--lsp"
+        ]
+      }
+    ]
+  },
+  "haxe": {
+    "language_id": "haxe",
+    "servers": [
+      {
+        "name": "haxe-language-server",
+        "command": "haxe-language-server",
+        "args": []
+      }
+    ]
+  },
+  "hcl": {
+    "language_id": "hcl",
+    "servers": [
+      {
+        "name": "terraform-ls",
+        "command": "terraform-ls",
+        "args": [
+          "serve"
+        ]
+      }
+    ]
+  },
+  "html": {
+    "language_id": "html",
+    "servers": [
+      {
+        "name": "vscode-html-language-server",
+        "command": "vscode-html-language-server",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "superhtml",
+        "command": "superhtml",
+        "args": [
+          "lsp"
+        ]
+      },
+      {
+        "name": "html-languageserver",
+        "command": "html-languageserver",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "java": {
+    "language_id": "java",
+    "servers": [
+      {
+        "name": "jdtls",
+        "command": "jdtls",
+        "args": []
+      },
+      {
+        "name": "java-language-server",
+        "command": "java-language-server",
+        "args": []
+      }
+    ]
+  },
+  "javascript": {
+    "language_id": "javascript",
+    "servers": [
+      {
+        "name": "typescript-language-server",
+        "command": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "vtsls",
+        "command": "vtsls",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "biome",
+        "command": "biome",
+        "args": [
+          "lsp-proxy"
+        ]
+      }
+    ]
+  },
+  "json": {
+    "language_id": "json",
+    "servers": [
+      {
+        "name": "vscode-json-languageserver",
+        "command": "vscode-json-languageserver",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "jsx": {
+    "language_id": "javascriptreact",
+    "servers": [
+      {
+        "name": "typescript-language-server",
+        "command": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "vtsls",
+        "command": "vtsls",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "biome",
+        "command": "biome",
+        "args": [
+          "lsp-proxy"
+        ]
+      }
+    ]
+  },
+  "kotlin": {
+    "language_id": "kotlin",
+    "servers": [
+      {
+        "name": "kotlin-language-server",
+        "command": "kotlin-language-server",
+        "args": []
+      },
+      {
+        "name": "kotlin-lsp",
+        "command": "kotlin-lsp",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "latex": {
+    "language_id": "latex",
+    "servers": [
+      {
+        "name": "texlab",
+        "command": "texlab",
+        "args": []
+      },
+      {
+        "name": "ltex-ls",
+        "command": "ltex-ls",
+        "args": []
+      }
+    ]
+  },
+  "lisp": {
+    "language_id": "commonlisp",
+    "servers": [
+      {
+        "name": "cl-lsp",
+        "command": "cl-lsp",
+        "args": []
+      }
+    ]
+  },
+  "llvm": {
+    "language_id": "llvm",
+    "servers": [
+      {
+        "name": "llvm-ir-lsp",
+        "command": "llvm-ir-lsp",
+        "args": []
+      },
+      {
+        "name": "llvm-language-server",
+        "command": "llvm-language-server",
+        "args": []
+      }
+    ]
+  },
+  "lua": {
+    "language_id": "lua",
+    "servers": [
+      {
+        "name": "lua-language-server",
+        "command": "lua-language-server",
+        "args": []
+      }
+    ]
+  },
+  "make": {
+    "language_id": "make",
+    "servers": [
+      {
+        "name": "make-ls",
+        "command": "make-ls",
+        "args": []
+      },
+      {
+        "name": "makefile-lsp",
+        "command": "makefile-lsp",
+        "args": []
+      },
+      {
+        "name": "autotools-language-server",
+        "command": "autotools-language-server",
+        "args": []
+      }
+    ]
+  },
+  "markdown": {
+    "language_id": "markdown",
+    "servers": [
+      {
+        "name": "marksman",
+        "command": "marksman",
+        "args": []
+      },
+      {
+        "name": "markdown-language-server",
+        "command": "markdown-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "mermaid": {
+    "language_id": "mermaid",
+    "servers": [
+      {
+        "name": "mermaid-language-server",
+        "command": "mermaid-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "mojo": {
+    "language_id": "mojo",
+    "servers": [
+      {
+        "name": "mojo-lsp-server",
+        "command": "mojo-lsp-server",
+        "args": []
+      }
+    ]
+  },
+  "nasm": {
+    "language_id": "nasm",
+    "servers": [
+      {
+        "name": "asm-lsp",
+        "command": "asm-lsp",
+        "args": []
+      }
+    ]
+  },
+  "nushell": {
+    "language_id": "nushell",
+    "servers": [
+      {
+        "name": "nu-lsp",
+        "command": "nu",
+        "args": [
+          "--lsp"
+        ]
+      },
+      {
+        "name": "nu-lsp",
+        "command": "nu-lsp",
+        "args": []
+      }
+    ]
+  },
+  "perl": {
+    "language_id": "perl",
+    "servers": [
+      {
+        "name": "perlnavigator",
+        "command": "perlnavigator",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "php": {
+    "language_id": "php",
+    "servers": [
+      {
+        "name": "intelephense",
+        "command": "intelephense",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "phpactor",
+        "command": "phpactor",
+        "args": [
+          "language-server"
+        ]
+      },
+      {
+        "name": "php-language-server",
+        "command": "php-language-server",
+        "args": []
+      }
+    ]
+  },
+  "powershell": {
+    "language_id": "powershell",
+    "servers": [
+      {
+        "name": "powershell-language-server",
+        "command": "powershell-language-server",
+        "args": []
+      }
+    ]
+  },
+  "protobuf": {
+    "language_id": "protobuf",
+    "servers": [
+      {
+        "name": "protols",
+        "command": "protols",
+        "args": []
+      },
+      {
+        "name": "bufls",
+        "command": "bufls",
+        "args": []
+      },
+      {
+        "name": "protobuf-language-server",
+        "command": "protobuf-language-server",
+        "args": []
+      }
+    ]
+  },
+  "pug": {
+    "language_id": "pug",
+    "servers": [
+      {
+        "name": "pug-lsp",
+        "command": "pug-lsp",
+        "args": []
+      }
+    ]
+  },
+  "purescript": {
+    "language_id": "purescript",
+    "servers": [
+      {
+        "name": "purescript-language-server",
+        "command": "purescript-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "python": {
+    "language_id": "python",
+    "servers": [
+      {
+        "name": "pyright",
+        "command": "pyright-langserver",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "ty",
+        "command": "ty",
+        "args": [
+          "server"
+        ]
+      },
+      {
+        "name": "mypy",
+        "command": "mypy",
+        "args": [
+          "--lsp"
+        ]
+      },
+      {
+        "name": "mypy-language-server",
+        "command": "mypy-language-server",
+        "args": []
+      }
+    ]
+  },
+  "qml": {
+    "language_id": "qml",
+    "servers": [
+      {
+        "name": "qmlls",
+        "command": "qmlls",
+        "args": []
+      },
+      {
+        "name": "qmlls6",
+        "command": "qmlls6",
+        "args": []
+      },
+      {
+        "name": "qml-language-server",
+        "command": "qml-language-server",
+        "args": []
+      }
+    ]
+  },
+  "r": {
+    "language_id": "r",
+    "servers": [
+      {
+        "name": "R",
+        "command": "R",
+        "args": [
+          "--vanilla",
+          "--no-echo",
+          "-e",
+          "languageserver::run()"
+        ]
+      }
+    ]
+  },
+  "racket": {
+    "language_id": "racket",
+    "servers": [
+      {
+        "name": "racket-langserver",
+        "command": "racket",
+        "args": [
+          "-l",
+          "racket-langserver"
+        ]
+      },
+      {
+        "name": "racket-langserver",
+        "command": "racket-langserver",
+        "args": []
+      }
+    ]
+  },
+  "razor": {
+    "language_id": "razor",
+    "servers": [
+      {
+        "name": "roslyn-language-server",
+        "command": "roslyn-language-server",
+        "args": [
+          "--stdio",
+          "--autoLoadProjects"
+        ]
+      },
+      {
+        "name": "razor-language-server",
+        "command": "razor-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "ruby": {
+    "language_id": "ruby",
+    "servers": [
+      {
+        "name": "ruby-lsp",
+        "command": "ruby-lsp",
+        "args": []
+      },
+      {
+        "name": "solargraph",
+        "command": "solargraph",
+        "args": [
+          "stdio"
+        ]
+      }
+    ]
+  },
+  "rust": {
+    "language_id": "rust",
+    "servers": [
+      {
+        "name": "rust-analyzer",
+        "command": "rust-analyzer",
+        "args": []
+      }
+    ]
+  },
+  "scala": {
+    "language_id": "scala",
+    "servers": [
+      {
+        "name": "metals",
+        "command": "metals",
+        "args": []
+      },
+      {
+        "name": "scala-language-server",
+        "command": "scala-language-server",
+        "args": []
+      }
+    ]
+  },
+  "scss": {
+    "language_id": "scss",
+    "servers": [
+      {
+        "name": "vscode-css-language-server",
+        "command": "vscode-css-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "shell": {
+    "language_id": "shellscript",
+    "servers": [
+      {
+        "name": "bash-language-server",
+        "command": "bash-language-server",
+        "args": [
+          "start"
+        ]
+      }
+    ]
+  },
+  "spectre": {
+    "language_id": "spectre",
+    "servers": [
+      {
+        "name": "spectre-ls",
+        "command": "spectre-ls",
+        "args": []
+      }
+    ]
+  },
+  "sql": {
+    "language_id": "sql",
+    "servers": [
+      {
+        "name": "sqls",
+        "command": "sqls",
+        "args": []
+      },
+      {
+        "name": "sql-language-server",
+        "command": "sql-language-server",
+        "args": [
+          "up",
+          "--method",
+          "stdio"
+        ]
+      }
+    ]
+  },
+  "svelte": {
+    "language_id": "svelte",
+    "servers": [
+      {
+        "name": "svelteserver",
+        "command": "svelteserver",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "svelte-language-server",
+        "command": "svelte-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "swift": {
+    "language_id": "swift",
+    "servers": [
+      {
+        "name": "sourcekit-lsp",
+        "command": "sourcekit-lsp",
+        "args": []
+      }
+    ]
+  },
+  "tcl": {
+    "language_id": "tcl",
+    "servers": [
+      {
+        "name": "tclsp",
+        "command": "tclsp",
+        "args": []
+      },
+      {
+        "name": "tcl-lsp",
+        "command": "tcl-lsp",
+        "args": []
+      },
+      {
+        "name": "tcl-language-server",
+        "command": "tcl-language-server",
+        "args": []
+      }
+    ]
+  },
+  "toml": {
+    "language_id": "toml",
+    "servers": [
+      {
+        "name": "taplo",
+        "command": "taplo",
+        "args": [
+          "lsp",
+          "stdio"
+        ]
+      },
+      {
+        "name": "tombi",
+        "command": "tombi",
+        "args": [
+          "lsp"
+        ]
+      }
+    ]
+  },
+  "tsx": {
+    "language_id": "typescriptreact",
+    "servers": [
+      {
+        "name": "typescript-language-server",
+        "command": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "vtsls",
+        "command": "vtsls",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "biome",
+        "command": "biome",
+        "args": [
+          "lsp-proxy"
+        ]
+      }
+    ]
+  },
+  "twig": {
+    "language_id": "twig",
+    "servers": [
+      {
+        "name": "twiggy-language-server",
+        "command": "twiggy-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "typescript": {
+    "language_id": "typescript",
+    "servers": [
+      {
+        "name": "typescript-language-server",
+        "command": "typescript-language-server",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "vtsls",
+        "command": "vtsls",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "biome",
+        "command": "biome",
+        "args": [
+          "lsp-proxy"
+        ]
+      }
+    ]
+  },
+  "vala": {
+    "language_id": "vala",
+    "servers": [
+      {
+        "name": "vala-language-server",
+        "command": "vala-language-server",
+        "args": []
+      },
+      {
+        "name": "vala-ls",
+        "command": "vala-ls",
+        "args": []
+      }
+    ]
+  },
+  "vue": {
+    "language_id": "vue",
+    "servers": [
+      {
+        "name": "vue-language-server",
+        "command": "vue-language-server",
+        "args": [
+          "--stdio"
+        ]
+      }
+    ]
+  },
+  "wren": {
+    "language_id": "wren",
+    "servers": [
+      {
+        "name": "wren-lsp",
+        "command": "wren-lsp",
+        "args": []
+      }
+    ]
+  },
+  "xml": {
+    "language_id": "xml",
+    "servers": [
+      {
+        "name": "lemminx",
+        "command": "lemminx",
+        "args": []
+      },
+      {
+        "name": "xml-language-server",
+        "command": "xml-language-server",
+        "args": []
+      }
+    ]
+  },
+  "xsd": {
+    "language_id": "xml",
+    "servers": [
+      {
+        "name": "lemminx",
+        "command": "lemminx",
+        "args": []
+      },
+      {
+        "name": "xml-language-server",
+        "command": "xml-language-server",
+        "args": []
+      }
+    ]
+  },
+  "yaml": {
+    "language_id": "yaml",
+    "servers": [
+      {
+        "name": "yaml-language-server",
+        "command": "yaml-language-server",
+        "args": [
+          "--stdio"
+        ]
+      },
+      {
+        "name": "helm_ls",
+        "command": "helm_ls",
+        "args": [
+          "serve"
+        ]
+      }
+    ]
+  },
+  "zig": {
+    "language_id": "zig",
+    "servers": [
+      {
+        "name": "zls",
+        "command": "zls",
+        "args": []
+      }
+    ]
+  }
+}

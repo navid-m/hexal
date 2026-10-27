@@ -3,9 +3,11 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
+mod comments;
 mod editing;
 mod find;
 mod input;
+mod lsp_ui;
 mod navigation;
 mod palette;
 mod picker;
@@ -19,22 +21,19 @@ use std::path::{Path, PathBuf};
 
 use crate::core::diff;
 use crate::core::document::Document;
-use crate::util::files;
 use crate::core::format;
-use crate::util::git;
-use crate::ui::help::{HelpLineKind, HelpState, HELP_LINES};
+use crate::languages::{FormatterConfig, Highlighter, Language, Registry, Token};
+use crate::lsp::{self, Manager as LspManager};
+use crate::platform::terminal::{Event, Key, Terminal};
 use crate::scripting::lua::LuaRuntime;
+use crate::ui::help::{HELP_LINES, HelpLineKind, HelpState};
 use crate::ui::renderer::Renderer;
 use crate::ui::screen::Screen;
 use crate::ui::sidebar::{self as ui_sidebar, Action as SidebarAction, Sidebar};
-use crate::languages::syntax;
-use crate::languages::syntax::Language;
-use crate::platform::terminal::{Event, Key, Terminal};
 use crate::ui::theme::{SyntaxKind, Theme, ThemeRegistry};
 use crate::util;
-
-const TAB_WIDTH: usize = 4;
-const INDENT_WIDTH: usize = 4;
+use crate::util::files;
+use crate::util::git;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -72,6 +71,9 @@ enum PickerKind {
     Themes,
     Folders,
     Palette,
+    CodeActions,
+    Symbols,
+    Problems,
 }
 
 #[derive(Clone)]
@@ -85,6 +87,12 @@ enum PaletteAction {
     ToggleDiffLines,
     ToggleSearchMatchCase,
     FormatDocument,
+    Hover,
+    GoToDefinition,
+    CodeActions,
+    DocumentSymbols,
+    DocumentDiagnostics,
+    WorkspaceDiagnostics,
     CleanWhitespace,
     Save,
     SaveAndQuit,
@@ -111,6 +119,9 @@ struct PickerItem {
     theme_id: Option<String>,
     target: Option<PathBuf>,
     palette_index: Option<usize>,
+    action_index: Option<usize>,
+    symbol_index: Option<usize>,
+    problem: Option<(String, usize, usize)>,
 }
 
 struct Picker {
@@ -195,6 +206,30 @@ const SPACE_ITEMS: &[SpaceItem] = &[
         label: "Go to line",
     },
     SpaceItem {
+        key: 'K',
+        label: "LSP hover",
+    },
+    SpaceItem {
+        key: 'A',
+        label: "Code actions",
+    },
+    SpaceItem {
+        key: 'S',
+        label: "Document symbols",
+    },
+    SpaceItem {
+        key: 'd',
+        label: "Document diagnostics",
+    },
+    SpaceItem {
+        key: 'D',
+        label: "Workspace diagnostics",
+    },
+    SpaceItem {
+        key: 'Z',
+        label: "Diagnostic on this line",
+    },
+    SpaceItem {
         key: 'y',
         label: "Yank selection",
     },
@@ -225,6 +260,94 @@ const SPACE_ITEMS: &[SpaceItem] = &[
 ];
 
 const HELP_TEXT: &str = "i/a/o insert  v select  x line select  d delete  u/U undo/redo  gg/ge/gp  :w :wq :q :e  / find  :lua <file>  Ctrl+P palette  Space menu";
+
+struct CompletionState {
+    visible: bool,
+    pending: bool,
+    request_id: i64,
+    all_items: Vec<lsp::CompletionItem>,
+    items: Vec<lsp::CompletionItem>,
+    filter: String,
+    selected: usize,
+    top: usize,
+}
+
+impl CompletionState {
+    fn new() -> CompletionState {
+        CompletionState {
+            visible: false,
+            pending: false,
+            request_id: 0,
+            all_items: Vec::new(),
+            items: Vec::new(),
+            filter: String::new(),
+            selected: 0,
+            top: 0,
+        }
+    }
+
+    fn close(&mut self) {
+        self.visible = false;
+        self.pending = false;
+        self.request_id = 0;
+        self.all_items.clear();
+        self.items.clear();
+        self.filter.clear();
+        self.selected = 0;
+        self.top = 0;
+    }
+}
+
+#[derive(Clone)]
+struct HoverSegment {
+    text: String,
+    kind: SyntaxKind,
+}
+
+#[derive(Clone)]
+struct HoverLine {
+    segments: Vec<HoverSegment>,
+}
+
+struct HoverState {
+    visible: bool,
+    title: String,
+    lines: Vec<HoverLine>,
+    top: usize,
+}
+
+impl HoverState {
+    fn new() -> HoverState {
+        HoverState {
+            visible: false,
+            title: "Hover".into(),
+            lines: Vec::new(),
+            top: 0,
+        }
+    }
+
+    fn close(&mut self) {
+        self.visible = false;
+        self.lines.clear();
+        self.top = 0;
+    }
+}
+
+struct LspDebugState {
+    visible: bool,
+    top: usize,
+    status: String,
+}
+
+impl LspDebugState {
+    fn new() -> LspDebugState {
+        LspDebugState {
+            visible: false,
+            top: 0,
+            status: String::new(),
+        }
+    }
+}
 
 pub struct Editor {
     doc: Document,
@@ -260,6 +383,9 @@ pub struct Editor {
     goto_prompt: Option<String>,
 
     language_override: Option<String>,
+    languages: Registry,
+    highlighter: Highlighter,
+    line_tokens: Vec<Token>,
     jumps: Vec<usize>,
     jump_index: isize,
 
@@ -279,6 +405,28 @@ pub struct Editor {
     pending_sidebar_diff: Option<(String, String)>,
     sidebar_transfer: Option<(Vec<(PathBuf, bool)>, bool)>,
     sidebar_folders: Vec<PathBuf>,
+
+    lsp: LspManager,
+    lsp_dirty: bool,
+    lsp_synced_revision: u64,
+    lsp_dirty_since: std::time::Instant,
+    lsp_fallback_blocked: bool,
+    lsp_start_pending: bool,
+    startup_work_pending: bool,
+    last_revision: u64,
+    hover_request_pending: bool,
+    definition_request_pending: bool,
+    code_action_request_pending: bool,
+    pending_code_action_resolve: bool,
+    symbol_request_pending: bool,
+    code_actions: Vec<lsp::CodeAction>,
+    document_symbols: Vec<lsp::DocumentSymbol>,
+    unnecessary_diagnostics: std::collections::HashMap<usize, Vec<(i64, i64)>>,
+    completion: CompletionState,
+    hover: HoverState,
+    lsp_debug: LspDebugState,
+    lsp_debug_lines: Vec<String>,
+    problems_workspace: bool,
 }
 
 impl Editor {
@@ -290,6 +438,7 @@ impl Editor {
         };
         let themes = ThemeRegistry::load_default();
         let theme = themes.active().clone();
+        let languages = Registry::load();
         let mut editor = Editor {
             doc,
             screen: Screen::new(),
@@ -319,6 +468,9 @@ impl Editor {
             pending_column: 0,
             goto_prompt: None,
             language_override: None,
+            languages,
+            highlighter: Highlighter::default(),
+            line_tokens: Vec::new(),
             jumps: Vec::new(),
             jump_index: -1,
             picker: Picker::new(),
@@ -337,7 +489,30 @@ impl Editor {
             pending_sidebar_diff: None,
             sidebar_transfer: None,
             sidebar_folders: Vec::new(),
+            lsp: LspManager::new(),
+            lsp_dirty: false,
+            lsp_synced_revision: u64::MAX,
+            lsp_dirty_since: std::time::Instant::now(),
+            lsp_fallback_blocked: false,
+            lsp_start_pending: true,
+            startup_work_pending: true,
+            last_revision: 0,
+            hover_request_pending: false,
+            definition_request_pending: false,
+            code_action_request_pending: false,
+            pending_code_action_resolve: false,
+            symbol_request_pending: false,
+            code_actions: Vec::new(),
+            document_symbols: Vec::new(),
+            unnecessary_diagnostics: std::collections::HashMap::new(),
+            completion: CompletionState::new(),
+            hover: HoverState::new(),
+            lsp_debug: LspDebugState::new(),
+            lsp_debug_lines: Vec::new(),
+            problems_workspace: false,
         };
+        editor.last_revision = editor.doc.revision();
+        editor.refresh_language();
         editor.load_plugins();
         editor
     }
@@ -349,6 +524,7 @@ impl Editor {
         // Paint before polling input. A slow event wait must never delay the
         // first frame, which is also what the startup benchmark measures.
         self.render(terminal)?;
+        self.poll_background();
 
         while self.running {
             terminal.update_size();
@@ -364,6 +540,11 @@ impl Editor {
             match terminal.read_event(30) {
                 Ok(Some(event)) => {
                     self.handle_event(event);
+                    if self.doc.revision() != self.last_revision {
+                        self.last_revision = self.doc.revision();
+                        self.lsp_dirty = self.lsp.is_running();
+                        self.lsp_dirty_since = std::time::Instant::now();
+                    }
                     if let Some(sequence) = self.pending_osc.take() {
                         let _ = terminal.write(&sequence);
                     }
@@ -373,6 +554,7 @@ impl Editor {
                 Err(error) => return Err(error),
             }
 
+            self.poll_background();
             terminal.update_size();
             if terminal.width != self.cols || terminal.height != self.rows {
                 self.cols = terminal.width;
@@ -389,6 +571,14 @@ impl Editor {
     }
 
     fn handle_event(&mut self, event: Event) {
+        if self.lsp_debug.visible {
+            self.handle_lsp_debug_input(event);
+            return;
+        }
+        if self.hover.visible {
+            self.handle_hover_input(event);
+            return;
+        }
         if self.help.visible {
             if self.help.handle(event, self.cols, self.rows, 3) {
                 self.force_full_redraw = true;

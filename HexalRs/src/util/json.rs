@@ -38,6 +38,13 @@ impl Value {
         }
     }
 
+    pub fn as_array(&self) -> Option<&[Value]> {
+        match self {
+            Value::Array(values) => Some(values),
+            _ => None,
+        }
+    }
+
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Number(value) if value.is_finite() => Some(*value as i64),
@@ -219,9 +226,9 @@ impl<'a> Parser<'a> {
                                     return Err(self.error("short unicode escape"));
                                 };
                                 scalar = scalar * 16
-                                    + (digit as char).to_digit(16).ok_or_else(|| {
-                                        self.error("invalid unicode escape")
-                                    })?;
+                                    + (digit as char)
+                                        .to_digit(16)
+                                        .ok_or_else(|| self.error("invalid unicode escape"))?;
                             }
                             if let Some(ch) = char::from_u32(scalar) {
                                 output.push(ch);
@@ -251,8 +258,8 @@ impl<'a> Parser<'a> {
                         }
                         let slice = &self.bytes[self.position - 1..end];
                         self.position = end;
-                        let text = std::str::from_utf8(slice)
-                            .map_err(|_| self.error("invalid utf-8"))?;
+                        let text =
+                            std::str::from_utf8(slice).map_err(|_| self.error("invalid utf-8"))?;
                         output.push_str(text);
                     }
                 }

@@ -25,7 +25,7 @@ impl Editor {
         let start = self.doc.line_start(line);
         let text = self.doc.line_text(line);
         let local = (self.cursor - start).min(text.len());
-        util::visual_column(&text, local, TAB_WIDTH)
+        util::visual_column(&text, local, self.doc.tab_width().max(1))
     }
 
     pub(super) fn next_scalar(&self, offset: usize) -> usize {
@@ -120,7 +120,7 @@ impl Editor {
         let local = util::byte_offset_for_visual_column(
             &text,
             self.preferred_column.unwrap_or(0),
-            TAB_WIDTH,
+            self.doc.tab_width().max(1),
         );
         self.cursor = (target_start + local).min(self.doc.size());
         self.doc.break_undo_group();
@@ -263,6 +263,19 @@ impl Editor {
     pub(super) fn move_to_previous_location(&mut self) {
         if self.jump_index > 0 {
             self.jump_index -= 1;
+        }
+        if self.jump_index >= 0 {
+            if let Some(&offset) = self.jumps.get(self.jump_index as usize) {
+                self.cursor = offset;
+                self.preferred_column = None;
+                self.snap_cursor();
+            }
+        }
+    }
+
+    pub(super) fn move_to_next_location(&mut self) {
+        if self.jump_index + 1 < self.jumps.len() as isize {
+            self.jump_index += 1;
         }
         if self.jump_index >= 0 {
             if let Some(&offset) = self.jumps.get(self.jump_index as usize) {

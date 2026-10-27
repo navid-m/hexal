@@ -1,0 +1,83 @@
+{
+  "id": "go",
+  "name": "Go",
+  "indentation": { "style": "tabs", "width": 4, "tabWidth": 4 },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".go"],
+  "keywords": [
+    "package",
+    "import",
+    "func",
+    "var",
+    "const",
+    "type",
+    "struct",
+    "interface",
+    "map",
+    "chan",
+    "go",
+    "defer",
+    "select",
+    "range",
+    "fallthrough"
+  ],
+  "controlStatements": [
+    "break",
+    "case",
+    "continue",
+    "default",
+    "else",
+    "for",
+    "goto",
+    "if",
+    "return",
+    "switch"
+  ],
+  "types": [
+    "any",
+    "bool",
+    "byte",
+    "complex64",
+    "complex128",
+    "error",
+    "float32",
+    "float64",
+    "int",
+    "int8",
+    "int16",
+    "int32",
+    "int64",
+    "rune",
+    "string",
+    "uint",
+    "uint8",
+    "uint16",
+    "uint32",
+    "uint64",
+    "uintptr"
+  ],
+  "constants": ["true", "false", "nil", "iota"],
+  "comments": {
+    "line": "//",
+    "blockStart": "/*",
+    "blockEnd": "*/"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "'", "`"],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "formatter": {
+    "command": "gofmt",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout"
+  },
+  "fallbackFormatter": {
+    "command": "gofumpt",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout"
+  }
+}

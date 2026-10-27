@@ -15,6 +15,7 @@ impl Editor {
             self.pending_g = false;
             match event.ch {
                 'r' => self.redo(),
+                'c' => self.toggle_comment(),
                 's' => {
                     self.save_document(None);
                 }
@@ -36,6 +37,8 @@ impl Editor {
                     'g' | 'G' => self.jump_to_document_start(),
                     'e' | 'E' => self.jump_to_document_end(),
                     'p' | 'P' => self.move_to_previous_location(),
+                    'n' | 'N' => self.move_to_next_location(),
+                    'd' | 'D' => self.go_to_definition(),
                     _ => {}
                 }
             }
@@ -159,6 +162,9 @@ impl Editor {
     }
 
     pub(super) fn handle_insert(&mut self, event: Event) {
+        if self.completion.visible && self.handle_completion_input(&event) {
+            return;
+        }
         if event.key == Key::Escape {
             self.mode = Mode::Normal;
             self.pending_g = false;
@@ -172,6 +178,7 @@ impl Editor {
                 's' => {
                     self.save_document(None);
                 }
+                ' ' => self.request_lsp_completion(),
                 _ => {}
             }
             return;
@@ -204,11 +211,8 @@ impl Editor {
             Key::Enter => self.insert_newline(),
             Key::Backspace => self.backspace(),
             Key::Delete => self.delete_forward(),
-            Key::Tab => self.insert_text("    "),
-            Key::Char => {
-                let mut buffer = [0u8; 4];
-                self.insert_text(event.ch.encode_utf8(&mut buffer));
-            }
+            Key::Tab => self.insert_indent(),
+            Key::Char => self.insert_character(event.ch),
             _ => {}
         }
     }
@@ -220,6 +224,7 @@ impl Editor {
                     self.cancel_selection();
                     self.redo();
                 }
+                'c' => self.toggle_comment(),
                 's' => {
                     self.save_document(None);
                 }
@@ -358,6 +363,12 @@ impl Editor {
             'x' | 'X' => self.cut_selection(),
             'p' => self.paste_clipboard(false),
             'P' => self.paste_clipboard(true),
+            'K' | 'k' => self.show_hover(),
+            'A' | 'a' => self.show_code_actions(),
+            'S' | 's' => self.show_document_symbols(),
+            'D' => self.show_problems(true),
+            'd' => self.show_problems(false),
+            'z' | 'Z' => self.show_line_diagnostic(),
             'w' | 'W' => {
                 self.save_document(None);
             }
@@ -493,10 +504,17 @@ impl Editor {
                 }
             }
             "rcfg" => {
-                self.reload_themes();
+                self.reload_configuration();
             }
             "about" => self.set_message("HexalRs 0.1.0 - Rust 2024 prototype of the Hexal editor."),
             "cw" => self.trim_trailing_whitespace(),
+            "rc" => {
+                if args.is_empty() {
+                    self.remove_comments_from_selection();
+                } else {
+                    self.set_error("usage: :rc");
+                }
+            }
             "lua" => {
                 if args.is_empty() {
                     self.set_error("usage: :lua <plugin.lua>");
@@ -508,14 +526,21 @@ impl Editor {
             "lang" => {
                 if args.is_empty() {
                     self.set_error("usage: :lang <language>");
-                } else if let Some(language) = syntax::from_id(&args) {
+                } else if let Some(language) = self.languages.find(&args) {
+                    let name = language.name.clone();
                     self.language_override = Some(args.clone());
-                    self.set_message(&format!("Language: {}", language.name));
+                    self.refresh_language();
+                    self.lsp.stop();
+                    self.lsp_fallback_blocked = false;
+                    self.restart_lsp_for_buffer();
+                    self.set_message(&format!("Language: {name}"));
                 } else {
                     self.set_error(&format!("unknown language: {args}"));
                 }
             }
             "fmt" => self.format_current_document(false),
+            "fmta" => self.format_workspace_extension(&args),
+            "debug-lsp" | "dl" => self.open_lsp_debug(),
             "gi" => self.toggle_git_ignored(),
             "gdl" => self.toggle_diff_lines(),
             "smc" => {

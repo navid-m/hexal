@@ -3,9 +3,9 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-
 mod core;
 mod languages;
+mod lsp;
 mod platform;
 mod scripting;
 mod ui;
@@ -48,12 +48,19 @@ Keys:
   u / U            Undo / redo
   /                Find in file (n / p to step)
   :                Ex command line (:w, :wq, :q, :e, :path, :cw)
+  Ctrl+C           Toggle comments on the selection or current line
+  :rc              Remove comments from the active selection
+  :fmt / :fmta     Format the buffer/selection or every file with an extension
+  :lang <id>       Override the language for the current buffer
+  :rcfg            Reload grammars, themes and language servers
   :lua <file>      Load a Lua plugin from a file
   :plugins         List registered Lua commands
   Space            Open the SPACE menu (bottom-right)
   Space f          File picker
   Space /          Search across files
   Space g          Go to line
+  Space K / A / S  Language-server hover / code actions / symbols
+  Space d / D / Z  Document / workspace diagnostics / line diagnostic
   Space y / X      Yank / cut selection
   Space p / P      Paste / paste on a new line
 

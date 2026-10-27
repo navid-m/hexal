@@ -60,6 +60,36 @@ impl Editor {
             PaletteAction::FormatDocument,
         );
         self.add_palette_command(
+            "LSP: show hover",
+            "Show language-server hover information at the cursor.",
+            PaletteAction::Hover,
+        );
+        self.add_palette_command(
+            "LSP: go to definition",
+            "Jump to the definition of the symbol under the cursor.",
+            PaletteAction::GoToDefinition,
+        );
+        self.add_palette_command(
+            "LSP: code actions",
+            "List code actions at the cursor.",
+            PaletteAction::CodeActions,
+        );
+        self.add_palette_command(
+            "LSP: document symbols",
+            "Pick a symbol from the current document.",
+            PaletteAction::DocumentSymbols,
+        );
+        self.add_palette_command(
+            "LSP: document diagnostics",
+            "Show diagnostics for the current document.",
+            PaletteAction::DocumentDiagnostics,
+        );
+        self.add_palette_command(
+            "LSP: workspace diagnostics",
+            "Show diagnostics for the whole workspace.",
+            PaletteAction::WorkspaceDiagnostics,
+        );
+        self.add_palette_command(
             "Clean trailing whitespace",
             "Remove trailing spaces and tabs from every line.",
             PaletteAction::CleanWhitespace,
@@ -114,12 +144,7 @@ impl Editor {
         }
     }
 
-    fn add_palette_command(
-        &mut self,
-        title: &str,
-        description: &str,
-        action: PaletteAction,
-    ) {
+    fn add_palette_command(&mut self, title: &str, description: &str, action: PaletteAction) {
         self.palette_commands.push(PaletteCommand {
             title: title.to_string(),
             description: description.to_string(),
@@ -146,6 +171,12 @@ impl Editor {
             PaletteAction::ToggleDiffLines => self.toggle_diff_lines(),
             PaletteAction::ToggleSearchMatchCase => self.toggle_search_match_case(),
             PaletteAction::FormatDocument => self.format_current_document(false),
+            PaletteAction::Hover => self.show_hover(),
+            PaletteAction::GoToDefinition => self.go_to_definition(),
+            PaletteAction::CodeActions => self.show_code_actions(),
+            PaletteAction::DocumentSymbols => self.show_document_symbols(),
+            PaletteAction::DocumentDiagnostics => self.show_problems(false),
+            PaletteAction::WorkspaceDiagnostics => self.show_problems(true),
             PaletteAction::CleanWhitespace => self.trim_trailing_whitespace(),
             PaletteAction::Save => {
                 self.save_document(None);
@@ -194,6 +225,20 @@ impl Editor {
         } else {
             "Hiding Git markers"
         });
+    }
+
+    pub(super) fn reload_configuration(&mut self) {
+        self.languages = Registry::load();
+        self.refresh_language();
+        self.reload_themes();
+        self.lsp.stop();
+        self.lsp_fallback_blocked = false;
+        self.restart_lsp_for_buffer();
+        if let Some(error) = self.languages.errors().first() {
+            self.set_error(&format!("grammar: {error}"));
+        } else {
+            self.set_message("Reloaded configuration, grammars, themes and language servers.");
+        }
     }
 
     fn show_current_path(&mut self) {

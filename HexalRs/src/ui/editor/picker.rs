@@ -43,16 +43,25 @@ impl Editor {
         self.language_override = None;
         self.jumps.clear();
         self.jump_index = -1;
+        self.refresh_language();
+        self.auto_detect_indentation_on_open();
 
         let target_line = line.min(self.doc.line_count() - 1);
         let start = self.doc.line_start(target_line);
         let text = self.doc.line_text(target_line);
-        let local = util::byte_offset_for_visual_column(&text, column, TAB_WIDTH);
-        self.cursor = (start + local).min(self.doc.size());
+        let mut local = column.min(text.len());
+        // Search matches and LSP positions are byte offsets. Invalid UTF-8 can
+        // leave a column inside a scalar; advance to the next boundary.
+        while local < text.len() && (text[local] & 0xC0) == 0x80 {
+            local += 1;
+        }
+        self.cursor = (start + local).min(self.doc.line_end(target_line));
         self.snap_cursor();
         self.anchor = self.cursor;
         self.top_line = target_line.saturating_sub(self.text_rows() / 2);
         self.doc.break_undo_group();
+        self.last_revision = self.doc.revision();
+        self.restart_lsp_for_buffer();
         self.set_message(&format!("Opened {}", self.doc.display_name()));
     }
 
@@ -131,6 +140,9 @@ impl Editor {
                         theme_id: None,
                         target: None,
                         palette_index: None,
+                        action_index: None,
+                        symbol_index: None,
+                        problem: None,
                     });
                 }
             }
@@ -153,6 +165,9 @@ impl Editor {
                             theme_id: None,
                             target: None,
                             palette_index: None,
+                            action_index: None,
+                            symbol_index: None,
+                            problem: None,
                         });
                     }
                 }
@@ -178,6 +193,9 @@ impl Editor {
                         theme_id: None,
                         target: Some(folder.clone()),
                         palette_index: None,
+                        action_index: None,
+                        symbol_index: None,
+                        problem: None,
                     });
                 }
             }
@@ -205,6 +223,9 @@ impl Editor {
                         theme_id: Some(theme.id.clone()),
                         target: None,
                         palette_index: None,
+                        action_index: None,
+                        symbol_index: None,
+                        problem: None,
                     });
                 }
             }
@@ -232,9 +253,72 @@ impl Editor {
                         theme_id: None,
                         target: None,
                         palette_index: Some(index),
+                        action_index: None,
+                        symbol_index: None,
+                        problem: None,
                     });
                 }
             }
+            PickerKind::CodeActions => {
+                for (index, action) in self.code_actions.iter().enumerate() {
+                    let label = if action.kind.is_empty() {
+                        action.title.clone()
+                    } else {
+                        format!("[{}] {}", action.kind, action.title)
+                    };
+                    if !self.picker.query.is_empty()
+                        && !label
+                            .to_ascii_lowercase()
+                            .contains(&self.picker.query.to_ascii_lowercase())
+                    {
+                        continue;
+                    }
+                    self.picker.total += 1;
+                    self.picker.items.push(PickerItem {
+                        display: label,
+                        file_index: 0,
+                        line: 0,
+                        column: 0,
+                        theme_id: None,
+                        target: None,
+                        palette_index: None,
+                        action_index: Some(index),
+                        symbol_index: None,
+                        problem: None,
+                    });
+                }
+            }
+            PickerKind::Symbols => {
+                for (index, symbol) in self.document_symbols.iter().enumerate() {
+                    let indent = " ".repeat(symbol.depth.min(12) * 2);
+                    let mut label =
+                        format!("{indent}{} {}", symbol_kind_name(symbol.kind), symbol.name);
+                    if !symbol.detail.is_empty() {
+                        label.push_str(&format!("  {}", symbol.detail));
+                    }
+                    if !self.picker.query.is_empty()
+                        && !label
+                            .to_ascii_lowercase()
+                            .contains(&self.picker.query.to_ascii_lowercase())
+                    {
+                        continue;
+                    }
+                    self.picker.total += 1;
+                    self.picker.items.push(PickerItem {
+                        display: label,
+                        file_index: 0,
+                        line: 0,
+                        column: 0,
+                        theme_id: None,
+                        target: None,
+                        palette_index: None,
+                        action_index: None,
+                        symbol_index: Some(index),
+                        problem: None,
+                    });
+                }
+            }
+            PickerKind::Problems => self.populate_problem_items(),
             PickerKind::None => {}
         }
 
@@ -335,6 +419,58 @@ impl Editor {
             }
             return;
         }
+        if self.picker.kind == PickerKind::CodeActions {
+            let action = self.picker.items[self.picker.selected]
+                .action_index
+                .and_then(|index| self.code_actions.get(index).cloned());
+            self.close_picker();
+            if let Some(action) = action {
+                self.apply_code_action(&action);
+            }
+            return;
+        }
+        if self.picker.kind == PickerKind::Symbols {
+            let symbol = self.picker.items[self.picker.selected]
+                .symbol_index
+                .and_then(|index| self.document_symbols.get(index).cloned());
+            self.close_picker();
+            if let Some(symbol) = symbol {
+                let path = lsp::uri_to_path(&symbol.uri);
+                if path.is_empty() {
+                    self.set_error("The language server returned an invalid symbol location.");
+                    return;
+                }
+                let same =
+                    self.doc.path.as_deref().is_some_and(|current| {
+                        git::same_path(Path::new(current), Path::new(&path))
+                    });
+                self.record_jump();
+                if same {
+                    self.move_to_line_character(symbol.line, symbol.character);
+                } else {
+                    let byte = super::lsp_ui::lsp_column_to_byte_offset(
+                        &path,
+                        symbol.line,
+                        symbol.character,
+                    );
+                    self.request_open(&path, symbol.line.max(0) as usize, byte, false);
+                }
+            }
+            return;
+        }
+        if self.picker.kind == PickerKind::Problems {
+            let problem = self.picker.items[self.picker.selected].problem.clone();
+            self.close_picker();
+            if let Some((path, line, column)) = problem {
+                let byte = super::lsp_ui::lsp_column_to_byte_offset(
+                    &path,
+                    line as i64,
+                    column as i64,
+                );
+                self.request_open(&path, line, byte, false);
+            }
+            return;
+        }
         let item = &self.picker.items[self.picker.selected];
         let path = self.picker.files[item.file_index].clone();
         let line = item.line;
@@ -386,10 +522,38 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 {
-            height - 3
-        } else {
-            1
-        }
+        if height >= 3 { height - 3 } else { 1 }
+    }
+}
+
+fn symbol_kind_name(kind: i64) -> &'static str {
+    match kind {
+        1 => "File",
+        2 => "Module",
+        3 => "Namespace",
+        4 => "Package",
+        5 => "Class",
+        6 => "Method",
+        7 => "Property",
+        8 => "Field",
+        9 => "Constructor",
+        10 => "Enum",
+        11 => "Interface",
+        12 => "Function",
+        13 => "Variable",
+        14 => "Constant",
+        15 => "String",
+        16 => "Number",
+        17 => "Boolean",
+        18 => "Array",
+        19 => "Object",
+        20 => "Key",
+        21 => "Null",
+        22 => "EnumMember",
+        23 => "Struct",
+        24 => "Event",
+        25 => "Operator",
+        26 => "TypeParameter",
+        _ => "Symbol",
     }
 }
