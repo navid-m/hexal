@@ -175,6 +175,7 @@ are cyan; headings and language names are white (headings bold).
 | `Space` `.` | Find and replace across files matching a wildcard |
 | `Space` `\` | Regex find and replace across files matching a wildcard |
 | `Space` `f` | Open the file picker |
+| `Space` `g` | Go to a line number |
 | `Space` `y` | Yank the selection to the system clipboard |
 | `Space` `p` | Paste the system clipboard on the current line |
 | `Space` `P` | Paste the system clipboard on a new line below |
@@ -188,6 +189,9 @@ are cyan; headings and language names are white (headings bold).
 Pressing `Space` in NORMAL or SELECT mode opens a small menu in the
 bottom-right corner, modelled on Helix's which-key menu. Press `Esc` to
 dismiss it, `/` to search across files, or `f` to open the file picker.
+Press `g` to open the go-to-line prompt: type a line number and press
+`Enter` to jump there (the line is centred in the viewport), or `Esc` to
+cancel.
 `y` copies the current selection to the system clipboard and returns to
 NORMAL mode; `p` pastes the clipboard at the cursor (replacing the selection
 when one is active) and `P` pastes it on new lines below the cursor's line.

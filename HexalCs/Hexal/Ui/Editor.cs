@@ -64,6 +64,7 @@ public sealed partial class Editor
         ('.', "Find/replace across files"),
         ('\\', "Regex find/replace across files"),
         ('f', "Open file picker"),
+        ('g', "Go to line"),
         ('y', "Yank selection to clipboard"),
         ('X', "Cut selection to clipboard"),
         ('p', "Paste on the current line"),
@@ -736,6 +737,12 @@ public sealed partial class Editor
 
         if (inputEvent.Key == Key.FocusOut)
         {
+            return _running;
+        }
+
+        if (_gotoLineVisible)
+        {
+            HandleGoToLine(inputEvent);
             return _running;
         }
 
@@ -2816,6 +2823,10 @@ public sealed partial class Editor
             case 'f':
             case 'F':
                 OpenPicker(PickerKind.Files);
+                return;
+            case 'g':
+            case 'G':
+                OpenGoToLine();
                 return;
             case 'y':
             case 'Y':
@@ -9747,6 +9758,7 @@ public sealed partial class Editor
         RenderStartupBenchmark();
         RenderHelp();
         RenderBinaryFilePrompt();
+        RenderGoToLine();
 
         ReadOnlySpan<byte> output = _renderer.Render(_screen, _forceFullRedraw);
         if (!output.IsEmpty)

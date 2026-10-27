@@ -53,6 +53,7 @@ public sealed partial class Editor
         Entry("PageUp / PageDown", "Move one screen up / down");
         Entry("Ctrl+Home / Ctrl+End", "Start / end of document");
         Entry("g p", "Jump to the previous location");
+        Entry("Space g", "Go to a line number");
         Blank();
 
         Section("Selection and editing");
