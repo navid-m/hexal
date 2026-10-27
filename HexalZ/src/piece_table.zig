@@ -45,6 +45,8 @@ const Node = struct {
 pub const PieceTable = struct {
     allocator: std.mem.Allocator,
     original: []u8 = &.{},
+    /// False when the current text is borrowed from an undo/redo snapshot.
+    original_owned: bool = true,
     added: std.ArrayList(u8) = .empty,
     nodes: std.ArrayList(Node) = .empty,
     root: i32 = -1,
@@ -57,10 +59,54 @@ pub const PieceTable = struct {
     }
 
     pub fn deinit(self: *PieceTable) void {
-        if (self.original.len > 0) self.allocator.free(self.original);
+        if (self.original_owned and self.original.len > 0) self.allocator.free(self.original);
         self.added.deinit(self.allocator);
         self.nodes.deinit(self.allocator);
         self.* = undefined;
+    }
+
+    /// Materialize borrowed text before an incremental edit. A bulk
+    /// replacement can leave the table pointing at an undo snapshot; normal
+    /// edits need to own their backing store so old snapshots can be evicted
+    /// independently.
+    fn ensureOwned(self: *PieceTable) !void {
+        if (self.original_owned) return;
+        if (self.original.len > 0) {
+            const copy = try self.allocator.dupe(u8, self.original);
+            self.original = copy;
+        }
+        self.original_owned = true;
+    }
+
+    /// Reserve the nodes needed for a whole-buffer replacement so the
+    /// replacement itself cannot fail after ownership has been transferred.
+    pub fn reserveForText(self: *PieceTable, len: usize) !void {
+        try self.nodes.ensureTotalCapacity(self.allocator, len / MaxPieceSize + 2);
+    }
+
+    /// Replace the entire buffer with `data`, taking a borrow of the caller's
+    /// storage. The caller must keep `data` alive until the next mutation or
+    /// table reset. This avoids copying a bulk plugin replacement into the
+    /// append buffer.
+    pub fn replaceAllBorrowed(self: *PieceTable, data: []u8) !void {
+        try self.reserveForText(data.len);
+        if (self.original_owned and self.original.len > 0) self.allocator.free(self.original);
+        self.original = &.{};
+        self.original_owned = false;
+        self.added.deinit(self.allocator);
+        self.added = .empty;
+        self.nodes.clearRetainingCapacity();
+        self.root = -1;
+        self.free_head = -1;
+        self.eol = detectEol(data);
+        self.original = data;
+
+        var position: usize = 0;
+        while (position < data.len) {
+            const end = chooseEnd(data, position, data.len);
+            self.root = try self.merge(self.root, try self.makeNode(false, position, end - position));
+            position = end;
+        }
     }
 
     pub fn size(self: PieceTable) usize {
@@ -77,8 +123,9 @@ pub const PieceTable = struct {
 
     /// Takes ownership of `data`.
     pub fn setOriginal(self: *PieceTable, data: []u8) !void {
-        if (self.original.len > 0) self.allocator.free(self.original);
+        if (self.original_owned and self.original.len > 0) self.allocator.free(self.original);
         self.original = data;
+        self.original_owned = true;
         self.added.clearRetainingCapacity();
         self.nodes.clearRetainingCapacity();
         self.root = -1;
@@ -95,6 +142,7 @@ pub const PieceTable = struct {
 
     pub fn insert(self: *PieceTable, offset: usize, text: []const u8) !void {
         if (text.len == 0) return;
+        try self.ensureOwned();
         const clamped = @min(offset, self.size());
         const start = self.added.items.len;
         try self.added.appendSlice(self.allocator, text);
@@ -117,6 +165,7 @@ pub const PieceTable = struct {
 
     pub fn erase(self: *PieceTable, offset: usize, length: usize) void {
         if (length == 0 or offset >= self.size()) return;
+        self.ensureOwned() catch return;
         const actual = @min(length, self.size() - offset);
         const first = self.split(self.root, offset) catch return;
         const second = self.split(first.right, actual) catch return;

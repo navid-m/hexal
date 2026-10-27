@@ -11,6 +11,7 @@ const Op = struct {
     offset: usize,
     removed: []u8,
     inserted: []u8,
+    replace_all: bool = false,
 };
 
 const Group = struct {
@@ -201,6 +202,11 @@ pub const Document = struct {
 
     /// Replaces a range as one undoable operation.
     pub fn replace(self: *Document, offset: usize, remove_length: usize, text: []const u8) !void {
+        if (offset == 0 and remove_length >= self.size()) {
+            const owned = try self.allocator.dupe(u8, text);
+            return self.replaceAllOwned(owned);
+        }
+
         const clamped = @min(offset, self.size());
         const actual = @min(remove_length, self.size() - clamped);
         const removed = try self.table.rangeAlloc(clamped, actual);
@@ -223,41 +229,73 @@ pub const Document = struct {
         self.closeGroup();
     }
 
+    /// Replace the whole buffer with `text`, taking ownership of the
+    /// allocation. The piece table borrows it instead of copying it again;
+    /// the undo group keeps the owning reference.
+    pub fn replaceAllOwned(self: *Document, text: []u8) !void {
+        errdefer self.allocator.free(text);
+        const removed = try self.table.rangeAlloc(0, self.size());
+        errdefer self.allocator.free(removed);
+        // Reserve before publishing the undo group so the table reset cannot
+        // fail after the group owns `text` and `removed`.
+        try self.table.reserveForText(text.len);
+
+        if (self.group_open) self.closeGroup();
+        try self.startGroup(.mixed);
+        const group = &self.undo.items[self.undo.items.len - 1];
+        try group.ops.append(self.allocator, .{
+            .offset = 0,
+            .removed = removed,
+            .inserted = text,
+            .replace_all = true,
+        });
+
+        try self.table.replaceAllBorrowed(text);
+        self.revision += 1;
+        self.closeGroup();
+    }
+
     pub fn breakUndoGroup(self: *Document) void {
         self.closeGroup();
     }
 
     pub fn undoEdit(self: *Document) bool {
         if (self.undo.items.len == 0) return false;
+        // Reserve before moving the group: a whole-buffer replacement may be
+        // borrowing the snapshot we are about to restore.
+        self.redo.ensureUnusedCapacity(self.allocator, 1) catch return false;
         self.closeGroup();
         const group = self.undo.pop().?;
         var i = group.ops.items.len;
         while (i > 0) {
             i -= 1;
             const op = group.ops.items[i];
-            self.table.erase(op.offset, op.inserted.len);
-            self.table.insert(op.offset, op.removed) catch {};
+            if (op.replace_all) {
+                self.table.replaceAllBorrowed(op.removed) catch {};
+            } else {
+                self.table.erase(op.offset, op.inserted.len);
+                self.table.insert(op.offset, op.removed) catch {};
+            }
         }
-        self.redo.append(self.allocator, group) catch {
-            self.freeGroup(group);
-            return false;
-        };
+        self.redo.appendAssumeCapacity(group);
         self.revision += 1;
         return true;
     }
 
     pub fn redoEdit(self: *Document) bool {
         if (self.redo.items.len == 0) return false;
+        self.undo.ensureUnusedCapacity(self.allocator, 1) catch return false;
         self.closeGroup();
         const group = self.redo.pop().?;
         for (group.ops.items) |op| {
-            self.table.erase(op.offset, op.removed.len);
-            self.table.insert(op.offset, op.inserted) catch {};
+            if (op.replace_all) {
+                self.table.replaceAllBorrowed(op.inserted) catch {};
+            } else {
+                self.table.erase(op.offset, op.removed.len);
+                self.table.insert(op.offset, op.inserted) catch {};
+            }
         }
-        self.undo.append(self.allocator, group) catch {
-            self.freeGroup(group);
-            return false;
-        };
+        self.undo.appendAssumeCapacity(group);
         self.revision += 1;
         return true;
     }
@@ -346,4 +384,80 @@ test "document undo and redo groups adjacent typing" {
     const text2 = try doc.rangeAlloc(0, doc.size());
     defer allocator.free(text2);
     try std.testing.expectEqualStrings("hi", text2);
+}
+
+test "document whole-buffer replacement remains undoable and editable" {
+    const allocator = std.testing.allocator;
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    var doc = Document.init(allocator, threaded.io());
+    defer doc.deinit();
+
+    try doc.insert(0, "one\ntwo");
+    doc.breakUndoGroup();
+
+    try doc.replaceAllOwned(try allocator.dupe(u8, "alpha\nbeta"));
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("alpha\nbeta", text);
+    }
+
+    // A normal edit after a bulk replacement must materialize the borrowed
+    // table storage without invalidating the undo snapshot.
+    try doc.insert(doc.size(), "!");
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("alpha\nbeta!", text);
+    }
+    try std.testing.expect(doc.undoEdit());
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("alpha\nbeta", text);
+    }
+
+    try std.testing.expect(doc.undoEdit());
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("one\ntwo", text);
+    }
+    try std.testing.expect(doc.redoEdit());
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("alpha\nbeta", text);
+    }
+}
+
+test "document repeated whole-buffer replacements keep independent snapshots" {
+    const allocator = std.testing.allocator;
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    var doc = Document.init(allocator, threaded.io());
+    defer doc.deinit();
+
+    try doc.replaceAllOwned(try allocator.dupe(u8, "first\nbuffer"));
+    try doc.replaceAllOwned(try allocator.dupe(u8, "second\nbuffer"));
+    try doc.replaceAllOwned(try allocator.dupe(u8, "third\nbuffer"));
+
+    try std.testing.expect(doc.undoEdit());
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("second\nbuffer", text);
+    }
+    try std.testing.expect(doc.undoEdit());
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("first\nbuffer", text);
+    }
+    try std.testing.expect(doc.redoEdit());
+    try std.testing.expect(doc.redoEdit());
+    {
+        const text = try doc.rangeAlloc(0, doc.size());
+        defer allocator.free(text);
+        try std.testing.expectEqualStrings("third\nbuffer", text);
+    }
 }

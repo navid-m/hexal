@@ -8,6 +8,7 @@
 //! (C) Navid Momtahen - 2026
 
 const std = @import("std");
+const alloc_mod = @import("alloc.zig");
 const document_mod = @import("document.zig");
 
 const c = @import("lua_c.zig");
@@ -17,7 +18,12 @@ const registry_index: c_int = c.LUA_REGISTRYINDEX;
 const Context = struct {
     allocator: std.mem.Allocator,
     text: std.ArrayList(u8) = .empty,
+    /// Non-owning view of the current document text. Bulk write-back hands the
+    /// host buffer to the document; the host keeps reading it from here until
+    /// a mutating API call materializes a private copy.
+    text_view: ?[]const u8 = null,
     line_starts: std.ArrayList(usize) = .empty,
+    crlf: bool = false,
     cursor_line: usize = 0,
     cursor_column: usize = 0,
     dirty: bool = false,
@@ -44,11 +50,24 @@ const Context = struct {
         self.* = undefined;
     }
 
+    fn bytes(self: *const Context) []const u8 {
+        return self.text_view orelse self.text.items;
+    }
+
+    fn materialize(self: *Context) !void {
+        const view = self.text_view orelse return;
+        self.text_view = null;
+        self.text.clearRetainingCapacity();
+        try self.text.appendSlice(self.allocator, view);
+    }
+
     fn load(self: *Context, doc: *document_mod.Document, cursor_line: usize, cursor_column: usize) !void {
         const data = try doc.rangeAlloc(0, doc.size());
         defer self.allocator.free(data);
+        self.text_view = null;
         self.text.clearRetainingCapacity();
         try self.text.appendSlice(self.allocator, data);
+        self.crlf = doc.eol == .crlf;
         try self.rebuildLines();
         self.cursor_line = @min(cursor_line, self.lineCount() - 1);
         self.cursor_column = cursor_column;
@@ -57,40 +76,62 @@ const Context = struct {
     }
 
     fn rebuildLines(self: *Context) !void {
+        const text = self.bytes();
+        const newlines = std.mem.count(u8, text, "\n");
         self.line_starts.clearRetainingCapacity();
-        try self.line_starts.append(self.allocator, 0);
-        for (self.text.items, 0..) |byte, index| {
-            if (byte == '\n') try self.line_starts.append(self.allocator, index + 1);
+        try self.line_starts.ensureTotalCapacity(self.allocator, newlines + 1);
+        self.line_starts.appendAssumeCapacity(0);
+        var search_from: usize = 0;
+        while (std.mem.indexOfScalarPos(u8, text, search_from, '\n')) |index| {
+            self.line_starts.appendAssumeCapacity(index + 1);
+            search_from = index + 1;
         }
     }
 
-    fn lineCount(self: Context) usize {
+    fn lineCount(self: *const Context) usize {
         return self.line_starts.items.len;
     }
 
-    fn lineStart(self: Context, line: usize) usize {
+    fn lineStart(self: *const Context, line: usize) usize {
         return self.line_starts.items[@min(line, self.lineCount() - 1)];
     }
 
-    fn lineEnd(self: Context, line: usize) usize {
+    fn lineEnd(self: *const Context, line: usize) usize {
+        const text = self.bytes();
         if (line + 1 < self.lineCount()) {
             var end = self.line_starts.items[line + 1];
-            if (end > 0 and self.text.items[end - 1] == '\n') {
+            if (end > 0 and text[end - 1] == '\n') {
                 end -= 1;
-                if (end > 0 and self.text.items[end - 1] == '\r') end -= 1;
+                if (end > 0 and text[end - 1] == '\r') end -= 1;
             }
             return end;
         }
-        return self.text.items.len;
+        return text.len;
     }
 
-    fn lineBytes(self: Context, line: usize) ![]const u8 {
+    const Bounds = struct { start: usize, end: usize };
+
+    fn lineBounds(self: *const Context, line: usize) Bounds {
+        const starts = self.line_starts.items;
+        const text = self.bytes();
+        const start = starts[line];
+        if (line + 1 >= starts.len) return .{ .start = start, .end = text.len };
+        // Non-final lines always have a terminator. Avoid reloading it just
+        // to strip a byte the line index already proves is there.
+        var end = starts[line + 1] - 1;
+        if (self.crlf and end > start and text[end - 1] == '\r') end -= 1;
+        return .{ .start = start, .end = end };
+    }
+
+    fn lineBytes(self: *const Context, line: usize) ![]const u8 {
         if (line >= self.lineCount()) return error.InvalidLine;
-        return self.text.items[self.lineStart(line)..self.lineEnd(line)];
+        const bounds = self.lineBounds(line);
+        return self.bytes()[bounds.start..bounds.end];
     }
 
     fn setLine(self: *Context, line: usize, value: []const u8) !void {
         if (line >= self.lineCount()) return error.InvalidLine;
+        try self.materialize();
         const start = self.lineStart(line);
         const end = self.lineEnd(line);
         try self.text.replaceRange(self.allocator, start, end - start, value);
@@ -99,28 +140,37 @@ const Context = struct {
     }
 
     fn setText(self: *Context, value: []const u8) !void {
+        self.text_view = null;
         self.text.clearRetainingCapacity();
         try self.text.appendSlice(self.allocator, value);
+        self.crlf = if (std.mem.indexOfScalar(u8, value, '\n')) |index|
+            index > 0 and value[index - 1] == '\r'
+        else
+            false;
         try self.rebuildLines();
         self.cursor_line = @min(self.cursor_line, self.lineCount() - 1);
         self.dirty = true;
     }
 
-    fn byteOffset(self: Context) usize {
-        const line = @min(self.cursor_line, self.lineCount() - 1);
-        const start = self.lineStart(line);
-        const end = self.lineEnd(line);
-        return start + @min(self.cursor_column, end - start);
+    fn byteOffset(self: *const Context) usize {
+        const line = @min(self.cursor_line, self.line_starts.items.len - 1);
+        if (self.cursor_column == 0) return self.line_starts.items[line];
+        const bounds = self.lineBounds(line);
+        return bounds.start + @min(self.cursor_column, bounds.end - bounds.start);
     }
 
     fn setCursor(self: *Context, line: usize, column: usize) void {
-        self.cursor_line = @min(line, self.lineCount() - 1);
-        const start = self.lineStart(self.cursor_line);
-        const end = self.lineEnd(self.cursor_line);
-        self.cursor_column = @min(column, end - start);
+        self.cursor_line = @min(line, self.line_starts.items.len - 1);
+        if (column == 0) {
+            self.cursor_column = 0;
+            return;
+        }
+        const bounds = self.lineBounds(self.cursor_line);
+        self.cursor_column = @min(column, bounds.end - bounds.start);
     }
 
     fn insert(self: *Context, value: []const u8) !void {
+        try self.materialize();
         const offset = self.byteOffset();
         try self.text.insertSlice(self.allocator, offset, value);
         try self.rebuildLines();
@@ -131,7 +181,7 @@ const Context = struct {
         self.dirty = true;
     }
 
-    fn lineOfOffset(self: Context, offset: usize) usize {
+    fn lineOfOffset(self: *const Context, offset: usize) usize {
         var low: usize = 0;
         var high: usize = self.lineCount();
         while (low + 1 < high) {
@@ -163,11 +213,26 @@ const Context = struct {
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
     state: *c.lua_State,
+    lua_alloc: *LuaAllocator,
     ctx: *Context,
     last_error: ?[]u8 = null,
+    synced_cursor: ?usize = null,
+    last_command: ?CommandRef = null,
+
+    const CommandRef = struct {
+        name: []u8,
+        reference: c_int,
+    };
 
     pub fn init(allocator: std.mem.Allocator) !Runtime {
-        const state = c.luaL_newstate() orelse return error.OutOfMemory;
+        // Route Lua's allocations through the editor allocator so large
+        // strings and buffers use the same huge-page-backed, reusable path
+        // as the document and plugin snapshots.
+        const lua_alloc = try allocator.create(LuaAllocator);
+        errdefer allocator.destroy(lua_alloc);
+        lua_alloc.* = .{ .allocator = allocator };
+
+        const state = c.lua_newstate(luaAlloc, lua_alloc) orelse return error.OutOfMemory;
         errdefer c.lua_close(state);
         openSafeLibs(state);
 
@@ -190,19 +255,28 @@ pub const Runtime = struct {
         addFunction(state, ctx, "command", apiRegisterCommand);
         c.lua_setglobal(state, "hexal");
 
-        return .{ .allocator = allocator, .state = state, .ctx = ctx };
+        return .{
+            .allocator = allocator,
+            .state = state,
+            .lua_alloc = lua_alloc,
+            .ctx = ctx,
+        };
     }
 
     pub fn deinit(self: *Runtime) void {
         c.lua_close(self.state);
+        self.lua_alloc.deinitSmall();
+        self.allocator.destroy(self.lua_alloc);
         self.ctx.deinit();
         self.allocator.destroy(self.ctx);
         if (self.last_error) |message| self.allocator.free(message);
+        if (self.last_command) |cached| self.allocator.free(cached.name);
         self.* = undefined;
     }
 
     pub fn loadFile(self: *Runtime, path: []const u8) !void {
         self.clearError();
+        self.clearCommandCache();
         const path_z = try self.allocator.alloc(u8, path.len + 1);
         defer self.allocator.free(path_z);
         @memcpy(path_z[0..path.len], path);
@@ -234,22 +308,45 @@ pub const Runtime = struct {
         return names.toOwnedSlice(allocator);
     }
 
+    fn clearCommandCache(self: *Runtime) void {
+        if (self.last_command) |cached| {
+            self.allocator.free(cached.name);
+            self.last_command = null;
+        }
+    }
+
+    fn commandReference(self: *Runtime, name: []const u8) !c_int {
+        if (self.last_command) |cached| {
+            if (std.mem.eql(u8, cached.name, name)) return cached.reference;
+        }
+        const reference = self.ctx.commands.get(name) orelse return error.UnknownCommand;
+        const copy = try self.allocator.dupe(u8, name);
+        self.clearCommandCache();
+        self.last_command = .{ .name = copy, .reference = reference };
+        return reference;
+    }
+
     pub fn invoke(self: *Runtime, name: []const u8, doc: *document_mod.Document, cursor: *usize) !i64 {
         self.clearError();
-        const ref = self.ctx.commands.get(name) orelse return error.UnknownCommand;
+        const ref = try self.commandReference(name);
 
-        const line = doc.lineOfOffset(cursor.*);
-        const column = cursor.* - doc.lineStart(line);
         if (self.ctx.loaded_revision == null or self.ctx.loaded_revision.? != doc.revision) {
+            const line = doc.lineOfOffset(cursor.*);
+            const column = cursor.* - doc.lineStart(line);
             try self.ctx.load(doc, line, column);
             self.ctx.loaded_revision = doc.revision;
-        } else {
+            self.synced_cursor = cursor.*;
+        } else if (self.synced_cursor != cursor.*) {
+            const line = doc.lineOfOffset(cursor.*);
+            const column = cursor.* - doc.lineStart(line);
             self.ctx.setCursor(line, column);
+            self.synced_cursor = cursor.*;
         }
 
         _ = c.lua_rawgeti(self.state, registry_index, ref);
         if (c.lua_pcallk(self.state, 0, 1, 0, 0, null) != c.LUA_OK) {
             self.ctx.loaded_revision = null;
+            self.synced_cursor = null;
             return self.captureError();
         }
 
@@ -258,9 +355,21 @@ pub const Runtime = struct {
         c.lua_settop(self.state, 0);
 
         if (self.ctx.dirty) {
-            try doc.replace(0, doc.size(), self.ctx.text.items);
+            const owned = if (self.ctx.text.items.len == 0)
+                try self.allocator.alloc(u8, 0)
+            else
+                try self.ctx.text.toOwnedSlice(self.allocator);
+            doc.replaceAllOwned(owned) catch |err| {
+                self.ctx.loaded_revision = null;
+                self.synced_cursor = null;
+                return err;
+            };
+            // The table now borrows this buffer and the undo group owns it.
+            // Keep the host's view on the same bytes instead of copying.
+            self.ctx.text_view = owned;
         }
         cursor.* = @min(self.ctx.byteOffset(), doc.size());
+        self.synced_cursor = cursor.*;
         self.ctx.dirty = false;
         self.ctx.loaded_revision = doc.revision;
         return checksum;
@@ -296,6 +405,131 @@ pub const Runtime = struct {
 
 fn lessThan(_: void, left: []const u8, right: []const u8) bool {
     return std.mem.lessThan(u8, left, right);
+}
+
+const LuaAllocator = struct {
+    const grain = 16;
+    const small_limit = 1024;
+    const class_count = small_limit / grain;
+    const max_cached_per_class = 512;
+
+    const Node = struct { next: ?*Node };
+
+    allocator: std.mem.Allocator,
+    heads: [class_count]?*Node = @splat(null),
+    counts: [class_count]u16 = @splat(0),
+
+    fn classFor(size: usize) ?usize {
+        if (size == 0 or size > small_limit) return null;
+        return (size + grain - 1) / grain - 1;
+    }
+
+    fn classSize(index: usize) usize {
+        return (index + 1) * grain;
+    }
+
+    fn allocSmall(self: *LuaAllocator, size: usize) ?*anyopaque {
+        const index = classFor(size) orelse return null;
+        if (self.heads[index]) |head| {
+            self.heads[index] = head.next;
+            self.counts[index] -= 1;
+            return head;
+        }
+        return std.c.malloc(classSize(index));
+    }
+
+    fn freeSmall(self: *LuaAllocator, pointer: ?*anyopaque, size: usize) bool {
+        const index = classFor(size) orelse return false;
+        if (self.counts[index] >= max_cached_per_class) return false;
+        const node: *Node = @ptrCast(@alignCast(pointer.?));
+        node.next = self.heads[index];
+        self.heads[index] = node;
+        self.counts[index] += 1;
+        return true;
+    }
+
+    fn deinitSmall(self: *LuaAllocator) void {
+        for (&self.heads) |*head| {
+            while (head.*) |node| {
+                head.* = node.next;
+                std.c.free(node);
+            }
+        }
+    }
+};
+
+fn luaAlloc(
+    userdata: ?*anyopaque,
+    pointer: ?*anyopaque,
+    old_size: usize,
+    new_size: usize,
+) callconv(.c) ?*anyopaque {
+    const context: *LuaAllocator = @ptrCast(@alignCast(userdata orelse return null));
+    const allocator = context.allocator;
+    const large = alloc_mod.HugeAllocator.large_threshold;
+
+    // Lua churns through many tiny strings and table nodes. Recycle those
+    // through a small size-class cache so repeated API calls (one `get_line`
+    // per line, for example) do not go to libc each time. Only large operands
+    // use the editor's huge-page-backed allocator.
+    if (new_size == 0) {
+        if (pointer) |ptr| {
+            if (old_size < large) {
+                if (!context.freeSmall(ptr, old_size)) std.c.free(ptr);
+            } else {
+                const bytes: [*]u8 = @ptrCast(ptr);
+                allocator.rawFree(bytes[0..old_size], .of(u8), @returnAddress());
+            }
+        }
+        return null;
+    }
+
+    if (pointer == null) {
+        if (new_size < large) {
+            return context.allocSmall(new_size) orelse std.c.malloc(new_size);
+        }
+        const bytes = allocator.rawAlloc(new_size, .of(u8), @returnAddress()) orelse return null;
+        return @ptrCast(bytes);
+    }
+
+    if (old_size < large and new_size < large) {
+        if (LuaAllocator.classFor(old_size)) |old_class| {
+            if (LuaAllocator.classFor(new_size) == old_class) return pointer;
+        }
+        const destination = context.allocSmall(new_size) orelse
+            (std.c.malloc(new_size) orelse return null);
+        const copy_len = @min(old_size, new_size);
+        @memcpy(@as([*]u8, @ptrCast(destination))[0..copy_len], @as([*]const u8, @ptrCast(pointer.?))[0..copy_len]);
+        if (!context.freeSmall(pointer, old_size)) std.c.free(pointer);
+        return destination;
+    }
+
+    const old_bytes: [*]u8 = @ptrCast(pointer.?);
+    const old = old_bytes[0..old_size];
+    if (old_size >= large and new_size >= large) {
+        if (allocator.rawRemap(old, .of(u8), new_size, @returnAddress())) |bytes| {
+            return @ptrCast(bytes);
+        }
+    }
+
+    const bytes: ?[*]u8 = if (new_size < large)
+        (if (context.allocSmall(new_size)) |p|
+            @as([*]u8, @ptrCast(p))
+        else if (std.c.malloc(new_size)) |p|
+            @as([*]u8, @ptrCast(p))
+        else
+            null)
+    else
+        allocator.rawAlloc(new_size, .of(u8), @returnAddress());
+    const destination = bytes orelse return null;
+    const copy_len = @min(old_size, new_size);
+    @memcpy(destination[0..copy_len], old[0..copy_len]);
+    if (old_size < large) {
+        if (!context.freeSmall(pointer, old_size)) std.c.free(pointer);
+    } else {
+        allocator.rawFree(old, .of(u8), @returnAddress());
+    }
+    return destination;
 }
 
 fn openSafeLibs(state: *c.lua_State) void {
@@ -362,7 +596,9 @@ fn apiGetLine(state_opt: ?*c.lua_State) callconv(.c) c_int {
     const line = c.lua_tointegerx(state, 1, &is_number);
     if (is_number == 0) return fail(state, "get_line: expected a line number");
     const index = checkLine(ctx, line) orelse return fail(state, "get_line: line out of range");
-    const bytes = ctx.lineBytes(index) catch return fail(state, "get_line: invalid line");
+    const text = ctx.bytes();
+    const bounds = ctx.lineBounds(index);
+    const bytes = text[bounds.start..bounds.end];
     _ = c.lua_pushlstring(state, if (bytes.len == 0) "" else bytes.ptr, bytes.len);
     return 1;
 }
@@ -383,7 +619,8 @@ fn apiSetLine(state_opt: ?*c.lua_State) callconv(.c) c_int {
 fn apiGetText(state_opt: ?*c.lua_State) callconv(.c) c_int {
     const state = state_opt orelse return 0;
     const ctx = contextFrom(state);
-    _ = c.lua_pushlstring(state, if (ctx.text.items.len == 0) "" else ctx.text.items.ptr, ctx.text.items.len);
+    const text = ctx.bytes();
+    _ = c.lua_pushlstring(state, if (text.len == 0) "" else text.ptr, text.len);
     return 1;
 }
 

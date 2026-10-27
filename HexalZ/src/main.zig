@@ -6,6 +6,7 @@ const terminal = @import("terminal.zig");
 const Editor = @import("editor.zig").Editor;
 const document_mod = @import("document.zig");
 const lua_mod = @import("lua.zig");
+const alloc_mod = @import("alloc.zig");
 
 const version = "0.1.0";
 
@@ -48,7 +49,12 @@ const help_text =
 ;
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
+    // Large editor buffers (documents, plugin snapshots, Lua strings) benefit
+    // from huge-page-backed mappings and reuse. Small allocations continue to
+    // use the C allocator.
+    var huge_allocator = alloc_mod.HugeAllocator{};
+    defer huge_allocator.deinit();
+    const allocator = huge_allocator.allocator();
     const io = init.io;
 
     var args_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, allocator);
