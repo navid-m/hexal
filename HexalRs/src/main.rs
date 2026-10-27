@@ -23,6 +23,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const HELP_TEXT: &str = "\
 Hexal v0.3.0
+https://hexal.pages.dev
+(C) Navid Momtahen - 2026
 
 Usage: 
   hexal [options] file
@@ -58,7 +60,7 @@ fn main() {
             return;
         }
         if !options_ended && (arg == "-v" || arg == "--version") {
-            println!("hexalrs {VERSION} (Rust 2024)");
+            println!("hexal {VERSION}");
             return;
         }
         if !options_ended && arg.len() > 1 && arg.starts_with('-') {
