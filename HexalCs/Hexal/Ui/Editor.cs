@@ -5183,7 +5183,9 @@ public sealed partial class Editor
         {
             name = formatter.Command;
         }
-        SetMessage(selectionOnly ? $"Formatting selection with {name} ..." : $"Formatting with {name} ...");
+        SetMessage(
+            selectionOnly ? $"Formatting selection with {name} ..." : $"Formatting with {name} ..."
+        );
     }
 
     private static bool EndsWithLineBreak(ReadOnlySpan<byte> text) =>
@@ -5221,10 +5223,7 @@ public sealed partial class Editor
             }
 
             int indentEnd = lineStart;
-            while (
-                indentEnd < contentEnd
-                && text[indentEnd] is (byte)' ' or (byte)'\t'
-            )
+            while (indentEnd < contentEnd && text[indentEnd] is (byte)' ' or (byte)'\t')
             {
                 ++indentEnd;
             }
@@ -5242,8 +5241,7 @@ public sealed partial class Editor
                     int compare = Math.Min(common, indentLength);
                     int match = 0;
                     while (
-                        match < compare
-                        && text[firstIndentStart + match] == text[lineStart + match]
+                        match < compare && text[firstIndentStart + match] == text[lineStart + match]
                     )
                     {
                         ++match;
@@ -7633,10 +7631,12 @@ public sealed partial class Editor
         }
 
         string lineComment = _language.LineComment ?? string.Empty;
-        string blockStart =
-            _language.HasBlockComments ? _language.BlockCommentStart ?? string.Empty : string.Empty;
-        string blockEnd =
-            _language.HasBlockComments ? _language.BlockCommentEnd ?? string.Empty : string.Empty;
+        string blockStart = _language.HasBlockComments
+            ? _language.BlockCommentStart ?? string.Empty
+            : string.Empty;
+        string blockEnd = _language.HasBlockComments
+            ? _language.BlockCommentEnd ?? string.Empty
+            : string.Empty;
 
         if (lineComment.Length == 0 && (blockStart.Length == 0 || blockEnd.Length == 0))
         {
@@ -7695,10 +7695,9 @@ public sealed partial class Editor
             blockStart.Length > 0 ? Encoding.UTF8.GetBytes(blockStart) : Array.Empty<byte>();
         byte[] blockEndBytes =
             blockEnd.Length > 0 ? Encoding.UTF8.GetBytes(blockEnd) : Array.Empty<byte>();
-        byte[] escape =
-            _language?.EscapeCharacter is { Length: > 0 } escapeCharacter
-                ? Encoding.UTF8.GetBytes(escapeCharacter)
-                : Array.Empty<byte>();
+        byte[] escape = _language?.EscapeCharacter is { Length: > 0 } escapeCharacter
+            ? Encoding.UTF8.GetBytes(escapeCharacter)
+            : Array.Empty<byte>();
 
         var quoteTokens = new List<byte[]>();
         if (_language is not null)
@@ -7834,8 +7833,7 @@ public sealed partial class Editor
                 if (onlyWhitespaceAfter)
                 {
                     while (
-                        written > lineOutputStart
-                        && output[written - 1] is (byte)' ' or (byte)'\t'
+                        written > lineOutputStart && output[written - 1] is (byte)' ' or (byte)'\t'
                     )
                     {
                         --written;
@@ -7901,10 +7899,7 @@ public sealed partial class Editor
                     continue;
                 }
 
-                while (
-                    written > lineOutputStart
-                    && output[written - 1] is (byte)' ' or (byte)'\t'
-                )
+                while (written > lineOutputStart && output[written - 1] is (byte)' ' or (byte)'\t')
                 {
                     --written;
                 }
@@ -8357,9 +8352,7 @@ public sealed partial class Editor
         {
             int startByte = LspPositions.Utf16ColumnToByteOffset(text, start);
             int endByte =
-                end == int.MaxValue
-                    ? text.Length
-                    : LspPositions.Utf16ColumnToByteOffset(text, end);
+                end == int.MaxValue ? text.Length : LspPositions.Utf16ColumnToByteOffset(text, end);
             if (endByte > startByte)
             {
                 _unnecessaryByteRanges.Add((startByte, endByte));

@@ -118,12 +118,7 @@ public sealed partial class Editor
         }
 
         if (
-            !int.TryParse(
-                text,
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out int lineNumber
-            )
+            !int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int lineNumber)
             || lineNumber < 1
             || lineNumber > _document.LineCount
         )
@@ -176,7 +171,7 @@ public sealed partial class Editor
 
         int x = Math.Max(0, (_columns - width) / 2);
         int y = Math.Max(0, (_rows - height) / 2);
-        DrawBox(x, y, width, height, "Go to line");
+        DrawBox(x, y, width, height, "Go to...");
 
         if (height < 3)
         {
