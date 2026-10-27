@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::git;
+use crate::util::git;
 
 const MIN_WIDTH: usize = 20;
 const MAX_WIDTH: usize = 80;

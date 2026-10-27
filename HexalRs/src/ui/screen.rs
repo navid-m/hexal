@@ -3,7 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use crate::theme::Style;
+use crate::ui::theme::Style;
 use crate::util;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

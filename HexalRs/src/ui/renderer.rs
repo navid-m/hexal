@@ -1,8 +1,8 @@
 //! ANSI diff renderer. It compares the new cell grid with the previous one and
 //! emits cursor-addressed SGR runs only for changed cells.
 
-use crate::screen::{Cell, Screen};
-use crate::theme::Style;
+use crate::ui::screen::{Cell, Screen};
+use crate::ui::theme::Style;
 
 pub struct Renderer {
     previous: Vec<Cell>,
@@ -137,7 +137,7 @@ fn append_style(output: &mut Vec<u8>, style: Style) {
 }
 
 fn append_color(output: &mut Vec<u8>, color: u32, foreground: bool) {
-    if crate::theme::is_true_color(color) {
+    if crate::ui::theme::is_true_color(color) {
         output.extend_from_slice(if foreground { b";38;2;" } else { b";48;2;" });
         append_int(output, ((color >> 16) & 0xFF) as usize);
         output.push(b';');

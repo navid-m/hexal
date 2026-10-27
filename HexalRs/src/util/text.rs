@@ -153,18 +153,27 @@ pub fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80
 }
 
-/// ASCII-only case-insensitive substring search. The editor's find is
-/// deliberately literal and case-insensitive, like HexalZ.
-pub fn index_of_ignore_case(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+/// ASCII-only literal substring search. Searching is case-insensitive unless
+/// `match_case` is set.
+pub fn index_of(haystack: &[u8], needle: &[u8], match_case: bool) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
     if needle.len() > haystack.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|window| window.eq_ignore_ascii_case(needle))
+    haystack.windows(needle.len()).position(|window| {
+        if match_case {
+            window == needle
+        } else {
+            window.eq_ignore_ascii_case(needle)
+        }
+    })
+}
+
+/// ASCII-only case-insensitive substring search.
+pub fn index_of_ignore_case(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    index_of(haystack, needle, false)
 }
 
 pub fn trim_trailing_whitespace(text: &[u8]) -> &[u8] {

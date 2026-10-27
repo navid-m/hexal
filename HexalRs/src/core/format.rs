@@ -34,7 +34,7 @@ pub fn for_language(id: &str) -> Option<Formatter> {
         _ => &[],
     };
     for (command, arguments) in candidates {
-        if crate::git::command_exists(command) {
+        if crate::util::git::command_exists(command) {
             return Some(Formatter {
                 command,
                 arguments: arguments.iter().map(|argument| argument.to_string()).collect(),

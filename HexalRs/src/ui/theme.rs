@@ -11,7 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::json::{self, Value};
+use crate::util::json::{self, Value};
 
 pub const TRUE_COLOR_FLAG: u32 = 0x0100_0000;
 
@@ -380,11 +380,11 @@ impl Theme {
 }
 
 const BUILTIN_THEMES: &[&str] = &[
-    include_str!("../data/themes/hexal-dark.json"),
-    include_str!("../data/themes/gruvbox.json"),
-    include_str!("../data/themes/mono.json"),
-    include_str!("../data/themes/nord.json"),
-    include_str!("../data/themes/solarized-light.json"),
+    include_str!("../../data/themes/hexal-dark.json"),
+    include_str!("../../data/themes/gruvbox.json"),
+    include_str!("../../data/themes/mono.json"),
+    include_str!("../../data/themes/nord.json"),
+    include_str!("../../data/themes/solarized-light.json"),
 ];
 
 pub struct ThemeRegistry {

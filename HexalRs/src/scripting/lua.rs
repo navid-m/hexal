@@ -128,7 +128,7 @@ impl Drop for LuaAllocator {
     }
 }
 
-use crate::document::Document;
+use crate::core::document::Document;
 
 /// In-memory buffer exposed to Lua. Keeping a snapshot makes plugin callbacks
 /// simple and lets commands be atomic from the editor's point of view.

@@ -4,32 +4,20 @@
 //! (C) Navid Momtahen - 2026
 
 
-mod alloc;
-mod diff;
-mod document;
-mod format;
-mod editor;
-mod files;
-mod git;
-mod help;
-mod sidebar;
-mod json;
-mod piece_table;
-mod lua;
-mod renderer;
-mod screen;
-mod syntax;
-mod terminal;
-mod theme;
+mod core;
+mod languages;
+mod platform;
+mod scripting;
+mod ui;
 mod util;
 
 #[global_allocator]
-static GLOBAL: alloc::LargeCacheAllocator = alloc::LargeCacheAllocator::new();
+static GLOBAL: platform::alloc::LargeCacheAllocator = platform::alloc::LargeCacheAllocator::new();
 
-use document::Document;
-use editor::Editor;
-use lua::LuaRuntime;
-use terminal::Terminal;
+use core::document::Document;
+use platform::terminal::Terminal;
+use scripting::lua::LuaRuntime;
+use ui::editor::Editor;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

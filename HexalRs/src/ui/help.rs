@@ -3,7 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use crate::terminal::{Event, Key};
+use crate::platform::terminal::{Event, Key};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HelpLineKind { Section, Entry, Text, Blank }

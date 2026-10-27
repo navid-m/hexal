@@ -74,7 +74,12 @@ fn walk(_root: &Path, relative: &str, files: &mut Vec<String>, max_files: usize,
     }
 }
 
-pub fn search(files: &[String], query: &str, max_hits: usize) -> Vec<SearchHit> {
+pub fn search(
+    files: &[String],
+    query: &str,
+    max_hits: usize,
+    match_case: bool,
+) -> Vec<SearchHit> {
     let mut hits = Vec::new();
     if query.is_empty() {
         return hits;
@@ -102,7 +107,7 @@ pub fn search(files: &[String], query: &str, max_hits: usize) -> Vec<SearchHit> 
                 .unwrap_or(data.len());
             let line_text = &data[line_start..line_end];
 
-            if let Some(column) = crate::util::index_of_ignore_case(line_text, needle) {
+            if let Some(column) = crate::util::text::index_of(line_text, needle, match_case) {
                 let mut preview_end = line_text.len();
                 while preview_end > 0 && matches!(line_text[preview_end - 1], b' ' | b'\t' | b'\r')
                 {

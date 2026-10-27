@@ -1,0 +1,210 @@
+//! Command palette.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
+
+use super::*;
+
+impl Editor {
+    pub(super) fn open_palette(&mut self) {
+        self.rebuild_palette_commands();
+        self.open_picker(PickerKind::Palette);
+    }
+
+    fn rebuild_palette_commands(&mut self) {
+        self.palette_commands.clear();
+
+        self.add_palette_command(
+            "Open file picker",
+            "Search the workspace and open a file.",
+            PaletteAction::OpenFiles,
+        );
+        self.add_palette_command(
+            "Search across files",
+            "Search file contents in the workspace.",
+            PaletteAction::SearchFiles,
+        );
+        self.add_palette_command(
+            "Go to line",
+            "Jump to a line number in the current buffer.",
+            PaletteAction::GotoLine,
+        );
+        self.add_palette_command(
+            "Open theme selector",
+            "Search and preview installed themes.",
+            PaletteAction::OpenThemes,
+        );
+        self.add_palette_command(
+            "Toggle sidebar",
+            "Show or hide the file sidebar.",
+            PaletteAction::ToggleSidebar,
+        );
+        self.add_palette_command(
+            "Toggle git-ignored files",
+            "Show or hide files matched by .gitignore in the sidebar and pickers.",
+            PaletteAction::ToggleGitIgnored,
+        );
+        self.add_palette_command(
+            "Toggle git diff lines",
+            "Show or hide added, deleted and modified line markers in the gutter.",
+            PaletteAction::ToggleDiffLines,
+        );
+        self.add_palette_command(
+            "Toggle search match case",
+            "Make all searches case-sensitive or case-insensitive.",
+            PaletteAction::ToggleSearchMatchCase,
+        );
+        self.add_palette_command(
+            "Format document",
+            "Format the current buffer with its language formatter.",
+            PaletteAction::FormatDocument,
+        );
+        self.add_palette_command(
+            "Clean trailing whitespace",
+            "Remove trailing spaces and tabs from every line.",
+            PaletteAction::CleanWhitespace,
+        );
+        self.add_palette_command(
+            "Save file",
+            "Write the current buffer to disk.",
+            PaletteAction::Save,
+        );
+        self.add_palette_command(
+            "Save and quit",
+            "Write the current buffer, then quit.",
+            PaletteAction::SaveAndQuit,
+        );
+        self.add_palette_command(
+            "Reload themes",
+            "Reload installed themes from disk.",
+            PaletteAction::ReloadThemes,
+        );
+        self.add_palette_command(
+            "Show key help",
+            "Show a short reminder of the available keys.",
+            PaletteAction::ShowHelp,
+        );
+        self.add_palette_command(
+            "About Hexal",
+            "Show the Hexal title, author and Rust version.",
+            PaletteAction::About,
+        );
+        self.add_palette_command(
+            "Show current path",
+            "Show the current buffer's absolute path.",
+            PaletteAction::ShowPath,
+        );
+        self.add_palette_command(
+            "Quit",
+            "Quit Hexal; unsaved changes are confirmed first.",
+            PaletteAction::Quit,
+        );
+
+        let plugin_commands = self
+            .lua
+            .as_ref()
+            .map(|runtime| runtime.command_names())
+            .unwrap_or_default();
+        for name in plugin_commands {
+            self.palette_commands.push(PaletteCommand {
+                title: format!("Plugin: {name}"),
+                description: format!("Run the plugin command :{name}"),
+                action: PaletteAction::Plugin(name),
+            });
+        }
+    }
+
+    fn add_palette_command(
+        &mut self,
+        title: &str,
+        description: &str,
+        action: PaletteAction,
+    ) {
+        self.palette_commands.push(PaletteCommand {
+            title: title.to_string(),
+            description: description.to_string(),
+            action,
+        });
+    }
+
+    pub(super) fn run_palette_command(&mut self, index: usize) {
+        let Some(action) = self
+            .palette_commands
+            .get(index)
+            .map(|command| command.action.clone())
+        else {
+            return;
+        };
+
+        match action {
+            PaletteAction::OpenFiles => self.open_picker(PickerKind::Files),
+            PaletteAction::SearchFiles => self.open_picker(PickerKind::Search),
+            PaletteAction::GotoLine => self.open_goto_prompt(),
+            PaletteAction::OpenThemes => self.open_picker(PickerKind::Themes),
+            PaletteAction::ToggleSidebar => self.toggle_sidebar(),
+            PaletteAction::ToggleGitIgnored => self.toggle_git_ignored(),
+            PaletteAction::ToggleDiffLines => self.toggle_diff_lines(),
+            PaletteAction::ToggleSearchMatchCase => self.toggle_search_match_case(),
+            PaletteAction::FormatDocument => self.format_current_document(false),
+            PaletteAction::CleanWhitespace => self.trim_trailing_whitespace(),
+            PaletteAction::Save => {
+                self.save_document(None);
+            }
+            PaletteAction::SaveAndQuit => {
+                if self.save_document(None) {
+                    self.running = false;
+                }
+            }
+            PaletteAction::ReloadThemes => self.reload_themes(),
+            PaletteAction::ShowHelp => {
+                self.help.open();
+                self.force_full_redraw = true;
+                self.clear_message();
+            }
+            PaletteAction::About => {
+                self.set_message("HexalRs 0.1.0 - Rust 2024 prototype of the Hexal editor.")
+            }
+            PaletteAction::ShowPath => self.show_current_path(),
+            PaletteAction::Quit => self.request_quit(false),
+            PaletteAction::Plugin(name) => {
+                if !self.try_lua_command(&name) {
+                    self.set_error(&format!("plugin command ':{name}' is not available"));
+                }
+            }
+        }
+    }
+
+    pub(super) fn toggle_git_ignored(&mut self) {
+        self.sidebar.show_git_ignored = !self.sidebar.show_git_ignored;
+        self.sidebar.refresh(None);
+        self.force_full_redraw = true;
+        self.set_message(if self.sidebar.show_git_ignored {
+            "Showing git-ignored files"
+        } else {
+            "Hiding git-ignored files"
+        });
+    }
+
+    pub(super) fn toggle_diff_lines(&mut self) {
+        self.sidebar.show_modified = !self.sidebar.show_modified;
+        self.sidebar.refresh(None);
+        self.force_full_redraw = true;
+        self.set_message(if self.sidebar.show_modified {
+            "Showing Git markers"
+        } else {
+            "Hiding Git markers"
+        });
+    }
+
+    fn show_current_path(&mut self) {
+        match &self.doc.path {
+            Some(path) => {
+                let absolute = std::fs::canonicalize(path)
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| path.clone());
+                self.set_message(&absolute);
+            }
+            None => self.set_message("[No Name]"),
+        }
+    }
+}

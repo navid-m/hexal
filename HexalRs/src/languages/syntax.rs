@@ -1,7 +1,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use crate::theme::SyntaxKind;
+use crate::ui::theme::SyntaxKind;
 
 #[derive(Clone, Copy)]
 pub struct Token {

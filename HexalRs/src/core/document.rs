@@ -7,12 +7,12 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::piece_table::PieceTable;
+use crate::core::piece_table::PieceTable;
 
 const MAX_UNDO_GROUPS: usize = 4096;
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
-pub use crate::piece_table::Eol;
+pub use crate::core::piece_table::Eol;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GroupKind {
@@ -397,7 +397,7 @@ fn detect_eol(data: &[u8]) -> Eol {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::piece_table::count_newlines;
+    use crate::core::piece_table::count_newlines;
 
     #[test]
     fn edits_and_undo() {
