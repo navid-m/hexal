@@ -47,7 +47,7 @@ impl Editor {
     /// Applies the default indentation style declared by the grammar.
 
     pub(super) fn auto_detect_indentation_on_open(&mut self) {
-        if self.doc.size() == 0 {
+        if !self.config.auto_detect_indentation_on_startup || self.doc.size() == 0 {
             return;
         }
         let (use_tabs, width) = detect_document_indentation(&self.doc);

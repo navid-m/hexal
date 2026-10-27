@@ -66,6 +66,7 @@ impl Editor {
 
     pub(super) fn toggle_search_match_case(&mut self) {
         self.search_match_case = !self.search_match_case;
+        self.persist_display_settings();
 
         if self.find.active {
             self.rebuild_find_matches();

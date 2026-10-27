@@ -60,32 +60,32 @@ impl Editor {
             PaletteAction::FormatDocument,
         );
         self.add_palette_command(
-            "LSP: show hover",
+            "LSP: Show hover",
             "Show language-server hover information at the cursor.",
             PaletteAction::Hover,
         );
         self.add_palette_command(
-            "LSP: go to definition",
+            "LSP: Go to definition",
             "Jump to the definition of the symbol under the cursor.",
             PaletteAction::GoToDefinition,
         );
         self.add_palette_command(
-            "LSP: code actions",
+            "LSP: Code actions",
             "List code actions at the cursor.",
             PaletteAction::CodeActions,
         );
         self.add_palette_command(
-            "LSP: document symbols",
+            "LSP: Document symbols",
             "Pick a symbol from the current document.",
             PaletteAction::DocumentSymbols,
         );
         self.add_palette_command(
-            "LSP: document diagnostics",
+            "LSP: Document diagnostics",
             "Show diagnostics for the current document.",
             PaletteAction::DocumentDiagnostics,
         );
         self.add_palette_command(
-            "LSP: workspace diagnostics",
+            "LSP: Workspace diagnostics",
             "Show diagnostics for the whole workspace.",
             PaletteAction::WorkspaceDiagnostics,
         );
@@ -209,6 +209,7 @@ impl Editor {
         self.sidebar.show_git_ignored = !self.sidebar.show_git_ignored;
         self.sidebar.refresh(None);
         self.force_full_redraw = true;
+        self.persist_display_settings();
         self.set_message(if self.sidebar.show_git_ignored {
             "Showing git-ignored files"
         } else {
@@ -220,6 +221,7 @@ impl Editor {
         self.sidebar.show_modified = !self.sidebar.show_modified;
         self.sidebar.refresh(None);
         self.force_full_redraw = true;
+        self.persist_display_settings();
         self.set_message(if self.sidebar.show_modified {
             "Showing Git markers"
         } else {
@@ -228,16 +230,46 @@ impl Editor {
     }
 
     pub(super) fn reload_configuration(&mut self) {
+        let (config, config_error) = Config::load_default();
+        self.config = config;
+        self.sidebar.show_modified = self.config.show_diff_lines;
+        self.sidebar.show_git_ignored = self.config.show_git_ignored;
+        self.search_match_case = self.config.search_match_case_enabled;
         self.languages = Registry::load();
         self.refresh_language();
         self.reload_themes();
         self.lsp.stop();
         self.lsp_fallback_blocked = false;
         self.restart_lsp_for_buffer();
-        if let Some(error) = self.languages.errors().first() {
+        self.sidebar.refresh(None);
+        self.force_full_redraw = true;
+        if !config_error.is_empty() {
+            self.set_error(&format!("config: {config_error}"));
+        } else if let Some(error) = self.languages.errors().first() {
             self.set_error(&format!("grammar: {error}"));
         } else {
             self.set_message("Reloaded configuration, grammars, themes and language servers.");
+        }
+    }
+
+    pub(super) fn open_config_file(&mut self) {
+        match Config::ensure_default_file() {
+            Ok(path) => {
+                self.request_open(&path.to_string_lossy(), 0, 0, false);
+            }
+            Err(error) => self.set_error(&format!("config: {error}")),
+        }
+    }
+
+    pub(super) fn persist_display_settings(&mut self) {
+        let path = self.config.source_path.clone();
+        if let Err(error) = Config::update_display_settings(
+            &path,
+            self.sidebar.show_modified,
+            self.sidebar.show_git_ignored,
+            self.search_match_case,
+        ) {
+            self.set_error(&format!("config: {error}"));
         }
     }
 

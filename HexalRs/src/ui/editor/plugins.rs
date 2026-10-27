@@ -121,11 +121,11 @@ impl Editor {
     }
 
     fn save_document_inner(&mut self, path: Option<&str>, skip_format: bool) -> bool {
+        let language_format = self
+            .active_language()
+            .and_then(|language| language.format_on_save);
         let should_format = !skip_format
-            && self
-                .active_language()
-                .and_then(|language| language.format_on_save)
-                .unwrap_or(false);
+            && language_format.unwrap_or(self.config.format_on_save);
         if should_format {
             if let Some(formatter) = self
                 .active_language()
@@ -142,6 +142,10 @@ impl Editor {
                     }
                 }
             }
+        }
+
+        if self.config.trim_trailing_whitespace_on_save {
+            self.trim_trailing_whitespace_quiet();
         }
 
         let previous_path = self.doc.path.clone();
@@ -168,6 +172,13 @@ impl Editor {
     }
 
     pub(super) fn trim_trailing_whitespace(&mut self) {
+        let changed = self.trim_trailing_whitespace_quiet();
+        self.set_message(&format!(
+            "Removed trailing whitespace from {changed} line(s)."
+        ));
+    }
+
+    fn trim_trailing_whitespace_quiet(&mut self) -> usize {
         let line_count = self.doc.line_count();
         let mut changed = 0usize;
         for line in (0..line_count).rev() {
@@ -175,14 +186,32 @@ impl Editor {
             let trimmed = util::trim_trailing_whitespace(&text);
             if trimmed.len() < text.len() {
                 let start = self.doc.line_start(line);
-                self.doc
-                    .erase(start + trimmed.len(), text.len() - trimmed.len());
+                let remove_at = start + trimmed.len();
+                let remove_len = text.len() - trimmed.len();
+                self.doc.erase(remove_at, remove_len);
+                self.cursor = shift_after_removal(self.cursor, remove_at, remove_len);
+                self.anchor = shift_after_removal(self.anchor, remove_at, remove_len);
                 changed += 1;
             }
         }
-        self.doc.break_undo_group();
-        self.set_message(&format!(
-            "Removed trailing whitespace from {changed} line(s)."
-        ));
+        if changed > 0 {
+            self.preferred_column = None;
+            self.snap_cursor();
+            self.doc.break_undo_group();
+            self.lsp_dirty = self.lsp.is_running();
+            self.lsp_dirty_since = std::time::Instant::now();
+        }
+        changed
+    }
+}
+
+
+fn shift_after_removal(position: usize, remove_at: usize, removed: usize) -> usize {
+    if position >= remove_at + removed {
+        position - removed
+    } else if position > remove_at {
+        remove_at
+    } else {
+        position
     }
 }

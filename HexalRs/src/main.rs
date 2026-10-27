@@ -52,7 +52,8 @@ Keys:
   :rc              Remove comments from the active selection
   :fmt / :fmta     Format the buffer/selection or every file with an extension
   :lang <id>       Override the language for the current buffer
-  :rcfg            Reload grammars, themes and language servers
+  :cfg             Open (or create) ~/.hexal/.hexcfg
+  :rcfg            Reload configuration, grammars, themes and language servers
   :lua <file>      Load a Lua plugin from a file
   :plugins         List registered Lua commands
   Space            Open the SPACE menu (bottom-right)

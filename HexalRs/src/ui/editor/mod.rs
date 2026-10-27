@@ -19,6 +19,7 @@ mod status;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::core::config::Config;
 use crate::core::diff;
 use crate::core::document::Document;
 use crate::core::format;
@@ -351,6 +352,7 @@ impl LspDebugState {
 
 pub struct Editor {
     doc: Document,
+    config: Config,
     screen: Screen,
     renderer: Renderer,
     theme: Theme,
@@ -439,8 +441,10 @@ impl Editor {
         let themes = ThemeRegistry::load_default();
         let theme = themes.active().clone();
         let languages = Registry::load();
+        let (config, config_error) = Config::load_default();
         let mut editor = Editor {
             doc,
+            config,
             screen: Screen::new(),
             renderer: Renderer::new(),
             theme,
@@ -512,8 +516,14 @@ impl Editor {
             problems_workspace: false,
         };
         editor.last_revision = editor.doc.revision();
+        editor.sidebar.show_modified = editor.config.show_diff_lines;
+        editor.sidebar.show_git_ignored = editor.config.show_git_ignored;
+        editor.search_match_case = editor.config.search_match_case_enabled;
         editor.refresh_language();
         editor.load_plugins();
+        if !config_error.is_empty() {
+            editor.set_error(&format!("config: {config_error}"));
+        }
         editor
     }
 

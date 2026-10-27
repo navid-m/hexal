@@ -503,8 +503,19 @@ impl Editor {
                     self.apply_theme(&args, true);
                 }
             }
+            "cfg" => {
+                if args.is_empty() {
+                    self.open_config_file();
+                } else {
+                    self.set_error("usage: :cfg");
+                }
+            }
             "rcfg" => {
-                self.reload_configuration();
+                if args.is_empty() {
+                    self.reload_configuration();
+                } else {
+                    self.set_error("usage: :rcfg");
+                }
             }
             "about" => self.set_message("HexalRs 0.1.0 - Rust 2024 prototype of the Hexal editor."),
             "cw" => self.trim_trailing_whitespace(),
@@ -563,6 +574,8 @@ impl Editor {
     pub(super) fn request_quit(&mut self, force: bool) {
         if force || !self.doc.is_dirty() {
             self.running = false;
+        } else if !self.config.confirm_quit_without_saving {
+            self.set_error("Unsaved changes; use :q! to quit without saving.");
         } else {
             self.pending = Pending::Quit;
         }

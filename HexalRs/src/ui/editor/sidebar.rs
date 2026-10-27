@@ -109,6 +109,7 @@ impl Editor {
             return;
         }
         self.sidebar.menu_visible = false;
+        self.sidebar.focused = self.config.keep_sidebar_focus_on_open && self.sidebar.visible;
         self.request_open(&node.path.to_string_lossy(), 0, 0, false);
     }
 
@@ -203,7 +204,8 @@ impl Editor {
                 if node.is_directory {
                     self.sidebar.toggle_directory();
                 } else {
-                    self.sidebar.focused = true;
+                    self.sidebar.focused =
+                        self.config.keep_sidebar_focus_on_open && self.sidebar.visible;
                     self.request_open(&node.path.to_string_lossy(), 0, 0, false);
                 }
             }

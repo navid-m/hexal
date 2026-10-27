@@ -374,6 +374,26 @@ impl Editor {
         if self.cursor == 0 {
             return;
         }
+        if self.config.smart_backspace {
+            let line = self.cursor_line();
+            let line_start = self.doc.line_start(line);
+            if self.cursor > line_start {
+                let text = self.doc.line_text(line);
+                let local = (self.cursor - line_start).min(text.len());
+                if text[..local]
+                    .iter()
+                    .all(|byte| matches!(byte, b' ' | b'\t'))
+                {
+                    self.doc.erase(line_start, local);
+                    self.cursor = line_start;
+                    self.anchor = self.cursor;
+                    self.preferred_column = None;
+                    self.snap_cursor();
+                    self.clear_message();
+                    return;
+                }
+            }
+        }
         let mut previous = self.previous_scalar(self.cursor);
         if previous > 0
             && self.doc.byte_at(previous) == Some(b'\n')

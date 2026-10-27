@@ -38,6 +38,13 @@ impl Value {
         }
     }
 
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+
     pub fn as_array(&self) -> Option<&[Value]> {
         match self {
             Value::Array(values) => Some(values),
@@ -58,6 +65,115 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn set(&mut self, key: &str, value: Value) {
+        if let Value::Object(entries) = self {
+            if let Some(entry) = entries.iter_mut().find(|(name, _)| name == key) {
+                entry.1 = value;
+            } else {
+                entries.push((key.to_string(), value));
+            }
+        }
+    }
+}
+
+/// Serializes a parsed value. `pretty` uses the same two-space indentation as
+/// `System.Text.Json`'s indented output, which keeps `.hexcfg` files stable
+/// when the editor persists display toggles.
+pub fn to_string(value: &Value, pretty: bool) -> String {
+    let mut output = String::new();
+    write_value(value, pretty, 0, &mut output);
+    output
+}
+
+fn write_value(value: &Value, pretty: bool, depth: usize, output: &mut String) {
+    match value {
+        Value::Null => output.push_str("null"),
+        Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+        Value::Number(value) => {
+            if value.fract() == 0.0 && value.is_finite() {
+                output.push_str(&(*value as i64).to_string());
+            } else {
+                output.push_str(&value.to_string());
+            }
+        }
+        Value::String(value) => write_string(value, output),
+        Value::Array(values) => {
+            if values.is_empty() {
+                output.push_str("[]");
+                return;
+            }
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                if pretty {
+                    output.push('\n');
+                    push_indent(depth + 1, output);
+                }
+                write_value(value, pretty, depth + 1, output);
+            }
+            if pretty {
+                output.push('\n');
+                push_indent(depth, output);
+            }
+            output.push(']');
+        }
+        Value::Object(entries) => {
+            if entries.is_empty() {
+                output.push_str("{}");
+                return;
+            }
+            output.push('{');
+            for (index, (key, value)) in entries.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                if pretty {
+                    output.push('\n');
+                    push_indent(depth + 1, output);
+                }
+                write_string(key, output);
+                output.push(':');
+                if pretty {
+                    output.push(' ');
+                }
+                write_value(value, pretty, depth + 1, output);
+            }
+            if pretty {
+                output.push('\n');
+                push_indent(depth, output);
+            }
+            output.push('}');
+        }
+    }
+}
+
+fn push_indent(depth: usize, output: &mut String) {
+    for _ in 0..depth {
+        output.push_str("  ");
+    }
+}
+
+fn write_string(value: &str, output: &mut String) {
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0C}' => output.push_str("\\f"),
+            value if (value as u32) < 0x20 => {
+                output.push_str(&format!("\\u{:04x}", value as u32));
+            }
+            value => output.push(value),
+        }
+    }
+    output.push('"');
 }
 
 pub fn parse(text: &str) -> Result<Value, String> {

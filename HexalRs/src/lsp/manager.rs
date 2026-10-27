@@ -1288,66 +1288,7 @@ fn bool_value(value: bool) -> Value {
 }
 
 fn encode(value: &Value) -> Vec<u8> {
-    let mut output = String::new();
-    write_value(value, &mut output);
-    output.into_bytes()
-}
-
-fn write_value(value: &Value, output: &mut String) {
-    match value {
-        Value::Null => output.push_str("null"),
-        Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
-        Value::Number(value) => {
-            if value.fract() == 0.0 && value.is_finite() {
-                output.push_str(&(*value as i64).to_string());
-            } else {
-                output.push_str(&value.to_string());
-            }
-        }
-        Value::String(value) => write_string(value, output),
-        Value::Array(values) => {
-            output.push('[');
-            for (index, value) in values.iter().enumerate() {
-                if index > 0 {
-                    output.push(',');
-                }
-                write_value(value, output);
-            }
-            output.push(']');
-        }
-        Value::Object(entries) => {
-            output.push('{');
-            for (index, (key, value)) in entries.iter().enumerate() {
-                if index > 0 {
-                    output.push(',');
-                }
-                write_string(key, output);
-                output.push(':');
-                write_value(value, output);
-            }
-            output.push('}');
-        }
-    }
-}
-
-fn write_string(value: &str, output: &mut String) {
-    output.push('"');
-    for character in value.chars() {
-        match character {
-            '"' => output.push_str("\\\""),
-            '\\' => output.push_str("\\\\"),
-            '\n' => output.push_str("\\n"),
-            '\r' => output.push_str("\\r"),
-            '\t' => output.push_str("\\t"),
-            '\u{08}' => output.push_str("\\b"),
-            '\u{0C}' => output.push_str("\\f"),
-            value if (value as u32) < 0x20 => {
-                output.push_str(&format!("\\u{:04x}", value as u32));
-            }
-            value => output.push(value),
-        }
-    }
-    output.push('"');
+    json::to_string(value, false).into_bytes()
 }
 
 // ---------------------------------------------------------------------------
