@@ -337,6 +337,42 @@ mod tests {
     }
 
     #[test]
+    fn mouse_selection_starts_in_the_text_area_not_the_gutter() {
+        let mut editor = editor_with_lines(3);
+        let gutter = editor.gutter_width();
+        assert_eq!(editor.mouse_offset_at(0, 0), Some(0));
+        assert_eq!(editor.mouse_offset_at(gutter, 0), Some(0));
+        assert_eq!(editor.mouse_offset_at(gutter + 1, 0), Some(1));
+        assert_eq!(editor.mouse_offset_at(editor.cols, 0), None);
+
+        let y = 1;
+        editor.handle_editor_mouse(Event {
+            key: Key::MouseDown,
+            ch: '\0',
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: gutter,
+            mouse_y: 0,
+            mouse_button: MouseButton::Left,
+        });
+        editor.handle_editor_mouse(Event {
+            key: Key::MouseMove,
+            ch: '\0',
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: gutter + 2,
+            mouse_y: y,
+            mouse_button: MouseButton::Left,
+        });
+        assert!(editor.mode == Mode::Select);
+        assert_eq!(editor.anchor, 0);
+        assert_eq!(editor.cursor, editor.doc.line_start(1) + 1);
+        assert_eq!(editor.selection_range(), (0, editor.doc.line_start(2)));
+    }
+
+    #[test]
     fn vertical_movement_at_the_last_line_stays_on_the_last_line() {
         let mut editor = editor_with_lines(3);
         editor.cursor = editor.doc.line_start(2);
@@ -344,5 +380,97 @@ mod tests {
         assert_eq!(editor.cursor_line(), 2);
         editor.move_vertical(-1);
         assert_eq!(editor.cursor_line(), 1);
+    }
+}
+
+impl Editor {
+    pub(super) fn handle_editor_mouse(&mut self, event: Event) {
+        match event.key {
+            Key::ScrollUp => self.move_page(-1),
+            Key::ScrollDown => self.move_page(1),
+            Key::MouseDown if event.mouse_button == MouseButton::Left => {
+                let Some(offset) = self.mouse_offset_at(event.mouse_x, event.mouse_y) else {
+                    return;
+                };
+                if self.mode == Mode::Select {
+                    self.mode = Mode::Normal;
+                    self.selection_linewise = false;
+                }
+                self.cursor = offset;
+                self.anchor = offset;
+                self.mouse_drag_anchor = offset;
+                self.mouse_dragging = true;
+                self.preferred_column = None;
+                self.doc.break_undo_group();
+                self.snap_cursor();
+                self.clear_message();
+            }
+            Key::MouseMove
+                if self.mouse_dragging && event.mouse_button == MouseButton::Left =>
+            {
+                self.extend_mouse_selection(event.mouse_x, event.mouse_y);
+            }
+            Key::MouseUp if self.mouse_dragging && event.mouse_button == MouseButton::Left => {
+                let mut extend = self.mode == Mode::Select;
+                if !extend {
+                    if let Some(offset) = self.mouse_offset_at(event.mouse_x, event.mouse_y) {
+                        extend = offset != self.mouse_drag_anchor;
+                    }
+                }
+                if extend {
+                    self.extend_mouse_selection(event.mouse_x, event.mouse_y);
+                    if self.mode == Mode::Select && self.anchor == self.cursor {
+                        self.mode = Mode::Normal;
+                        self.selection_linewise = false;
+                    }
+                }
+                self.mouse_dragging = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn extend_mouse_selection(&mut self, x: usize, y: usize) {
+        let Some(offset) = self.mouse_offset_at(x, y) else {
+            return;
+        };
+        if self.mode != Mode::Select {
+            self.mode = Mode::Select;
+            self.selection_linewise = false;
+        }
+        self.anchor = self.mouse_drag_anchor;
+        self.cursor = offset;
+        self.preferred_column = None;
+        self.doc.break_undo_group();
+        self.snap_cursor();
+        self.clear_message();
+    }
+
+    fn mouse_offset_at(&self, x: usize, y: usize) -> Option<usize> {
+        let left = self.editor_left();
+        let rows = self.text_rows();
+        if x < left || x >= self.cols || y >= rows {
+            return None;
+        }
+        let line = self.top_line + y;
+        if line >= self.doc.line_count() {
+            return Some(self.doc.size());
+        }
+        let gutter = self.gutter_width();
+        let local = x - left;
+        let visual = if local > gutter {
+            self.left_column + (local - gutter)
+        } else {
+            0
+        };
+        let text = self.doc.line_text(line);
+        let local = util::byte_offset_for_visual_column(
+            &text,
+            visual,
+            self.doc.tab_width().max(1),
+        );
+        let start = self.doc.line_start(line);
+        let end = self.doc.line_end(line);
+        Some((start + local).min(end))
     }
 }

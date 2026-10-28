@@ -703,6 +703,9 @@ mod tests {
             ctrl: false,
             alt: false,
             shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
         };
         editor.handle_normal(event);
         assert_eq!(editor.doc.all_text(), b"abc");

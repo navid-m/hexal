@@ -1163,6 +1163,40 @@ mod tests {
     }
 
     #[test]
+    fn get_workspace_root_returns_the_configured_project_root() {
+        let root = temp_directory("workspace-root");
+        let plugin = root.join("plugins").join("root");
+        fs::create_dir_all(&plugin).unwrap();
+        fs::write(plugin.join("init.lua"), r#"
+            hexal.commands.register("root", function()
+                hexal.ui.message(hexal.editor.get_workspace_root() or "NIL")
+            end)
+        "#)
+        .unwrap();
+        let mut manager = PluginManager::new(plugin.parent().unwrap(), None);
+        manager.set_context(
+            "scratch".into(),
+            "text".into(),
+            Some("/tmp/hexal-workspace".into()),
+            80,
+            24,
+            None,
+        );
+        let mut document = Document::new();
+        let mut cursor = 0usize;
+        manager.load_all(&mut document, &mut cursor);
+        assert!(manager
+            .execute_command("root", &[], &mut document, &mut cursor)
+            .unwrap());
+        let effects = manager.take_effects();
+        assert_eq!(
+            effects.messages.last().map(|(message, _)| message.as_str()),
+            Some("/tmp/hexal-workspace")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn plugin_commands_open_panels_handle_keys_and_report_errors() {
         let root = temp_directory("panels");
         let plugin = root.join("plugins").join("panels");

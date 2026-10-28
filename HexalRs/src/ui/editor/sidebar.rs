@@ -1643,7 +1643,6 @@ mod tests {
     use super::{normalize_eol, reindent_selection, remove_common_indent};
     use crate::core::document::Document;
     use crate::ui::editor::Editor;
-    use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};

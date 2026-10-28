@@ -98,12 +98,10 @@ impl Editor {
             .active_language()
             .map(|language| language.id.clone())
             .unwrap_or_default();
-        let workspace_root = self
-            .doc
-            .path
-            .as_ref()
-            .and_then(|path| Path::new(path).parent())
-            .map(|parent| parent.to_string_lossy().into_owned());
+        // The workspace root is the project root, not the parent directory of
+        // the current file. It must remain available even for scratch buffers,
+        // otherwise plugins such as projtree report "no workspace root".
+        let workspace_root = Some(self.sidebar.root.to_string_lossy().into_owned());
         let selection = if self.anchor == self.cursor {
             None
         } else {
@@ -440,6 +438,21 @@ fn key_token(event: &Event) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::plugin_loaded_message;
+    use crate::core::document::Document;
+    use crate::scripting::plugin::PluginManager;
+    use crate::ui::editor::Editor;
+    use std::path::PathBuf;
+
+    #[test]
+    fn scratch_buffers_still_have_a_workspace_root() {
+        let editor = Editor::new(Document::new(), 80, 24);
+        let mut manager = PluginManager::new(PathBuf::from("."), None);
+        editor.sync_plugin_context(&mut manager);
+        assert_eq!(
+            manager.workspace_root.as_deref(),
+            Some(editor.sidebar.root.to_string_lossy().as_ref())
+        );
+    }
 
     #[test]
     fn reports_loaded_and_deferred_plugins() {

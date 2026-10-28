@@ -33,7 +33,7 @@ use crate::core::document::Document;
 use crate::core::format;
 use crate::languages::{FormatterConfig, Highlighter, Language, Registry, Token};
 use crate::lsp::{self, Manager as LspManager};
-use crate::platform::terminal::{Event, Key, Terminal};
+use crate::platform::terminal::{Event, Key, MouseButton, Terminal};
 use crate::scripting::plugin::PluginManager;
 use crate::ui::help::{HelpLineKind, HelpState, HELP_LINES};
 use crate::ui::renderer::Renderer;
@@ -485,6 +485,8 @@ pub struct Editor {
     pending_osc: Option<Vec<u8>>,
 
     pending_g: bool,
+    mouse_dragging: bool,
+    mouse_drag_anchor: usize,
     space_menu_open: bool,
     pending: Pending,
     pending_path: Option<String>,
@@ -601,6 +603,8 @@ impl Editor {
             clipboard: String::new(),
             pending_osc: None,
             pending_g: false,
+            mouse_dragging: false,
+            mouse_drag_anchor: 0,
             space_menu_open: false,
             pending: Pending::None,
             pending_path: None,
@@ -823,6 +827,19 @@ impl Editor {
         }
         if self.sidebar_prompt.is_some() {
             self.handle_sidebar_prompt(event);
+            return;
+        }
+        if matches!(
+            event.key,
+            Key::MouseDown
+                | Key::MouseUp
+                | Key::MouseMove
+                | Key::ScrollUp
+                | Key::ScrollDown
+        ) {
+            if matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select) {
+                self.handle_editor_mouse(event);
+            }
             return;
         }
         if event.key == Key::Char

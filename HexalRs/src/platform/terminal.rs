@@ -25,7 +25,18 @@ pub enum Key {
     Insert,
     ScrollUp,
     ScrollDown,
+    MouseDown,
+    MouseUp,
+    MouseMove,
     Unknown,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MouseButton {
+    None,
+    Left,
+    Middle,
+    Right,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -35,6 +46,9 @@ pub struct Event {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
+    pub mouse_x: usize,
+    pub mouse_y: usize,
+    pub mouse_button: MouseButton,
 }
 
 impl Event {
@@ -45,6 +59,9 @@ impl Event {
             ctrl: false,
             alt: false,
             shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
         }
     }
 }
@@ -91,7 +108,7 @@ impl Terminal {
             height: 24,
         };
         term.update_size();
-        term.write(b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H")?;
+        term.write(b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1002h\x1b[?1006h")?;
         Ok(term)
     }
 
@@ -158,6 +175,9 @@ impl Terminal {
                 ctrl: true,
                 alt: false,
                 shift: false,
+                mouse_x: 0,
+                mouse_y: 0,
+                mouse_button: MouseButton::None,
             },
             0x01..=0x1A => Event {
                 key: Key::Char,
@@ -165,6 +185,9 @@ impl Terminal {
                 ctrl: true,
                 alt: false,
                 shift: false,
+                mouse_x: 0,
+                mouse_y: 0,
+                mouse_button: MouseButton::None,
             },
             0x1C..=0x1F => Event::plain(Key::Unknown),
             0x20..=0x7E => Event {
@@ -173,6 +196,9 @@ impl Terminal {
                 ctrl: false,
                 alt: false,
                 shift: false,
+                mouse_x: 0,
+                mouse_y: 0,
+                mouse_button: MouseButton::None,
             },
             _ => {
                 let mut bytes = [0u8; 4];
@@ -198,6 +224,9 @@ impl Terminal {
                     ctrl: false,
                     alt: false,
                     shift: false,
+                    mouse_x: 0,
+                    mouse_y: 0,
+                    mouse_button: MouseButton::None,
                 }
             }
         };
@@ -291,6 +320,10 @@ impl Terminal {
             return Ok(Event::plain(key));
         }
 
+        if params.first() == Some(&b'<') && matches!(final_byte, b'M' | b'm') {
+            return Ok(decode_mouse(&params[1..], final_byte));
+        }
+
         let mut event = Event::plain(Key::Unknown);
         apply_modifiers(&params, &mut event);
         event.key = match final_byte {
@@ -302,8 +335,7 @@ impl Terminal {
             b'F' => Key::End,
             b'Z' => Key::BackTab,
             b'~' => decode_tilde(&params),
-            // Focus in/out and mouse reports are intentionally ignored.
-            b'I' | b'O' | b'M' | b'm' => Key::Unknown,
+            b'I' | b'O' => Key::Unknown,
             _ => Key::Unknown,
         };
         Ok(event)
@@ -313,13 +345,66 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         if self.raw {
-            let _ = self.write(b"\x1b[0m\x1b[?25h\x1b[?1049l");
+            let _ = self.write(b"\x1b[0m\x1b[?25h\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1004l\x1b[?1049l");
             unsafe {
                 libc::tcsetattr(0, libc::TCSAFLUSH, &self.original);
             }
             self.raw = false;
         }
     }
+}
+
+fn decode_mouse(parameters: &[u8], final_byte: u8) -> Event {
+    let mut index = 0usize;
+    let button = read_mouse_number(parameters, &mut index);
+    let x = read_mouse_number(parameters, &mut index);
+    let y = read_mouse_number(parameters, &mut index);
+
+    let mut event = Event::plain(Key::Unknown);
+    event.mouse_x = x.saturating_sub(1) as usize;
+    event.mouse_y = y.saturating_sub(1) as usize;
+    event.shift = button & 4 != 0;
+    event.alt = button & 8 != 0;
+    event.ctrl = button & 16 != 0;
+
+    let button_number = button & 3;
+    if button & 64 != 0 {
+        event.key = match button_number {
+            0 => Key::ScrollUp,
+            1 => Key::ScrollDown,
+            _ => Key::Unknown,
+        };
+        return event;
+    }
+
+    event.mouse_button = match button_number {
+        0 => MouseButton::Left,
+        1 => MouseButton::Middle,
+        2 => MouseButton::Right,
+        _ => MouseButton::None,
+    };
+    if final_byte != b'm' && button & 32 != 0 {
+        event.key = Key::MouseMove;
+        return event;
+    }
+    event.key = if final_byte == b'm' {
+        Key::MouseUp
+    } else {
+        Key::MouseDown
+    };
+    event
+}
+
+fn read_mouse_number(parameters: &[u8], index: &mut usize) -> i64 {
+    let mut value = 0i64;
+    while *index < parameters.len() && parameters[*index].is_ascii_digit() {
+        value = value * 10 + (parameters[*index] - b'0') as i64;
+        *index += 1;
+    }
+    if *index < parameters.len() && parameters[*index] == b';' {
+        *index += 1;
+    }
+    value
 }
 
 fn apply_modifiers(params: &[u8], event: &mut Event) {
@@ -367,5 +452,30 @@ fn utf8_len(first: u8) -> Option<usize> {
         0xE0..=0xEF => Some(3),
         0xF0..=0xF4 => Some(4),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_mouse, Key, MouseButton};
+
+    #[test]
+    fn decodes_sgr_mouse_events() {
+        let down = decode_mouse(b"0;10;5", b'M');
+        assert_eq!(down.key, Key::MouseDown);
+        assert_eq!(down.mouse_button, MouseButton::Left);
+        assert_eq!((down.mouse_x, down.mouse_y), (9, 4));
+
+        let up = decode_mouse(b"0;10;5", b'm');
+        assert_eq!(up.key, Key::MouseUp);
+        assert_eq!(up.mouse_button, MouseButton::Left);
+
+        let drag = decode_mouse(b"32;11;6", b'M');
+        assert_eq!(drag.key, Key::MouseMove);
+        assert_eq!(drag.mouse_button, MouseButton::Left);
+        assert_eq!((drag.mouse_x, drag.mouse_y), (10, 5));
+
+        let wheel = decode_mouse(b"64;1;1", b'M');
+        assert_eq!(wheel.key, Key::ScrollUp);
     }
 }
