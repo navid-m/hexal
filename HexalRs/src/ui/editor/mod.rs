@@ -552,6 +552,7 @@ pub struct Editor {
 
     mode: Mode,
     running: bool,
+    open_file_picker_on_start: bool,
     cols: usize,
     rows: usize,
 
@@ -664,7 +665,18 @@ pub struct Editor {
 }
 
 impl Editor {
+    #[allow(dead_code)]
     pub fn new(doc: Document, cols: usize, rows: usize) -> Editor {
+        Editor::with_options(doc, cols, rows, None, false)
+    }
+
+    pub fn with_options(
+        doc: Document,
+        cols: usize,
+        rows: usize,
+        workspace_root: Option<PathBuf>,
+        open_file_picker: bool,
+    ) -> Editor {
         let message = if doc.path.is_some() {
             format!("Opened {}", doc.display_name())
         } else {
@@ -683,6 +695,7 @@ impl Editor {
             theme,
             mode: Mode::Normal,
             running: true,
+            open_file_picker_on_start: open_file_picker,
             cols,
             rows,
             cursor: 0,
@@ -787,6 +800,9 @@ impl Editor {
         editor.sidebar.show_modified = editor.config.show_diff_lines;
         editor.sidebar.show_git_ignored = editor.config.show_git_ignored;
         editor.search_match_case = editor.config.search_match_case_enabled;
+        if let Some(root) = workspace_root {
+            editor.sidebar.set_root(&root);
+        }
         editor.initialize_panes();
         editor.refresh_language();
         editor.refresh_git_diff();
@@ -800,6 +816,11 @@ impl Editor {
     pub fn run(&mut self, terminal: &mut Terminal) -> io::Result<()> {
         let mut last_width = terminal.width;
         let mut last_height = terminal.height;
+
+        if self.open_file_picker_on_start {
+            self.open_file_picker_on_start = false;
+            self.open_picker(PickerKind::Files);
+        }
 
         // Paint before polling input. A slow event wait must never delay the
         // first frame, which is also what the startup benchmark measures.

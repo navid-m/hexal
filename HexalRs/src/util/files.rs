@@ -125,7 +125,13 @@ fn walk(
     }
 }
 
-pub fn search(files: &[String], query: &str, max_hits: usize, match_case: bool) -> Vec<SearchHit> {
+pub fn search(
+    root: &Path,
+    files: &[String],
+    query: &str,
+    max_hits: usize,
+    match_case: bool,
+) -> Vec<SearchHit> {
     let mut hits = Vec::new();
     if query.is_empty() {
         return hits;
@@ -136,7 +142,7 @@ pub fn search(files: &[String], query: &str, max_hits: usize, match_case: bool) 
         if hits.len() >= max_hits {
             break;
         }
-        let data = match fs::read(path) {
+        let data = match fs::read(root.join(path)) {
             Ok(data) if data.len() <= 4 * 1024 * 1024 => data,
             _ => continue,
         };
@@ -183,7 +189,7 @@ pub fn search(files: &[String], query: &str, max_hits: usize, match_case: bool) 
 
 #[cfg(test)]
 mod tests {
-    use super::scan_root_with_ignored;
+    use super::{scan_root_with_ignored, search};
     use std::fs;
 
     #[test]
@@ -211,5 +217,20 @@ mod tests {
         assert!(shown.contains(&"target/debug/app".to_string()));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn search_reads_files_relative_to_the_workspace_root() {
+        let root =
+            std::env::temp_dir().join(format!("hexal-search-root-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("sub/file.txt"), b"before needle after\n").unwrap();
+
+        let hits = search(&root, &["sub/file.txt".to_string()], "needle", 10, true);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, 0);
+
+        let _ = fs::remove_dir_all(root);
     }
 }

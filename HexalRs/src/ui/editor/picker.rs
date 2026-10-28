@@ -81,7 +81,11 @@ impl Editor {
         self.picker.items.clear();
 
         if kind != PickerKind::Palette && !self.picker.files_loaded {
-            self.picker.files = files::scan_with_ignored(20_000, self.sidebar.show_git_ignored);
+            self.picker.files = files::scan_root_with_ignored(
+                &self.sidebar.root,
+                20_000,
+                self.sidebar.show_git_ignored,
+            );
             self.picker.files_loaded = true;
         }
         self.rebuild_picker();
@@ -148,6 +152,7 @@ impl Editor {
             PickerKind::Search => {
                 if !self.picker.query.is_empty() {
                     let hits = files::search(
+                        &self.sidebar.root,
                         &self.picker.files,
                         &self.picker.query,
                         500,
@@ -478,7 +483,12 @@ impl Editor {
             return;
         }
         let item = &self.picker.items[self.picker.selected];
-        let path = self.picker.files[item.file_index].clone();
+        let path = self
+            .sidebar
+            .root
+            .join(&self.picker.files[item.file_index])
+            .to_string_lossy()
+            .into_owned();
         let line = item.line;
         let column = item.column;
         self.close_picker();
@@ -586,6 +596,37 @@ mod tests {
             symbol_index: None,
             problem: Some((path, line, column)),
         }
+    }
+
+    #[test]
+    fn file_picker_uses_the_workspace_root() {
+        let root =
+            std::env::temp_dir().join(format!("hexal-picker-root-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("alpha.txt"), b"alpha\n").unwrap();
+        std::fs::write(root.join("sub/beta.txt"), b"beta\n").unwrap();
+
+        let mut editor = Editor::with_options(Document::new(), 80, 24, Some(root.clone()), true);
+        editor.open_picker(PickerKind::Files);
+        assert_eq!(editor.sidebar.root, root);
+        assert!(editor.picker.files.contains(&"alpha.txt".to_string()));
+        assert!(editor.picker.files.contains(&"sub/beta.txt".to_string()));
+
+        let index = editor
+            .picker
+            .items
+            .iter()
+            .position(|item| editor.picker.files[item.file_index] == "sub/beta.txt")
+            .unwrap();
+        editor.picker.selected = index;
+        editor.open_picker_selection();
+        assert_eq!(
+            editor.doc.path.as_deref(),
+            Some(root.join("sub/beta.txt").to_string_lossy().as_ref())
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

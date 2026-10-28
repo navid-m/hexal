@@ -575,7 +575,12 @@ impl Editor {
         let mut files = Vec::new();
         for (path, is_directory) in nodes {
             if *is_directory {
-                collect_files(path, self.sidebar.show_git_ignored, &mut files);
+                collect_files(
+                    path,
+                    &self.sidebar.root,
+                    self.sidebar.show_git_ignored,
+                    &mut files,
+                );
             } else if path.is_file() {
                 files.push(path.clone());
             }
@@ -1244,14 +1249,14 @@ impl Editor {
     }
 }
 
-fn collect_files(path: &Path, show_git_ignored: bool, files: &mut Vec<PathBuf>) {
+fn collect_files(path: &Path, root: &Path, show_git_ignored: bool, files: &mut Vec<PathBuf>) {
     if files.len() >= 20_000 {
         return;
     }
     let ignore = if show_git_ignored {
         None
     } else {
-        Some(git::GitIgnore::new(&self::git::project_root()))
+        Some(git::GitIgnore::new(root))
     };
     collect_files_inner(path, ignore.as_ref(), files, 0);
 }
@@ -1408,8 +1413,9 @@ impl Editor {
         }
 
         let suffix = format!(".{extension}");
+        let root = self.sidebar.root.clone();
         let open_path = self.doc.path.clone().map(PathBuf::from);
-        let files = files::scan_with_ignored(50_000, self.sidebar.show_git_ignored);
+        let files = files::scan_root_with_ignored(&root, 50_000, self.sidebar.show_git_ignored);
         let mut matched = 0usize;
         let mut formatted = 0usize;
         let mut changed = 0usize;
@@ -1423,7 +1429,7 @@ impl Editor {
                 continue;
             }
             matched += 1;
-            let path = PathBuf::from(&relative);
+            let path = root.join(&relative);
             if open_path
                 .as_ref()
                 .is_some_and(|open| git::same_path(open, &path))

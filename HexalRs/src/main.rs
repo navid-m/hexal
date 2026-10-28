@@ -18,6 +18,8 @@ static GLOBAL: platform::alloc::LargeCacheAllocator = platform::alloc::LargeCach
 use core::document::Document;
 use platform::terminal::Terminal;
 use scripting::lua::LuaRuntime;
+use std::io;
+use std::path::{Path, PathBuf};
 use ui::editor::Editor;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -60,6 +62,7 @@ fn main() {
     }
 
     let mut file: Option<String> = None;
+    let mut directory: Option<String> = None;
     let mut options_ended = false;
 
     for arg in args.iter().skip(1) {
@@ -79,11 +82,38 @@ fn main() {
             eprintln!("hexal: unknown option '{arg}'\n\n{HELP_TEXT}");
             std::process::exit(2);
         }
-        if file.is_some() {
-            eprintln!("hexal: this prototype opens one file at a time");
+        if file.is_some() || directory.is_some() {
+            eprintln!("hexal: this prototype opens one file or one directory at a time");
             std::process::exit(2);
         }
-        file = Some(arg.clone());
+        match std::fs::metadata(arg) {
+            Ok(metadata) if metadata.is_dir() => {
+                if let Err(error) = std::fs::read_dir(arg) {
+                    eprintln!("hexal: cannot open directory '{arg}': {error}");
+                    std::process::exit(4);
+                }
+                directory = Some(absolute_path(arg));
+            }
+            Ok(_) => file = Some(arg.clone()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let parent = Path::new(arg)
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or_else(|| Path::new("."));
+                if parent.is_dir() {
+                    // Opening a nonexistent name creates a new buffer, as long
+                    // as its parent directory is valid.
+                    file = Some(arg.clone());
+                } else {
+                    eprintln!("hexal: no such file or directory: '{arg}'");
+                    std::process::exit(4);
+                }
+            }
+            Err(error) => {
+                eprintln!("hexal: cannot access '{arg}': {error}");
+                std::process::exit(4);
+            }
+        }
     }
 
     let mut terminal = match Terminal::init() {
@@ -101,19 +131,39 @@ fn main() {
             Ok(document) => document,
             Err(error) => {
                 drop(terminal);
-                eprintln!("hexal: cannot open buffer: {error}");
+                eprintln!("hexal: cannot open buffer '{path}': {error}");
                 std::process::exit(4);
             }
         },
         None => Document::new(),
     };
 
-    let mut editor = Editor::new(document, terminal.width, terminal.height);
+    let open_file_picker = directory.is_some();
+    let workspace_root = directory.as_deref().map(PathBuf::from);
+    let mut editor = Editor::with_options(
+        document,
+        terminal.width,
+        terminal.height,
+        workspace_root,
+        open_file_picker,
+    );
     let result = editor.run(&mut terminal);
     drop(terminal);
     if let Err(error) = result {
         eprintln!("hexal: editor error: {error}");
         std::process::exit(1);
+    }
+}
+
+fn absolute_path(path: &str) -> String {
+    if Path::new(path).is_absolute() {
+        path.to_string()
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(path))
+            .unwrap_or_else(|_| PathBuf::from(path))
+            .to_string_lossy()
+            .into_owned()
     }
 }
 

@@ -286,16 +286,24 @@ impl Sidebar {
         }
     }
 
-    pub fn refresh(&mut self, select_path: Option<&Path>) {
-        let root = git::project_root();
-        if root != self.root {
-            self.root = root;
-            self.expanded.clear();
-            self.nodes.clear();
-            self.selected = 0;
-            self.anchor = 0;
-            self.top = 0;
+    pub fn set_root(&mut self, root: &Path) {
+        let root = git::absolute(root);
+        if root == self.root {
+            return;
         }
+        self.root = root;
+        self.expanded.clear();
+        self.nodes.clear();
+        self.selected = 0;
+        self.anchor = 0;
+        self.top = 0;
+        self.git_modified_files.clear();
+        self.git_modified_directories.clear();
+        self.git_untracked_files.clear();
+        self.git_untracked_directories.clear();
+    }
+
+    pub fn refresh(&mut self, select_path: Option<&Path>) {
         let previous = select_path
             .map(|path| path.to_path_buf())
             .or_else(|| self.selected_node().map(|node| node.path.clone()));
