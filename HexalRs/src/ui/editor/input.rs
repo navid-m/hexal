@@ -363,6 +363,7 @@ impl Editor {
             'D' => self.show_problems(true),
             'd' => self.show_problems(false),
             'z' | 'Z' => self.show_line_diagnostic(),
+            'b' | 'B' => self.toggle_breakpoint(),
             'w' | 'W' => {
                 self.save_document(None);
             }
@@ -598,6 +599,74 @@ impl Editor {
             "fmt" => self.format_current_document(false),
             "fmta" => self.format_workspace_extension(&args),
             "debug-lsp" | "dl" => self.open_lsp_debug(),
+            "debug" | "dbg" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) => self.start_debug_session(&arguments),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-break" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.toggle_breakpoint(),
+                Ok(_) => self.set_error("usage: :dbg-break"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-cont" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.continue_debug_session(),
+                Ok(_) => self.set_error("usage: :dbg-cont"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-next" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.next_debug_session(),
+                Ok(_) => self.set_error("usage: :dbg-next"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-step" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.step_in_debug_session(),
+                Ok(_) => self.set_error("usage: :dbg-step"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-out" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.step_out_debug_session(),
+                Ok(_) => self.set_error("usage: :dbg-out"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-pause" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.pause_debug_session(),
+                Ok(_) => self.set_error("usage: :dbg-pause"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-stop" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.stop_debug_session(),
+                Ok(_) => self.set_error("usage: :dbg-stop"),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-sv" | "dbg-vars" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.toggle_debug_variables(),
+                Ok(_) => self.set_error(&format!("usage: :{command_name}")),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-watch" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => {
+                    self.set_error("usage: :dbg-watch <expression>");
+                }
+                Ok(arguments) => self.add_debug_watch(&arguments.join(" ")),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-unwatch" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => {
+                    self.set_error("usage: :dbg-unwatch <expression>");
+                }
+                Ok(arguments) => self.remove_debug_watch(&arguments.join(" ")),
+                Err(error) => self.set_error(&error),
+            },
+            "dbg-clear-watches" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.clear_debug_watches(),
+                Ok(_) => self.set_error("usage: :dbg-clear-watches"),
+                Err(error) => self.set_error(&error),
+            },
+            "debug-dap" | "dd" => match Self::parse_debug_command_arguments(rest) {
+                Ok(arguments) if arguments.is_empty() => self.open_dap_debug(),
+                Ok(_) => self.set_error(&format!("usage: :{command_name}")),
+                Err(error) => self.set_error(&error),
+            },
             "gi" => self.toggle_git_ignored(),
             "gdl" => self.toggle_diff_lines(),
             "smc" => {

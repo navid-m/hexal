@@ -115,7 +115,11 @@ impl Document {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if name.is_empty() { path.clone() } else { name }
+                if name.is_empty() {
+                    path.clone()
+                } else {
+                    name
+                }
             }
             None => "[No Name]".to_string(),
         }
@@ -406,7 +410,7 @@ impl Document {
             .filter(|path| !path.is_empty())
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
 
-        let temporary = format!("{}.hexalrs-tmp-{}", target, std::process::id());
+        let temporary = format!("{}.hexal-tmp-{}", target, std::process::id());
         let result = (|| -> io::Result<()> {
             let mut file = fs::File::create(&temporary)?;
             if self.bom {

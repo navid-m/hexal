@@ -99,9 +99,11 @@ impl Editor {
         self.render_picker();
         self.render_find();
         self.render_hover();
+        self.render_debug_variables();
         self.render_completion();
         command_completion::render_command_completion(self);
         self.render_lsp_debug();
+        self.render_dap_debug();
         self.render_about();
         self.render_help();
 
@@ -115,11 +117,26 @@ impl Editor {
         let digits = util::digit_count(self.doc.line_count());
         let number = line + 1;
         let x = self.editor_left() + digits - util::digit_count(number);
-        let style = if line == self.cursor_line() {
+        let highlight = self.line_highlight_style(line);
+        if let Some(highlight) = highlight {
+            let left = self.editor_left();
+            self.screen.fill(
+                left as i64,
+                row as i64,
+                self.cols.saturating_sub(left),
+                1,
+                ' ',
+                highlight,
+            );
+        }
+        let mut style = if line == self.cursor_line() {
             self.theme.current_line_number_style()
         } else {
             self.theme.muted_style()
         };
+        if let Some(highlight) = highlight {
+            style.bg = highlight.bg;
+        }
         self.screen
             .put_str(x as i64, row as i64, &number.to_string(), style, digits);
     }
@@ -144,6 +161,17 @@ impl Editor {
                 .get_line_tokens(&self.doc, language, line, &text, &mut tokens);
         }
         let tab_width = self.doc.tab_width().max(1);
+        let line_highlight = self.line_highlight_style(line);
+        if let Some(highlight) = line_highlight {
+            self.screen.fill(
+                gutter as i64,
+                row as i64,
+                text_width,
+                1,
+                ' ',
+                highlight,
+            );
+        }
 
         let mut offset = 0usize;
         let mut visual = 0usize;
@@ -163,6 +191,9 @@ impl Editor {
                 SyntaxKind::Default
             };
             let mut style = self.theme.syntax_style(kind);
+            if let Some(highlight) = line_highlight {
+                style.bg = highlight.bg;
+            }
             if let Some(ranges) = self.unnecessary_diagnostics.get(&line) {
                 for (start, end) in ranges {
                     let start_byte = crate::lsp::utf16_column_to_byte_offset(&text, *start);
@@ -404,6 +435,11 @@ impl Editor {
             } else {
                 left.push_str(&format!("  LSP: {name}"));
             }
+        }
+        let debug_status = self.debug_status_text();
+        if !debug_status.is_empty() {
+            left.push_str("  ");
+            left.push_str(debug_status);
         }
         let diagnostic_count = self
             .doc

@@ -130,6 +130,16 @@ impl Editor {
             PaletteAction::ShowPath,
         );
         self.add_palette_command(
+            "Show LSP debug log",
+            "Inspect recent language-server traffic and client state.",
+            PaletteAction::LspDebug,
+        );
+        self.add_palette_command(
+            "Show debug variables",
+            "Show scopes, local/global variables and watch expressions while stopped.",
+            PaletteAction::DebugVariables,
+        );
+        self.add_palette_command(
             "Quit",
             "Quit Hexal; unsaved changes are confirmed first.",
             PaletteAction::Quit,
@@ -196,6 +206,8 @@ impl Editor {
             }
             PaletteAction::About => self.open_about(),
             PaletteAction::ShowPath => self.show_current_path(),
+            PaletteAction::LspDebug => self.open_lsp_debug(),
+            PaletteAction::DebugVariables => self.toggle_debug_variables(),
             PaletteAction::Quit => self.request_quit(false),
             PaletteAction::Plugin(name) => {
                 if !self.try_lua_command(&name) {
@@ -241,6 +253,7 @@ impl Editor {
         self.lsp.stop();
         self.lsp_fallback_blocked = false;
         self.restart_lsp_for_buffer();
+        self.apply_debug_adapter_configuration();
         self.sidebar.refresh(None);
         self.force_full_redraw = true;
         if !config_error.is_empty() {

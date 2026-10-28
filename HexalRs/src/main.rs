@@ -4,6 +4,7 @@
 //! (C) Navid Momtahen - 2026
 
 mod core;
+mod dap;
 mod languages;
 mod lsp;
 mod platform;
@@ -46,7 +47,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--lua-bench") {
         if let Err(error) = run_lua_bench(&args[2..]) {
-            eprintln!("hexalrs: lua bench: {error}");
+            eprintln!("hexal: lua bench: {error}");
             std::process::exit(1);
         }
         return;

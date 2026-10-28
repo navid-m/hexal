@@ -293,6 +293,8 @@ impl Editor {
             self.sync_lsp_document_now();
         }
 
+        self.poll_dap();
+
         if self.lsp_debug.visible {
             self.refresh_lsp_debug_lines();
         }
@@ -1728,7 +1730,7 @@ fn wrap_hover_line(line: &str, width: usize, destination: &mut Vec<HoverLine>) {
     }
 }
 
-fn wrap_text(line: &str, width: usize) -> Vec<String> {
+pub(super) fn wrap_text(line: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let chars: Vec<char> = line.chars().collect();
     let mut result = Vec::new();

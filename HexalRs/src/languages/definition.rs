@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+use crate::dap::DebuggerConfig;
 use crate::ui::theme::SyntaxKind;
 use crate::util::json::{self, Value};
 
@@ -102,6 +103,7 @@ pub struct Language {
     pub formatter: Option<FormatterConfig>,
     pub fallback_formatter: Option<FormatterConfig>,
     pub fallback_lsp: Option<LspFallback>,
+    pub debugger: Option<DebuggerConfig>,
     pub format_on_save: Option<bool>,
     pub indentation: Option<IndentationSettings>,
     pub auto_indent: bool,
@@ -310,6 +312,34 @@ fn parse_fallback_lsp(element: &Value, id: &str) -> Result<Option<LspFallback>, 
         language_id: string_value(value.get("languageId"))
             .or_else(|| string_value(value.get("language_id")))
             .unwrap_or_else(|| id.to_string()),
+    }))
+}
+
+fn parse_debugger(element: &Value) -> Result<Option<DebuggerConfig>, String> {
+    let Some(value) = element.get("debugger") else {
+        return Ok(None);
+    };
+    if !matches!(value, Value::Object(_)) {
+        return Err("debugger must be a JSON object".into());
+    }
+    let adapter = string_value(value.get("adapter"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if adapter.is_empty() {
+        return Err("debugger.adapter is required".into());
+    }
+    let mut configuration = Value::Object(Vec::new());
+    if let Some(value) = value.get("configuration") {
+        if !matches!(value, Value::Object(_)) {
+            return Err("debugger.configuration must be a JSON object".into());
+        }
+        configuration = value.clone();
+    }
+    Ok(Some(DebuggerConfig {
+        adapter,
+        arguments: string_array(value, "arguments"),
+        configuration,
     }))
 }
 
@@ -528,6 +558,7 @@ impl Language {
         }
         let fallback_formatter = parse_fallback_formatter(&root)?;
         let fallback_lsp = parse_fallback_lsp(&root, &id)?;
+        let debugger = parse_debugger(&root)?;
         let indentation = parse_indentation(&root)?;
 
         if line_comment.as_deref() == Some("") {
@@ -577,6 +608,7 @@ impl Language {
             formatter,
             fallback_formatter,
             fallback_lsp,
+            debugger,
             format_on_save,
             indentation,
             auto_indent,

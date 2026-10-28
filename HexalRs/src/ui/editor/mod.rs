@@ -6,6 +6,7 @@
 mod about;
 mod command_completion;
 mod comments;
+mod debug;
 mod editing;
 mod find;
 mod input;
@@ -18,6 +19,7 @@ mod render;
 mod sidebar;
 mod status;
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -104,6 +106,8 @@ enum PaletteAction {
     ShowHelp,
     About,
     ShowPath,
+    LspDebug,
+    DebugVariables,
     Quit,
     Plugin(String),
 }
@@ -399,6 +403,22 @@ impl LspDebugState {
     }
 }
 
+struct DapDebugState {
+    visible: bool,
+    top: usize,
+    status: String,
+}
+
+impl DapDebugState {
+    fn new() -> DapDebugState {
+        DapDebugState {
+            visible: false,
+            top: 0,
+            status: String::new(),
+        }
+    }
+}
+
 pub struct Editor {
     doc: Document,
     config: Config,
@@ -482,6 +502,26 @@ pub struct Editor {
     lsp_debug: LspDebugState,
     lsp_debug_lines: Vec<String>,
     problems_workspace: bool,
+
+    dap: crate::dap::Manager,
+    breakpoints: BTreeMap<String, BTreeSet<usize>>,
+    dap_status: String,
+    dap_stopped_path: String,
+    dap_stopped_line: i64,
+    dap_stopped: bool,
+    debug_path_source: String,
+    debug_path: String,
+
+    debug_variables_visible: bool,
+    debug_variables_top: usize,
+    debug_variable_lines: Vec<(String, crate::ui::theme::Style)>,
+    debug_scopes: Vec<crate::dap::DapScope>,
+    debug_scoped_variables: Vec<crate::dap::DapScopeVariables>,
+    debug_watches: Vec<String>,
+    debug_watch_values: HashMap<String, crate::dap::DapWatchValue>,
+
+    dap_debug: DapDebugState,
+    dap_debug_lines: Vec<String>,
 }
 
 impl Editor {
@@ -571,6 +611,23 @@ impl Editor {
             lsp_debug: LspDebugState::new(),
             lsp_debug_lines: Vec::new(),
             problems_workspace: false,
+            dap: crate::dap::Manager::new(),
+            breakpoints: BTreeMap::new(),
+            dap_status: String::new(),
+            dap_stopped_path: String::new(),
+            dap_stopped_line: -1,
+            dap_stopped: false,
+            debug_path_source: String::new(),
+            debug_path: String::new(),
+            debug_variables_visible: false,
+            debug_variables_top: 0,
+            debug_variable_lines: Vec::new(),
+            debug_scopes: Vec::new(),
+            debug_scoped_variables: Vec::new(),
+            debug_watches: Vec::new(),
+            debug_watch_values: HashMap::new(),
+            dap_debug: DapDebugState::new(),
+            dap_debug_lines: Vec::new(),
         };
         editor.last_revision = editor.doc.revision();
         editor.sidebar.show_modified = editor.config.show_diff_lines;
@@ -674,6 +731,10 @@ impl Editor {
             self.handle_lsp_debug_input(event);
             return;
         }
+        if self.dap_debug.visible {
+            self.handle_dap_debug_input(event);
+            return;
+        }
         if self.hover.visible {
             self.handle_hover_input(event);
             return;
@@ -710,6 +771,14 @@ impl Editor {
         }
         if self.sidebar_prompt.is_some() {
             self.handle_sidebar_prompt(event);
+            return;
+        }
+        if event.key == Key::Char
+            && event.ctrl
+            && matches!(event.ch, 'e' | 'E')
+            && matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select)
+        {
+            self.toggle_breakpoint();
             return;
         }
         if event.key == Key::Char

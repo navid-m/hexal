@@ -247,6 +247,16 @@ mod tests {
                 .map(|language| language.id.as_str()),
             Some("toml")
         );
+        let rust = registry.find("rust").unwrap();
+        let debugger = rust.debugger.as_ref().unwrap();
+        assert_eq!(debugger.adapter, "lldb-dap");
+        assert_eq!(
+            debugger
+                .configuration
+                .get("program")
+                .and_then(crate::util::json::Value::as_str),
+            Some("${executable}")
+        );
     }
 
     #[test]
