@@ -549,7 +549,7 @@ fn completion_description(editor: &Editor, name: &str) -> String {
     String::new()
 }
 
-fn wrap_words(text: &str, width: usize) -> Vec<String> {
+pub(super) fn wrap_words(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines = Vec::new();
     let mut current = String::new();

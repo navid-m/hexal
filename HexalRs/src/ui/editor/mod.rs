@@ -14,6 +14,8 @@ mod lsp_ui;
 mod navigation;
 mod palette;
 mod picker;
+mod plugin_manager;
+mod plugin_panels;
 mod plugins;
 mod render;
 mod sidebar;
@@ -110,6 +112,7 @@ enum PaletteAction {
     ShowPath,
     LspDebug,
     DebugVariables,
+    ManagePlugins,
     Quit,
     Plugin(String),
 }
@@ -556,6 +559,9 @@ pub struct Editor {
     dap_debug: DapDebugState,
     dap_debug_lines: Vec<String>,
     sidebar_format: Option<SidebarFormatOperation>,
+    plugin_manager: plugin_manager::PluginManagerState,
+    plugin_panel: Option<plugin_panels::PluginPanelState>,
+    plugin_panel_dismissed: i64,
 }
 
 impl Editor {
@@ -663,6 +669,9 @@ impl Editor {
             dap_debug: DapDebugState::new(),
             dap_debug_lines: Vec::new(),
             sidebar_format: None,
+            plugin_manager: plugin_manager::PluginManagerState::new(),
+            plugin_panel: None,
+            plugin_panel_dismissed: -1,
         };
         editor.last_revision = editor.doc.revision();
         editor.sidebar.show_modified = editor.config.show_diff_lines;
@@ -762,6 +771,14 @@ impl Editor {
     }
 
     fn handle_event(&mut self, event: Event) {
+        if self.plugin_manager.visible {
+            self.handle_plugin_manager_input(event);
+            return;
+        }
+        if self.plugin_panel.is_some() {
+            self.handle_plugin_panel_input(event);
+            return;
+        }
         if self.lsp_debug.visible {
             self.handle_lsp_debug_input(event);
             return;

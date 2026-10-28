@@ -104,6 +104,8 @@ impl Editor {
         self.render_debug_variables();
         self.render_lsp_debug();
         self.render_dap_debug();
+        self.render_plugin_panel();
+        self.render_plugin_manager();
         self.render_about();
         self.render_help();
 

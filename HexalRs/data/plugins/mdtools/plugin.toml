@@ -1,0 +1,8 @@
+name = "Markdown Tools"
+version = "1.0"
+entry = "init.lua"
+description = "Continue Markdown lists, exit empty items, and normalize thematic breaks"
+author = "Hexal"
+license = "MIT"
+lazy = true
+language = "markdown"

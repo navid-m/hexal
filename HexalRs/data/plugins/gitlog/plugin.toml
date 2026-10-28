@@ -1,0 +1,6 @@
+name = "Git Log"
+version = "1.0"
+entry = "init.lua"
+description = "Colorized git history browser with branches, tags, merges and commit diffs"
+author = "Hexal"
+license = "MIT"

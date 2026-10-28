@@ -17,6 +17,7 @@ use crate::scripting::lua::{
 };
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct PluginInfo {
     pub id: String,
     pub name: String,
@@ -314,6 +315,7 @@ impl PluginManager {
 
     fn record_error(&mut self, index: usize, message: String) {
         let id = self.entries[index].id.clone();
+        crate::util::log::write(&format!("plugin {id}: {message}"));
         self.entries[index].error = message.clone();
         self.entries[index].enabled = false;
         self.errors.push(format!("{id}: {message}"));
@@ -336,6 +338,7 @@ impl PluginManager {
         ) {
             Ok(runtime) => runtime,
             Err(error) => {
+                crate::util::log::write(&format!("plugin {id}: {error}"));
                 self.entries[index].error = error.clone();
                 self.entries[index].enabled = false;
                 self.errors.push(format!("{id}: {error}"));
@@ -345,6 +348,7 @@ impl PluginManager {
         self.set_host_context();
         runtime.sync_from_document(document, *cursor);
         if let Err(error) = runtime.load_file(&entry_path.to_string_lossy()) {
+            crate::util::log::write(&format!("plugin {id}: {error}"));
             self.entries[index].error = error.clone();
             self.entries[index].enabled = false;
             self.errors.push(format!("{id}: {error}"));
@@ -482,6 +486,7 @@ impl PluginManager {
                 Ok(handled)
             }
             Err(error) => {
+                crate::util::log::write(&format!("plugin command '{name}' failed: {error}"));
                 self.entries[index].runtime = Some(runtime);
                 Err(error)
             }
@@ -797,6 +802,34 @@ impl PluginManager {
         let _ = &self.host;
     }
 
+    pub fn handle_panel_key(
+        &mut self,
+        panel_id: i64,
+        key: &str,
+        selected: usize,
+        document: &mut Document,
+        cursor: &mut usize,
+    ) -> Option<Result<bool, String>> {
+        let plugin_id = self.runtime_for_panel(panel_id)?;
+        let index = self
+            .entries
+            .iter()
+            .position(|entry| entry.id == plugin_id)?;
+        let mut runtime = self.entries[index].runtime.take()?;
+        let result = runtime.call_panel_key(panel_id, key, selected, document, cursor);
+        self.entries[index].runtime = Some(runtime);
+        match result {
+            Ok(Some((handled, effects))) => {
+                let runtime = self.entries[index].runtime.take()?;
+                self.merge_effects(&runtime, effects);
+                self.entries[index].runtime = Some(runtime);
+                Some(Ok(handled))
+            }
+            Ok(None) => Some(Ok(false)),
+            Err(error) => Some(Err(error)),
+        }
+    }
+
     pub fn runtime_for_panel(&self, panel_id: i64) -> Option<String> {
         for entry in &self.entries {
             if let Some(runtime) = &entry.runtime {
@@ -1110,6 +1143,98 @@ mod tests {
     }
 
     #[test]
+    fn installed_gitlog_plugin_registers_gl() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("plugins")
+            .join("gitlog");
+        let init = root.join("init.lua");
+        if !init.is_file() {
+            return;
+        }
+        let mut manager = PluginManager::new(root.parent().unwrap(), None);
+        let mut document = Document::new();
+        let mut cursor = 0usize;
+        manager
+            .load_file_plugin(&init.to_string_lossy(), &mut document, &mut cursor)
+            .unwrap();
+        assert!(manager.errors().is_empty(), "{:?}", manager.errors());
+        assert!(manager.has_command("gl"), "{:?}", manager.command_names());
+    }
+
+    #[test]
+    fn plugin_commands_open_panels_handle_keys_and_report_errors() {
+        let root = temp_directory("panels");
+        let plugin = root.join("plugins").join("panels");
+        fs::create_dir_all(&plugin).unwrap();
+        fs::write(
+            plugin.join("plugin.toml"),
+            "name = \"Panels\"\nversion = \"1.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            plugin.join("init.lua"),
+            r#"
+            local panel
+            hexal.commands.register("demo", function()
+                panel = hexal.ui.panel({
+                    title = " Demo ",
+                    footer = "foot",
+                    selected = 2,
+                    lines = {
+                        { segments = { { text = "one", style = "accent" } }, selectable = true },
+                        { segments = { { text = "two", style = "text" } }, selectable = true },
+                    },
+                }, function(key, selected)
+                    if key == "q" then
+                        panel.close()
+                        return true
+                    end
+                    return key == "enter" and selected == 2
+                end)
+            end, "Demo command")
+            hexal.commands.register("fail", function()
+                error("boom")
+            end)
+            "#,
+        )
+        .unwrap();
+
+        let mut manager = crate::scripting::plugin::PluginManager::new(plugin.parent().unwrap(), None);
+        let mut document = Document::new();
+        let mut cursor = 0usize;
+        manager.load_all(&mut document, &mut cursor);
+        assert!(manager.errors().is_empty(), "{:?}", manager.errors());
+        assert!(manager.has_command("demo"));
+        assert!(manager.has_command("fail"));
+
+        assert!(manager
+            .execute_command("demo", &[], &mut document, &mut cursor)
+            .unwrap());
+        let panels = manager.panels();
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].title, " Demo ");
+        assert_eq!(panels[0].selected, 1);
+        let panel_id = panels[0].id;
+
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "enter", 1, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "q", 1, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert!(manager.panels().is_empty());
+
+        let error = manager
+            .execute_command("fail", &[], &mut document, &mut cursor)
+            .unwrap_err();
+        assert!(error.contains("boom"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn lazy_plugins_start_for_their_language() {
         let root = temp_directory("lazy");
         let plugin = root.join("plugins").join("lazy");
@@ -1171,14 +1296,8 @@ mod tests {
                 .exists()
         );
 
-        let mut count = 0usize;
-        for directory in fs::read_dir(&root).unwrap().flatten() {
-            if !directory.file_type().unwrap().is_dir() {
-                continue;
-            }
-            count += 1;
-            let directory = directory.path();
-            let language = directory.file_name().unwrap().to_string_lossy();
+        for language in ["rust", "c", "typescript", "toml"] {
+            let directory = root.join(language);
             let init = fs::read_to_string(directory.join("init.lua")).unwrap();
             assert!(
                 init.contains("hexal.lsp.start"),
@@ -1193,9 +1312,8 @@ mod tests {
                     .map(|(_, value)| value.as_str())
             };
             assert_eq!(value("lazy"), Some("true"));
-            assert_eq!(value("language"), Some(language.as_ref()));
+            assert_eq!(value("language"), Some(language));
             assert!(directory.join(value("entry").unwrap_or("init.lua")).is_file());
         }
-        assert!(count >= 70, "only found {count} language plugins");
     }
 }

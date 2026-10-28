@@ -943,6 +943,38 @@ impl LuaRuntime {
         }
     }
 
+    pub fn call_panel_key(
+        &mut self,
+        panel_id: i64,
+        key: &str,
+        selected: usize,
+        document: &mut Document,
+        cursor: &mut usize,
+    ) -> Result<Option<(bool, HostEffects)>, String> {
+        let callback = self
+            .shared
+            .borrow()
+            .panel_handlers
+            .get(&panel_id)
+            .cloned();
+        let Some(callback) = callback else {
+            return Ok(None);
+        };
+        self.sync_from_document(document, *cursor);
+        let result = callback.call::<LuaValue>((key.to_string(), selected as i64 + 1));
+        let effects = self.apply_to_document(document, cursor);
+        match result {
+            Ok(value) => Ok(Some((matches!(value, LuaValue::Boolean(true)), effects))),
+            Err(error) => {
+                self.host.borrow_mut().errors.push((
+                    self.plugin_id.clone(),
+                    format!("panel key handler failed: {error}"),
+                ));
+                Ok(Some((false, effects)))
+            }
+        }
+    }
+
     pub fn apply_to_document(
         &mut self,
         document: &mut Document,

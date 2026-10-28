@@ -84,6 +84,7 @@ impl Editor {
             }
             Ok(false) => return false,
             Err(error) => {
+                crate::util::log::write(&format!("plugin command '{name}' failed: {error}"));
                 self.set_error(&format!("lua: {error}"));
                 self.apply_plugin_effects();
             }
@@ -175,6 +176,7 @@ impl Editor {
             self.clipboard = clipboard;
         }
         for (plugin_id, message) in effects.errors {
+            crate::util::log::write(&format!("plugin {plugin_id}: {message}"));
             self.set_error(&format!("error: {plugin_id}: {message}"));
         }
         for stop in effects.lsp_stops {
@@ -203,6 +205,7 @@ impl Editor {
             self.command_cursor = self.command_line.len();
             self.submit_command();
         }
+        self.sync_plugin_panels();
     }
 
     pub(super) fn fire_plugin_event(&mut self, event: &str, data: crate::util::json::Value) {

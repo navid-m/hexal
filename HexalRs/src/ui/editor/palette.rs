@@ -115,6 +115,11 @@ impl Editor {
             PaletteAction::ReloadThemes,
         );
         self.add_palette_command(
+            "Manage plugins",
+            "Enable or disable installed plugins and inspect their details.",
+            PaletteAction::ManagePlugins,
+        );
+        self.add_palette_command(
             "Show key help",
             "Show a short reminder of the available keys.",
             PaletteAction::ShowHelp,
@@ -204,6 +209,7 @@ impl Editor {
                 }
             }
             PaletteAction::ReloadThemes => self.reload_themes(),
+            PaletteAction::ManagePlugins => self.open_plugin_manager(),
             PaletteAction::ShowHelp => {
                 self.help.open();
                 self.force_full_redraw = true;
