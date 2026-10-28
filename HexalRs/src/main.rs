@@ -76,11 +76,11 @@ fn main() {
             return;
         }
         if !options_ended && arg.len() > 1 && arg.starts_with('-') {
-            eprintln!("hexalrs: unknown option '{arg}'\n\n{HELP_TEXT}");
+            eprintln!("hexal: unknown option '{arg}'\n\n{HELP_TEXT}");
             std::process::exit(2);
         }
         if file.is_some() {
-            eprintln!("hexalrs: this prototype opens one file at a time");
+            eprintln!("hexal: this prototype opens one file at a time");
             std::process::exit(2);
         }
         file = Some(arg.clone());
@@ -89,7 +89,7 @@ fn main() {
     let mut terminal = match Terminal::init() {
         Ok(terminal) => terminal,
         Err(error) => {
-            eprintln!("hexalrs: cannot initialize terminal: {error}");
+            eprintln!("hexal: cannot initialize terminal: {error}");
             std::process::exit(1);
         }
     };
@@ -99,7 +99,7 @@ fn main() {
             Ok(document) => document,
             Err(error) => {
                 drop(terminal);
-                eprintln!("hexalrs: cannot open buffer: {error}");
+                eprintln!("hexal: cannot open buffer: {error}");
                 std::process::exit(4);
             }
         },
@@ -110,7 +110,7 @@ fn main() {
     let result = editor.run(&mut terminal);
     drop(terminal);
     if let Err(error) = result {
-        eprintln!("hexalrs: editor error: {error}");
+        eprintln!("hexal: editor error: {error}");
         std::process::exit(1);
     }
 }
@@ -146,7 +146,7 @@ fn run_install_plugin(arguments: &[String]) -> i32 {
 
 fn run_lua_bench(args: &[String]) -> Result<(), String> {
     if args.len() < 3 || args.len() > 4 {
-        return Err("usage: hexalrs --lua-bench <plugin.lua> <command> <iterations> [file]".into());
+        return Err("usage: hexal --lua-bench <plugin.lua> <command> <iterations> [file]".into());
     }
     let plugin = &args[0];
     let command = &args[1];

@@ -53,6 +53,65 @@ const BUILTIN_COMMANDS: &[&str] = &[
     "adi",
 ];
 
+const BUILTIN_COMMAND_DESCRIPTIONS: &[(&str, &str)] = &[
+    ("e", "Open a file in the current buffer."),
+    ("edit", "Open a file in the current buffer."),
+    ("w", "Write the current buffer to disk, optionally to a new path."),
+    ("write", "Write the current buffer to disk, optionally to a new path."),
+    ("wq", "Write the current buffer, then quit when saving finishes."),
+    ("q", "Quit the editor; use :q! to discard unsaved changes."),
+    ("quit", "Quit the editor; use :q! to discard unsaved changes."),
+    ("fmt", "Format the buffer, or just the active selection, with the language formatter."),
+    ("fmta", "Format all non-ignored workspace files with the given extension."),
+    ("cw", "Remove trailing spaces and tabs from every line."),
+    ("rc", "Remove comments from the active selection."),
+    ("cfg", "Open (or create) the Hexal configuration file."),
+    ("rcfg", "Reload configuration, grammars, themes and language servers."),
+    ("rla", "Reload all open files from disk and hard-refresh the interface."),
+    ("open-log", "Open the Hexal log file (~/.hexal/hexal.log)."),
+    ("ol", "Alias for :open-log."),
+    ("lang", "Set the language grammar for the current buffer."),
+    ("help", "Show a short reminder of the available keys."),
+    ("about", "Show information about Hexal itself."),
+    ("a", "Alias for :about."),
+    ("debug-lsp", "Show live language-server traffic and diagnostics."),
+    ("dl", "Alias for :debug-lsp."),
+    ("debug", "Start a debug session, optionally with an executable."),
+    ("dbg", "Alias for :debug."),
+    ("dbg-break", "Toggle a breakpoint on the current line."),
+    ("dbg-cont", "Continue the stopped debuggee."),
+    ("dbg-next", "Step over the current source line."),
+    ("dbg-step", "Step into the current call."),
+    ("dbg-out", "Step out of the current function."),
+    ("dbg-pause", "Pause the running debuggee."),
+    ("dbg-stop", "Stop the debug session."),
+    ("dbg-sv", "Show or hide scopes, variables and watches."),
+    ("dbg-vars", "Alias for :dbg-sv."),
+    ("dbg-watch", "Watch a variable or expression while debugging."),
+    ("dbg-unwatch", "Remove a debug watch expression."),
+    ("dbg-clear-watches", "Remove all debug watch expressions."),
+    ("debug-dap", "Show live debug-adapter traffic and state."),
+    ("dd", "Alias for :debug-dap."),
+    ("s", "Indent with spaces; :s <width> also sets the indent width."),
+    ("t", "Indent with tabs and set the visual tab width (:t <width>)."),
+    ("gi", "Toggle showing git-ignored files in the sidebar and pickers."),
+    ("gdl", "Toggle git diff markers in the line-number gutter."),
+    ("gj", "Jump to the next git diff line."),
+    ("gjp", "Jump to the previous git diff line."),
+    ("ww", "Toggle soft word wrapping for long lines."),
+    ("path", "Show the current file's absolute path."),
+    ("smc", "Toggle case-sensitive matching for all searches."),
+    ("vs", "Split the current pane vertically (side by side)."),
+    ("hs", "Split the current pane horizontally (stacked)."),
+    ("cb", "Close the current buffer pane; use :q to quit the editor."),
+    ("adi", "Detect the document indentation and apply it to this buffer."),
+    ("theme", "Select or apply a theme."),
+    ("themes", "Select or apply a theme."),
+    ("lua", "Run a Lua plugin file."),
+    ("plugins", "List registered Lua commands."),
+    ("sidebar", "Toggle the file sidebar."),
+];
+
 impl Editor {
     pub(super) fn try_open_command_completion(&mut self) -> bool {
         let line = self.command_line.clone();
@@ -336,14 +395,42 @@ pub(super) fn render_command_completion(editor: &mut Editor) {
     {
         width = width.max(util::text_width(item) + 4);
     }
-    width = width.min(editor.cols.saturating_sub(4).max(12));
+
+    let mut description = String::new();
+    let mut description_title = String::new();
+    if editor.command_completion.kind == CommandCompletionKind::Commands
+        && !editor.command_completion.items.is_empty()
+    {
+        let selected = editor
+            .command_completion
+            .selected
+            .min(editor.command_completion.items.len() - 1);
+        let name = editor.command_completion.items[selected].clone();
+        description = completion_description(editor, &name);
+        if description.is_empty() {
+            description = "No description available.".to_string();
+        }
+        description_title = format!(" :{name} ");
+    }
+
+    width = width.min(editor.cols.saturating_sub(2).max(12));
+    if !description.is_empty() && editor.cols >= 39 {
+        // Leave room for the description panel on the right.
+        width = width.min(editor.cols.saturating_sub(23));
+    }
+    if width < 12 {
+        return;
+    }
     let height = rows + 2;
     let bottom = editor.status_row();
-    if bottom < height + 1 || width < 12 {
+    if bottom < height + 1 {
         return;
     }
     let y = bottom.saturating_sub(height);
-    let x = 1usize.min(editor.cols.saturating_sub(width + 1));
+    let mut x = 1usize;
+    if x + width >= editor.cols {
+        x = editor.cols.saturating_sub(width + 1);
+    }
     let title = match editor.command_completion.kind {
         CommandCompletionKind::Files => format!(
             " Files {}/{} ",
@@ -406,6 +493,93 @@ pub(super) fn render_command_completion(editor: &mut Editor) {
             width.saturating_sub(4),
         );
     }
+
+    if description.is_empty() {
+        return;
+    }
+    let description_x = x + width + 1;
+    if description_x >= editor.cols {
+        return;
+    }
+    let description_width = 56.min(editor.cols.saturating_sub(description_x + 1));
+    if description_width < 16 {
+        return;
+    }
+    let mut description_lines = wrap_words(&description, description_width - 4);
+    let max_rows = bottom.saturating_sub(2).max(1);
+    description_lines.truncate(max_rows);
+    let description_height = description_lines.len() + 2;
+    let description_y = bottom.saturating_sub(description_height);
+    editor.draw_box(
+        description_x,
+        description_y,
+        description_width,
+        description_height,
+        &description_title,
+    );
+    let style = editor.theme.text();
+    for (row, line) in description_lines.iter().enumerate() {
+        editor.screen.put_str(
+            (description_x + 2) as i64,
+            (description_y + 1 + row) as i64,
+            line,
+            style,
+            description_width.saturating_sub(4),
+        );
+    }
+}
+
+fn completion_description(editor: &Editor, name: &str) -> String {
+    let key = name.to_ascii_lowercase();
+    if let Some((_, description)) = BUILTIN_COMMAND_DESCRIPTIONS
+        .iter()
+        .find(|(command, _)| *command == key)
+    {
+        return (*description).to_string();
+    }
+    if let Some(plugins) = &editor.plugins {
+        if let Some(description) = plugins.command_description(name) {
+            return if description.is_empty() {
+                "Plugin command.".to_string()
+            } else {
+                description
+            };
+        }
+    }
+    String::new()
+}
+
+fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let mut remaining: Vec<char> = word.chars().collect();
+        while remaining.len() > width {
+            if !current.is_empty() {
+                lines.push(std::mem::take(&mut current));
+            }
+            lines.push(remaining[..width].iter().collect());
+            remaining.drain(..width);
+        }
+        if remaining.is_empty() {
+            continue;
+        }
+        let remaining: String = remaining.into_iter().collect();
+        if current.is_empty() {
+            current.push_str(&remaining);
+        } else if current.chars().count() + 1 + remaining.chars().count() <= width {
+            current.push(' ');
+            current.push_str(&remaining);
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(&remaining);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 #[cfg(test)]
@@ -421,6 +595,48 @@ mod tests {
         ]);
         editor.command_files_show_ignored = editor.sidebar.show_git_ignored;
         editor
+    }
+
+    #[test]
+    fn builtin_commands_have_autocomplete_descriptions() {
+        let editor = editor();
+        assert_eq!(
+            completion_description(&editor, "about"),
+            "Show information about Hexal itself."
+        );
+        assert_eq!(
+            completion_description(&editor, "adi"),
+            "Detect the document indentation and apply it to this buffer."
+        );
+        assert_eq!(completion_description(&editor, "unknown"), "");
+    }
+
+    #[test]
+    fn command_completion_renders_the_description_panel() {
+        let mut editor = editor();
+        editor.screen.resize(100, 30);
+        editor.command_completion.visible = true;
+        editor.command_completion.kind = CommandCompletionKind::Commands;
+        editor.command_completion.items = vec!["about".to_string()];
+        editor.command_completion.selected = 0;
+        editor.command_completion.top = 0;
+
+        render_command_completion(&mut editor);
+        let screen: String = (0..30)
+            .map(|row| {
+                (0..100)
+                    .map(|column| editor.screen.at(column, row).ch)
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(screen.contains(":about"), "{screen}");
+        assert!(
+            screen.contains("Show information about Hexal itself."),
+            "{screen}"
+        );
     }
 
     #[test]
