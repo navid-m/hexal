@@ -50,6 +50,9 @@ const BUILTIN_COMMANDS: &[&str] = &[
     "gdl",
     "smc",
     "sidebar",
+    "vs",
+    "hs",
+    "cb",
     "adi",
 ];
 

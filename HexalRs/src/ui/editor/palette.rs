@@ -60,6 +60,21 @@ impl Editor {
             PaletteAction::ToggleSearchMatchCase,
         );
         self.add_palette_command(
+            "Split pane vertically",
+            "Create a new pane to the right of the focused pane.",
+            PaletteAction::SplitPaneVertical,
+        );
+        self.add_palette_command(
+            "Split pane horizontally",
+            "Create a new pane below the focused pane.",
+            PaletteAction::SplitPaneHorizontal,
+        );
+        self.add_palette_command(
+            "Close current buffer pane",
+            "Close the focused pane; use :q or :q! when only one remains.",
+            PaletteAction::ClosePane,
+        );
+        self.add_palette_command(
             "Format document",
             "Format the current buffer with its language formatter.",
             PaletteAction::FormatDocument,
@@ -192,6 +207,9 @@ impl Editor {
             PaletteAction::ToggleGitIgnored => self.toggle_git_ignored(),
             PaletteAction::ToggleDiffLines => self.toggle_diff_lines(),
             PaletteAction::ToggleSearchMatchCase => self.toggle_search_match_case(),
+            PaletteAction::SplitPaneVertical => self.split_pane(PaneSplitOrientation::Vertical),
+            PaletteAction::SplitPaneHorizontal => self.split_pane(PaneSplitOrientation::Horizontal),
+            PaletteAction::ClosePane => self.close_current_buffer(),
             PaletteAction::FormatDocument => self.format_current_document(false),
             PaletteAction::Hover => self.show_hover(),
             PaletteAction::GoToDefinition => self.go_to_definition(),

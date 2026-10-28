@@ -23,8 +23,14 @@ impl Editor {
     }
 
     pub(super) fn gutter_width(&self) -> usize {
+        let width = self.cols.saturating_sub(self.editor_left());
+        self.gutter_width_for(width)
+    }
+
+    pub(super) fn gutter_width_for(&self, width: usize) -> usize {
         let marker = usize::from(self.sidebar.show_modified);
-        util::digit_count(self.doc.line_count()) + 1 + marker
+        let gutter = util::digit_count(self.doc.line_count()) + 1 + marker;
+        if width < gutter + 10 { 0 } else { gutter }
     }
 
     pub(super) fn clamp_viewport(&mut self) {
@@ -39,7 +45,8 @@ impl Editor {
     }
 
     pub(super) fn ensure_cursor_visible(&mut self) {
-        let rows = self.text_rows();
+        let bounds = self.active_pane_bounds();
+        let rows = bounds.height;
         if rows == 0 {
             self.top_line = self.cursor_line();
             return;
@@ -51,12 +58,16 @@ impl Editor {
         if line >= self.top_line + rows {
             self.top_line = line + 1 - rows;
         }
+        let max_top = self.doc.line_count().saturating_sub(rows);
+        if self.top_line > max_top {
+            self.top_line = max_top;
+        }
 
-        let gutter = self.editor_left() + self.gutter_width();
-        if self.cols <= gutter {
+        let gutter = self.gutter_width_for(bounds.width);
+        if bounds.width <= gutter {
             return;
         }
-        let width = self.cols - gutter;
+        let width = bounds.width - gutter;
         let column = self.cursor_visual_column();
         if column < self.left_column {
             self.left_column = column;
@@ -64,7 +75,13 @@ impl Editor {
         if column >= self.left_column + width {
             self.left_column = column + 1 - width;
         }
-        self.clamp_viewport();
+        if self.left_column > column {
+            self.left_column = column;
+        }
+        let max_left = bounds.width.saturating_sub(1);
+        if self.left_column > max_left {
+            self.left_column = max_left;
+        }
     }
 
     pub(super) fn render(&mut self, terminal: &mut Terminal) -> io::Result<()> {
@@ -75,23 +92,7 @@ impl Editor {
         }
 
         self.ensure_cursor_visible();
-        let rows = self.text_rows();
-        let gutter = self.editor_left() + self.gutter_width();
-        let first_line = self.top_line;
-        let language = self.active_language();
-
-        for row in 0..rows {
-            let line = first_line + row;
-            if line >= self.doc.line_count() {
-                break;
-            }
-            self.render_line_number(line, row);
-            self.render_line_text(line, row, gutter, language.as_deref());
-        }
-
-        self.render_selection(first_line, rows, gutter);
-        self.render_find_matches(first_line, rows, gutter);
-        self.render_cursor(first_line, rows, gutter);
+        self.render_panes();
         self.render_sidebar();
         self.render_status_line();
         self.render_bottom_line();
@@ -117,6 +118,10 @@ impl Editor {
     }
 
     pub(super) fn render_line_number(&mut self, line: usize, row: usize) {
+        let gutter = self.gutter_width();
+        if gutter == 0 {
+            return;
+        }
         let digits = util::digit_count(self.doc.line_count());
         let number = line + 1;
         let marker_width = usize::from(self.sidebar.show_modified);
@@ -433,6 +438,14 @@ impl Editor {
         }
         if let Some(language) = language {
             left.push_str(&format!("  [{}]", language.name));
+        }
+        let pane_count = self.pane_count();
+        if pane_count > 1 {
+            left.push_str(&format!(
+                "  [pane {}/{}]",
+                self.active_pane_ordinal(),
+                pane_count
+            ));
         }
         if self.lsp.is_running() {
             let name = self.lsp.server_name();

@@ -167,7 +167,7 @@ impl Editor {
     }
 
     pub(super) fn move_page(&mut self, direction: isize) {
-        let visible = self.text_rows().max(1);
+        let visible = self.active_pane_rows().max(1);
         self.move_vertical(direction * visible as isize);
     }
 
@@ -465,6 +465,14 @@ mod tests {
 
 impl Editor {
     pub(super) fn handle_editor_mouse(&mut self, event: Event) {
+        if event.key == Key::MouseDown
+            && event.mouse_button == MouseButton::Left
+            && let Some(clicked) = self.try_pane_at(event.mouse_x, event.mouse_y)
+            && clicked != self.active_pane
+        {
+            self.switch_to_pane(clicked);
+            self.force_full_redraw = true;
+        }
         match event.key {
             Key::ScrollUp => self.move_page(-1),
             Key::ScrollDown => self.move_page(1),
@@ -525,19 +533,23 @@ impl Editor {
     }
 
     fn mouse_offset_at(&self, x: usize, y: usize) -> Option<usize> {
-        let left = self.editor_left();
-        let rows = self.text_rows();
-        if x < left || x >= self.cols || y >= rows {
+        let bounds = self.active_pane_bounds();
+        if x < bounds.x
+            || x >= bounds.x + bounds.width
+            || y < bounds.y
+            || y >= bounds.y + bounds.height
+        {
             return None;
         }
-        let line = self.top_line + y;
+        let left = bounds.x;
+        let line = self.top_line + (y - bounds.y);
         if line >= self.doc.line_count() {
             return Some(self.doc.size());
         }
-        let gutter = self.gutter_width();
-        let local = x - left;
-        let visual = if local > gutter {
-            self.left_column + (local - gutter)
+        let gutter = self.gutter_width_for(bounds.width);
+        let local_x = x.saturating_sub(left);
+        let visual = if local_x > gutter {
+            self.left_column + (local_x - gutter)
         } else {
             0
         };

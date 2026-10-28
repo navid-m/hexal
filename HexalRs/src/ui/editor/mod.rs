@@ -14,6 +14,7 @@ mod input;
 mod lsp_ui;
 mod navigation;
 mod palette;
+mod panes;
 mod picker;
 mod plugin_manager;
 mod plugin_panels;
@@ -108,6 +109,9 @@ enum PaletteAction {
     ToggleGitIgnored,
     ToggleDiffLines,
     ToggleSearchMatchCase,
+    SplitPaneVertical,
+    SplitPaneHorizontal,
+    ClosePane,
     FormatDocument,
     Hover,
     GoToDefinition,
@@ -190,6 +194,7 @@ struct SidebarPrompt {
     kind: SidebarPromptKind,
 }
 
+#[derive(Clone)]
 struct FindState {
     active: bool,
     editing: bool,
@@ -210,6 +215,76 @@ impl FindState {
             origin: 0,
         }
     }
+}
+
+type PaneId = u64;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaneSplitOrientation {
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Clone, Copy)]
+enum PaneDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Clone)]
+enum PaneNode {
+    Leaf(PaneId),
+    Split {
+        orientation: PaneSplitOrientation,
+        ratio: f64,
+        first: Box<PaneNode>,
+        second: Box<PaneNode>,
+    },
+}
+
+/// Everything that belongs to one split view rather than to the editor as a
+/// whole. Documents themselves live either in `Editor::doc` (the active one)
+/// or in `Editor::documents`, keyed by document id, so panes that show the
+/// same buffer share a single document object.
+#[derive(Clone)]
+struct PaneState {
+    id: PaneId,
+    doc_id: u64,
+    language_override: Option<String>,
+    mode: Mode,
+    cursor: usize,
+    anchor: usize,
+    selection_linewise: bool,
+    preferred_column: Option<usize>,
+    top_line: usize,
+    left_column: usize,
+    pending_g: bool,
+    mouse_dragging: bool,
+    mouse_drag_anchor: usize,
+    find: FindState,
+    jumps: Vec<usize>,
+    jump_index: isize,
+    highlighter: Highlighter,
+    git_diff: diff_lines::DiffLineState,
+}
+
+#[derive(Clone, Copy)]
+struct PaneView {
+    pane: PaneId,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+}
+
+#[derive(Clone, Copy)]
+struct PaneDivider {
+    x: usize,
+    y: usize,
+    length: usize,
+    vertical: bool,
 }
 
 struct SpaceItem {
@@ -471,6 +546,7 @@ pub struct Editor {
     doc: Document,
     config: Config,
     screen: Screen,
+    pane_screen: Screen,
     renderer: Renderer,
     theme: Theme,
 
@@ -485,6 +561,14 @@ pub struct Editor {
     preferred_column: Option<usize>,
     top_line: usize,
     left_column: usize,
+
+    panes: Vec<PaneState>,
+    pane_root: PaneNode,
+    active_pane: PaneId,
+    next_pane_id: PaneId,
+    documents: HashMap<u64, Document>,
+    editor_left_override: Option<usize>,
+    pending_window: bool,
 
     message: String,
     message_is_error: bool,
@@ -594,6 +678,7 @@ impl Editor {
             doc,
             config,
             screen: Screen::new(),
+            pane_screen: Screen::new(),
             renderer: Renderer::new(),
             theme,
             mode: Mode::Normal,
@@ -606,6 +691,13 @@ impl Editor {
             preferred_column: None,
             top_line: 0,
             left_column: 0,
+            panes: Vec::new(),
+            pane_root: PaneNode::Leaf(1),
+            active_pane: 1,
+            next_pane_id: 2,
+            documents: HashMap::new(),
+            editor_left_override: None,
+            pending_window: false,
             message,
             message_is_error: false,
             command_line: String::new(),
@@ -695,6 +787,7 @@ impl Editor {
         editor.sidebar.show_modified = editor.config.show_diff_lines;
         editor.sidebar.show_git_ignored = editor.config.show_git_ignored;
         editor.search_match_case = editor.config.search_match_case_enabled;
+        editor.initialize_panes();
         editor.refresh_language();
         editor.refresh_git_diff();
         editor.load_plugins();
@@ -856,6 +949,11 @@ impl Editor {
             self.handle_sidebar_prompt(event);
             return;
         }
+        if self.pending_window {
+            self.pending_window = false;
+            self.handle_pane_command(event);
+            return;
+        }
         if matches!(
             event.key,
             Key::MouseDown | Key::MouseUp | Key::MouseMove | Key::ScrollUp | Key::ScrollDown
@@ -879,6 +977,15 @@ impl Editor {
             && matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select)
         {
             self.open_palette();
+            return;
+        }
+        if event.key == Key::Char
+            && event.ctrl
+            && matches!(event.ch, 'w' | 'W')
+            && matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select)
+        {
+            self.pending_window = true;
+            self.set_message("Pane: arrows/hjkl focus, +/- resize, q close, Esc cancel");
             return;
         }
         if matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select) {

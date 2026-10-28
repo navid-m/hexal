@@ -676,6 +676,27 @@ impl Editor {
                 }
             }
             "sidebar" => self.toggle_sidebar(),
+            "vs" => {
+                if args.is_empty() {
+                    self.split_pane(PaneSplitOrientation::Vertical);
+                } else {
+                    self.set_error("usage: :vs");
+                }
+            }
+            "hs" => {
+                if args.is_empty() {
+                    self.split_pane(PaneSplitOrientation::Horizontal);
+                } else {
+                    self.set_error("usage: :hs");
+                }
+            }
+            "cb" => {
+                if args.is_empty() {
+                    self.close_current_buffer();
+                } else {
+                    self.set_error("usage: :cb");
+                }
+            }
             "adi" => {
                 if args.is_empty() {
                     self.auto_detect_indentation(true);
@@ -693,7 +714,7 @@ impl Editor {
     }
 
     pub(super) fn request_quit(&mut self, force: bool) {
-        if force || !self.doc.is_dirty() {
+        if force || !self.any_pane_document_dirty() {
             self.running = false;
         } else if !self.config.confirm_quit_without_saving {
             self.set_error("Unsaved changes; use :q! to quit without saving.");
@@ -779,7 +800,7 @@ impl Editor {
                 self.anchor = self.cursor;
                 self.preferred_column = None;
                 self.mode = Mode::Normal;
-                self.top_line = line.saturating_sub(self.text_rows() / 2);
+                self.top_line = line.saturating_sub(self.active_pane_rows() / 2);
                 self.snap_cursor();
                 self.set_message(&format!("Line {line}"));
             }

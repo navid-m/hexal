@@ -94,6 +94,8 @@ fn main() {
         }
     };
 
+    std::thread::spawn(platform::desktop::ensure_launcher);
+
     let document = match file.as_deref() {
         Some(path) => match Document::open(path) {
             Ok(document) => document,

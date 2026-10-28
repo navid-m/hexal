@@ -30,7 +30,7 @@ struct CachedLine {
     end_in_block_comment: bool,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Highlighter {
     cache: HashMap<usize, CachedLine>,
     line_buffer: Vec<u8>,

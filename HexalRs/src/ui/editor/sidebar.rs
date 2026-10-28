@@ -11,7 +11,8 @@ impl Editor {
     // ---------------------------------------------------------------------
 
     pub(super) fn editor_left(&self) -> usize {
-        self.sidebar.width(self.cols)
+        self.editor_left_override
+            .unwrap_or_else(|| self.sidebar.width(self.cols))
     }
 
     pub(super) fn toggle_sidebar(&mut self) {
@@ -847,7 +848,7 @@ impl Editor {
     pub(super) fn show_sidebar_diff(&mut self, diff: &str, summary: &str) {
         self.sidebar.menu_visible = false;
         self.sidebar.focused = false;
-        self.doc = Document::from_bytes(None, diff.as_bytes().to_vec());
+        self.assign_active_document(Document::from_bytes(None, diff.as_bytes().to_vec()));
         self.language_override = Some("diff".into());
         self.refresh_language();
         self.mode = Mode::Normal;

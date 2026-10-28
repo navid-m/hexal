@@ -27,7 +27,7 @@ impl Editor {
             }
         };
         self.fire_plugin_buffer_event("buffer_closed");
-        self.doc = new_doc;
+        self.assign_active_document(new_doc);
         self.mode = Mode::Normal;
         self.anchor = 0;
         self.cursor = 0;
@@ -56,7 +56,7 @@ impl Editor {
         self.cursor = (start + local).min(self.doc.line_end(target_line));
         self.snap_cursor();
         self.anchor = self.cursor;
-        self.top_line = target_line.saturating_sub(self.text_rows() / 2);
+        self.top_line = target_line.saturating_sub(self.active_pane_rows() / 2);
         self.doc.break_undo_group();
         self.last_revision = self.doc.revision();
         self.restart_lsp_for_buffer();

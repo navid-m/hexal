@@ -9,6 +9,7 @@ use crate::util::git::{self, GitDiffLineKind};
 
 const DIFF_MARKER: char = '▎';
 
+#[derive(Clone)]
 pub(super) struct DiffLineState {
     path: String,
     lines: BTreeMap<usize, GitDiffLineKind>,

@@ -129,4 +129,22 @@ impl Screen {
     pub fn at(&self, x: usize, y: usize) -> &Cell {
         &self.cells[y * self.width + x]
     }
+
+    /// Copy one screen into another at the given top-left position.
+    pub fn blit(&mut self, source: &Screen, x: usize, y: usize) {
+        for source_y in 0..source.height {
+            let target_y = y + source_y;
+            if target_y >= self.height {
+                break;
+            }
+            for source_x in 0..source.width {
+                let target_x = x + source_x;
+                if target_x >= self.width {
+                    break;
+                }
+                self.cells[target_y * self.width + target_x] =
+                    source.cells[source_y * source.width + source_x];
+            }
+        }
+    }
 }
