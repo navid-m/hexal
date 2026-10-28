@@ -73,10 +73,7 @@ mod tests {
     fn diff_markers_follow_the_gdl_setting() {
         let mut editor = Editor::new(Document::new(), 80, 24);
         editor.sidebar.show_modified = true;
-        editor
-            .git_diff
-            .lines
-            .insert(2, GitDiffLineKind::Modified);
+        editor.git_diff.lines.insert(2, GitDiffLineKind::Modified);
         assert!(editor.git_diff_marker(2).is_some());
         editor.sidebar.show_modified = false;
         assert!(editor.git_diff_marker(2).is_none());
@@ -91,17 +88,11 @@ mod tests {
         );
         editor.screen.resize(80, 24);
         editor.sidebar.show_modified = true;
-        editor
-            .git_diff
-            .lines
-            .insert(1, GitDiffLineKind::Modified);
+        editor.git_diff.lines.insert(1, GitDiffLineKind::Modified);
         let digits = crate::util::digit_count(editor.doc.line_count());
         assert_eq!(editor.gutter_width(), digits + 2);
         editor.render_line_number(1, 1);
-        assert_eq!(
-            editor.screen.at(editor.editor_left(), 1).ch,
-            '▎'
-        );
+        assert_eq!(editor.screen.at(editor.editor_left(), 1).ch, '▎');
 
         editor.sidebar.show_modified = false;
         assert_eq!(editor.gutter_width(), digits + 1);

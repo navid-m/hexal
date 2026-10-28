@@ -300,12 +300,14 @@ impl Editor {
                 .and_then(|language| language.resolve_formatter().cloned())
             {
                 let input = self.doc.all_text();
+                let snapshot = self.capture_cursor_snapshot();
                 let target = path
                     .map(PathBuf::from)
                     .or_else(|| self.doc.path.as_ref().map(PathBuf::from));
                 if let Ok(output) = format::run(&formatter, &input, target.as_deref()) {
                     if output != input {
                         self.doc.replace_all_owned(output);
+                        self.restore_cursor_snapshot(snapshot);
                         self.doc.break_undo_group();
                     }
                 }

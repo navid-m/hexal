@@ -1004,6 +1004,40 @@ mod tests {
     }
 
     #[test]
+    fn events_without_subscribers_preserve_the_cursor() {
+        let root = temp_directory("quiet-events");
+        let plugin = root.join("plugins").join("quiet");
+        fs::create_dir_all(&plugin).unwrap();
+        fs::write(
+            plugin.join("plugin.toml"),
+            "name = \"Quiet\"\nversion = \"1.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            plugin.join("init.lua"),
+            "hexal.commands.register(\"noop\", function() end)\n",
+        )
+        .unwrap();
+
+        let mut document =
+            Document::from_bytes(Some("/tmp/quiet.txt".into()), b"one\ntwo\nthree\n".to_vec());
+        let mut cursor = 0usize;
+        let mut manager = PluginManager::new(root.join("plugins"), None);
+        manager.load_all(&mut document, &mut cursor);
+        assert!(manager.errors().is_empty(), "{:?}", manager.errors());
+
+        // The host mirror still points at offset zero. Saving must not drag
+        // the editor cursor back there just because no plugin listens for
+        // `buffer_saved`.
+        cursor = document.line_start(2) + 1;
+        let data = Value::Object(Vec::new());
+        manager.fire_event("buffer_saved", &data, &mut document, &mut cursor);
+        assert_eq!(cursor, document.line_start(2) + 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn markdown_tools_plugin_works() {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../HexalCs/Hexal/bin/Debug/net9.0/linux-x64/data/plugins/mdtools");
@@ -1204,11 +1238,14 @@ mod tests {
         let root = temp_directory("workspace-root");
         let plugin = root.join("plugins").join("root");
         fs::create_dir_all(&plugin).unwrap();
-        fs::write(plugin.join("init.lua"), r#"
+        fs::write(
+            plugin.join("init.lua"),
+            r#"
             hexal.commands.register("root", function()
                 hexal.ui.message(hexal.editor.get_workspace_root() or "NIL")
             end)
-        "#)
+        "#,
+        )
         .unwrap();
         let mut manager = PluginManager::new(plugin.parent().unwrap(), None);
         manager.set_context(
@@ -1271,7 +1308,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut manager = crate::scripting::plugin::PluginManager::new(plugin.parent().unwrap(), None);
+        let mut manager =
+            crate::scripting::plugin::PluginManager::new(plugin.parent().unwrap(), None);
         let mut document = Document::new();
         let mut cursor = 0usize;
         manager.load_all(&mut document, &mut cursor);
@@ -1359,13 +1397,11 @@ mod tests {
             .join("data")
             .join("plugins");
         assert!(root.is_dir());
-        assert!(
-            !root
-                .parent()
-                .expect("data directory")
-                .join("lsp_servers.json")
-                .exists()
-        );
+        assert!(!root
+            .parent()
+            .expect("data directory")
+            .join("lsp_servers.json")
+            .exists());
 
         for language in ["rust", "c", "typescript", "toml"] {
             let directory = root.join(language);
@@ -1384,7 +1420,9 @@ mod tests {
             };
             assert_eq!(value("lazy"), Some("true"));
             assert_eq!(value("language"), Some(language));
-            assert!(directory.join(value("entry").unwrap_or("init.lua")).is_file());
+            assert!(directory
+                .join(value("entry").unwrap_or("init.lua"))
+                .is_file());
         }
     }
 }

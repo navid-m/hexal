@@ -461,18 +461,16 @@ impl Editor {
             let problem = self.picker.items[self.picker.selected].problem.clone();
             self.close_picker();
             if let Some((path, line, column)) = problem {
-                let same = self
-                    .doc
-                    .path
-                    .as_deref()
-                    .is_some_and(|current| git::same_path(Path::new(current), Path::new(&path)));
+                let same =
+                    self.doc.path.as_deref().is_some_and(|current| {
+                        git::same_path(Path::new(current), Path::new(&path))
+                    });
                 if same {
                     self.record_jump();
                     self.move_to_line_character(line as i64, column as i64);
                 } else {
-                    let byte = super::lsp_ui::lsp_column_to_byte_offset(
-                        &path, line as i64, column as i64,
-                    );
+                    let byte =
+                        super::lsp_ui::lsp_column_to_byte_offset(&path, line as i64, column as i64);
                     self.record_jump();
                     self.request_open(&path, line, byte, false);
                 }
@@ -597,7 +595,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let first = root.join("first.rs");
         let second = root.join("second.rs");
-        let text = (0..20).map(|line| format!("line {line}")).collect::<Vec<_>>().join("\n");
+        let text = (0..20)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         std::fs::write(&first, &text).unwrap();
         std::fs::write(&second, &text).unwrap();
 
@@ -610,21 +611,13 @@ mod tests {
             24,
         );
         editor.picker.kind = PickerKind::Problems;
-        editor.picker.items = vec![problem_item(
-            first.to_string_lossy().into_owned(),
-            7,
-            0,
-        )];
+        editor.picker.items = vec![problem_item(first.to_string_lossy().into_owned(), 7, 0)];
         editor.picker.selected = 0;
         editor.open_picker_selection();
         assert_eq!(editor.cursor_line(), 7);
 
         editor.picker.kind = PickerKind::Problems;
-        editor.picker.items = vec![problem_item(
-            second.to_string_lossy().into_owned(),
-            11,
-            0,
-        )];
+        editor.picker.items = vec![problem_item(second.to_string_lossy().into_owned(), 11, 0)];
         editor.picker.selected = 0;
         editor.open_picker_selection();
         assert_eq!(

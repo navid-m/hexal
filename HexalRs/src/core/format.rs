@@ -40,10 +40,28 @@ fn create_temp_path(document_path: Option<&Path>) -> PathBuf {
     ))
 }
 
+fn absolute_document_path(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    }
+}
+
 fn working_directory(document_path: Option<&Path>) -> Option<PathBuf> {
-    document_path
-        .and_then(Path::parent)
-        .map(|parent| parent.to_path_buf())
+    let document_path = document_path?;
+    let parent = absolute_document_path(document_path)
+        .parent()
+        .map(Path::to_path_buf)?;
+    // `Path::parent` returns an empty path for a bare relative name. Passing
+    // that to `Command::current_dir` makes spawning fail with ENOENT even when
+    // the formatter itself is present in PATH.
+    if parent.as_os_str().is_empty() || !parent.is_dir() {
+        return None;
+    }
+    Some(parent)
 }
 
 pub fn run(
@@ -63,7 +81,7 @@ pub fn run(
         None
     };
     let file = document_path
-        .map(|path| path.to_string_lossy().into_owned())
+        .map(|path| absolute_document_path(path).to_string_lossy().into_owned())
         .or_else(|| {
             temp_path
                 .as_ref()
@@ -82,7 +100,9 @@ pub fn run(
             }
         }
 
-        let mut command = Command::new(&formatter.command);
+        let program = crate::util::git::command_path(&formatter.command)
+            .unwrap_or_else(|| PathBuf::from(&formatter.command));
+        let mut command = Command::new(&program);
         for argument in &formatter.arguments {
             command.arg(substitute(argument, &file, &temp));
         }
@@ -228,6 +248,7 @@ pub fn run(
 mod tests {
     use super::run;
     use crate::languages::FormatterConfig;
+    use std::path::Path;
 
     #[test]
     fn runs_stdin_stdout_formatter() {
@@ -278,6 +299,26 @@ mod tests {
         formatter.input = "file".into();
         let output = run(&formatter, b"from file\n", None).unwrap();
         assert_eq!(output, b"from file\n");
+    }
+
+    #[test]
+    fn runs_with_a_bare_relative_document_path() {
+        // A bare file name has an empty parent path. The formatter must still
+        // run from the current directory instead of failing to spawn.
+        let formatter = shell(vec!["-c", "cat"]);
+        let output = run(&formatter, b"bare\n", Some(Path::new("bare.zig"))).unwrap();
+        assert_eq!(output, b"bare\n");
+    }
+
+    #[test]
+    fn substitutes_an_absolute_file_path_for_relative_documents() {
+        let formatter = shell(vec!["-c", "printf '%s' \"$1\"", "sh", "{file}"]);
+        let output = run(&formatter, b"", Some(Path::new("relative.zig"))).unwrap();
+        let expected = std::env::current_dir().unwrap().join("relative.zig");
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            expected.to_string_lossy()
+        );
     }
 
     #[test]

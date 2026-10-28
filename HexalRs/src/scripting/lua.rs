@@ -909,6 +909,12 @@ impl LuaRuntime {
         document: &mut Document,
         cursor: &mut usize,
     ) {
+        // Keep the mirrored host cursor in step with the editor even when no
+        // plugin subscribes to this event. `apply_to_document` writes the host
+        // cursor back to the editor, so a stale mirror would move the cursor
+        // (typically to the top of the buffer) after events such as
+        // `buffer_saved`.
+        self.sync_from_document(document, *cursor);
         let subscriptions: Vec<Function> = self
             .shared
             .borrow()
@@ -920,7 +926,6 @@ impl LuaRuntime {
         if subscriptions.is_empty() {
             return;
         }
-        self.sync_from_document(document, *cursor);
         let null = self.shared.borrow().lsp.borrow().null.clone();
         let Ok(value) = json::to_lua(self.lua, data, &null) else {
             return;
@@ -1124,7 +1129,12 @@ impl LuaRuntime {
             document.replace_all_owned(data);
             document.break_undo_group();
         }
-        *cursor = cursor_byte.min(document.size());
+        // Only adopt the host cursor when the plugin actually changed it (or
+        // changed the buffer). Otherwise a stale mirror would silently move
+        // the editor cursor during unrelated events.
+        if dirty || self.synced_editor_cursor != Some(cursor_byte) {
+            *cursor = cursor_byte.min(document.size());
+        }
         self.loaded_revision = Some(document.revision());
         self.loaded_document_id = Some(document.id());
         self.synced_editor_cursor = Some(*cursor);
@@ -2817,6 +2827,19 @@ mod tests {
         assert_eq!(host.borrow().bytes(), document.all_text());
         assert_eq!(host.borrow().line_count(), document.line_count());
         assert!(host.borrow().line_bytes(document.line_count() - 1).is_some());
+    }
+
+    #[test]
+    fn apply_to_document_does_not_apply_a_stale_host_cursor() {
+        let (mut runtime, _host) = runtime();
+        let mut document = Document::from_bytes(None, b"one\ntwo\nthree\n".to_vec());
+        runtime.sync_from_document(&document, 0);
+
+        let expected = document.line_start(2) + 2;
+        let mut cursor = expected;
+        runtime.apply_to_document(&mut document, &mut cursor);
+
+        assert_eq!(cursor, expected);
     }
 
     #[test]

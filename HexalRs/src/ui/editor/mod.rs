@@ -53,6 +53,17 @@ enum Mode {
     Command,
 }
 
+/// A line/visual-column cursor position used to keep the cursor stable while
+/// a formatter rewrites the buffer. Byte offsets are not stable across
+/// formatting because indentation and line breaks can move.
+#[derive(Clone, Copy)]
+struct CursorSnapshot {
+    cursor_line: usize,
+    cursor_column: usize,
+    anchor_line: usize,
+    anchor_column: usize,
+}
+
 impl Mode {
     fn label(self) -> &'static str {
         match self {
@@ -713,16 +724,18 @@ impl Editor {
                 self.clamp_viewport();
             }
 
-            match terminal.read_event(if self
-                .plugins
-                .as_ref()
-                .map(|plugins| plugins.has_due_deferred_tasks())
-                .unwrap_or(false)
-            {
-                1
-            } else {
-                30
-            }) {
+            match terminal.read_event(
+                if self
+                    .plugins
+                    .as_ref()
+                    .map(|plugins| plugins.has_due_deferred_tasks())
+                    .unwrap_or(false)
+                {
+                    1
+                } else {
+                    30
+                },
+            ) {
                 Ok(Some(event)) => {
                     let cursor_before = self.cursor;
                     self.handle_event(event);
@@ -845,11 +858,7 @@ impl Editor {
         }
         if matches!(
             event.key,
-            Key::MouseDown
-                | Key::MouseUp
-                | Key::MouseMove
-                | Key::ScrollUp
-                | Key::ScrollDown
+            Key::MouseDown | Key::MouseUp | Key::MouseMove | Key::ScrollUp | Key::ScrollDown
         ) {
             if matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select) {
                 self.handle_editor_mouse(event);

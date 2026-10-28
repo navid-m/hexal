@@ -492,8 +492,8 @@ pub fn load_diff_lines(path: &Path, line_count: usize) -> BTreeMap<usize, GitDif
         return result;
     };
     let file_name = file_name.to_string_lossy().into_owned();
-    let output = run_diff(directory, &file_name, true)
-        .or_else(|| run_diff(directory, &file_name, false));
+    let output =
+        run_diff(directory, &file_name, true).or_else(|| run_diff(directory, &file_name, false));
     if let Some(output) = output {
         parse_diff_lines(&output, line_count, &mut result);
     }
@@ -502,16 +502,13 @@ pub fn load_diff_lines(path: &Path, line_count: usize) -> BTreeMap<usize, GitDif
 
 fn run_diff(directory: &Path, file_name: &str, use_head: bool) -> Option<String> {
     let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(directory)
-        .args([
-            "diff",
-            "--no-color",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--unified=0",
-        ]);
+    command.arg("-C").arg(directory).args([
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--unified=0",
+    ]);
     if use_head {
         command.arg("HEAD");
     }
@@ -569,10 +566,7 @@ fn parse_diff_lines(
 
 fn parse_range(value: &str) -> (usize, usize) {
     if let Some((start, count)) = value.split_once(',') {
-        (
-            start.parse().unwrap_or(0),
-            count.parse().unwrap_or(1),
-        )
+        (start.parse().unwrap_or(0), count.parse().unwrap_or(1))
     } else {
         (value.parse().unwrap_or(0), 1)
     }
@@ -704,14 +698,60 @@ pub fn has_utf8_bom(data: &[u8]) -> bool {
     data.starts_with(&[0xEF, 0xBB, 0xBF])
 }
 
-pub fn command_exists(command: &str) -> bool {
-    if command.contains('/') {
-        return Path::new(command).is_file();
+/// Locate an executable named by a formatter, language server or debug
+/// adapter. Bare names are searched for in `PATH`; relative paths are resolved
+/// against the editor's working directory. Symbolic links must resolve to a
+/// real file so a dangling link cannot be mistaken for a usable command.
+pub fn command_path(command: &str) -> Option<PathBuf> {
+    if command.trim().is_empty() {
+        return None;
     }
-    let Some(path) = std::env::var_os("PATH") else {
+    if command.contains('/') || command.contains('\\') {
+        let path = Path::new(command);
+        let candidate = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir().ok()?.join(path)
+        };
+        return is_usable_executable(&candidate).then_some(candidate);
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .filter_map(|directory| {
+            let directory = if directory.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                directory
+            };
+            let candidate = directory.join(command);
+            if candidate.is_absolute() {
+                Some(candidate)
+            } else {
+                std::env::current_dir().ok().map(|cwd| cwd.join(candidate))
+            }
+        })
+        .find(|candidate| is_usable_executable(candidate))
+}
+
+pub fn command_exists(command: &str) -> bool {
+    command_path(command).is_some()
+}
+
+fn is_usable_executable(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
-    std::env::split_paths(&path).any(|directory| directory.join(command).is_file())
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return false;
+        }
+    }
+    true
 }
 
 #[allow(dead_code)]

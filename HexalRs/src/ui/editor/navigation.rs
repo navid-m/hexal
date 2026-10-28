@@ -24,6 +24,52 @@ impl Editor {
         util::visual_column(&text, local, self.doc.tab_width().max(1))
     }
 
+    fn line_and_column_of_offset(&self, offset: usize) -> (usize, usize) {
+        let line = self.doc.line_of_offset(offset);
+        let start = self.doc.line_start(line);
+        let text = self.doc.line_text(line);
+        let local = offset.saturating_sub(start).min(text.len());
+        (
+            line,
+            util::visual_column(&text, local, self.doc.tab_width().max(1)),
+        )
+    }
+
+    fn offset_for_line_and_column(&self, line: usize, column: usize) -> usize {
+        let line = line.min(self.doc.line_count().saturating_sub(1));
+        let text = self.doc.line_text(line);
+        let mut local =
+            util::byte_offset_for_visual_column(&text, column, self.doc.tab_width().max(1))
+                .min(text.len());
+        // Formatters often change indentation widths. If the restored column
+        // falls inside whitespace, step back over it so typing there does not
+        // inject characters into the indentation.
+        if local < text.len() && matches!(text[local], b' ' | b'\t') {
+            while local > 0 && matches!(text[local - 1], b' ' | b'\t') {
+                local -= 1;
+            }
+        }
+        (self.doc.line_start(line) + local).min(self.doc.size())
+    }
+
+    pub(super) fn capture_cursor_snapshot(&self) -> CursorSnapshot {
+        let (cursor_line, cursor_column) = self.line_and_column_of_offset(self.cursor);
+        let (anchor_line, anchor_column) = self.line_and_column_of_offset(self.anchor);
+        CursorSnapshot {
+            cursor_line,
+            cursor_column,
+            anchor_line,
+            anchor_column,
+        }
+    }
+
+    pub(super) fn restore_cursor_snapshot(&mut self, snapshot: CursorSnapshot) {
+        self.cursor = self.offset_for_line_and_column(snapshot.cursor_line, snapshot.cursor_column);
+        self.anchor = self.offset_for_line_and_column(snapshot.anchor_line, snapshot.anchor_column);
+        self.preferred_column = Some(snapshot.cursor_column);
+        self.snap_cursor();
+    }
+
     pub(super) fn next_scalar(&self, offset: usize) -> usize {
         if offset >= self.doc.size() {
             return self.doc.size();
@@ -381,6 +427,40 @@ mod tests {
         editor.move_vertical(-1);
         assert_eq!(editor.cursor_line(), 1);
     }
+
+    #[test]
+    fn cursor_snapshot_follows_the_same_line_and_column_after_reformatting() {
+        let mut editor = Editor::new(
+            Document::from_bytes(None, b"alpha\nbeta\ngamma\n".to_vec()),
+            80,
+            24,
+        );
+        editor.cursor = editor.doc.line_start(1) + 2;
+        editor.anchor = editor.cursor;
+        let snapshot = editor.capture_cursor_snapshot();
+
+        editor
+            .doc
+            .replace_all_owned(b"alpha extended\nbeta\ngamma\n".to_vec());
+        editor.restore_cursor_snapshot(snapshot);
+
+        assert_eq!(editor.cursor_line(), 1);
+        assert_eq!(editor.cursor, editor.doc.line_start(1) + 2);
+        assert_eq!(editor.anchor, editor.cursor);
+    }
+
+    #[test]
+    fn cursor_snapshot_steps_back_out_of_new_indentation() {
+        let mut editor = Editor::new(Document::from_bytes(None, b"    one\n".to_vec()), 80, 24);
+        editor.cursor = editor.doc.line_start(0) + 6;
+        editor.anchor = editor.cursor;
+        let snapshot = editor.capture_cursor_snapshot();
+
+        editor.doc.replace_all_owned(b"        one\n".to_vec());
+        editor.restore_cursor_snapshot(snapshot);
+
+        assert_eq!(editor.cursor, editor.doc.line_start(0));
+    }
 }
 
 impl Editor {
@@ -405,9 +485,7 @@ impl Editor {
                 self.snap_cursor();
                 self.clear_message();
             }
-            Key::MouseMove
-                if self.mouse_dragging && event.mouse_button == MouseButton::Left =>
-            {
+            Key::MouseMove if self.mouse_dragging && event.mouse_button == MouseButton::Left => {
                 self.extend_mouse_selection(event.mouse_x, event.mouse_y);
             }
             Key::MouseUp if self.mouse_dragging && event.mouse_button == MouseButton::Left => {
@@ -464,11 +542,7 @@ impl Editor {
             0
         };
         let text = self.doc.line_text(line);
-        let local = util::byte_offset_for_visual_column(
-            &text,
-            visual,
-            self.doc.tab_width().max(1),
-        );
+        let local = util::byte_offset_for_visual_column(&text, visual, self.doc.tab_width().max(1));
         let start = self.doc.line_start(line);
         let end = self.doc.line_end(line);
         Some((start + local).min(end))

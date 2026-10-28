@@ -315,7 +315,10 @@ impl Editor {
             String::new()
         };
         if path.is_empty() {
-            self.set_error(&format!("plugin directory is unavailable for {}", plugin.id));
+            self.set_error(&format!(
+                "plugin directory is unavailable for {}",
+                plugin.id
+            ));
             return;
         }
         self.close_plugin_manager();
@@ -386,7 +389,11 @@ impl Editor {
             format!(
                 " Plugins · /{}{} ",
                 self.plugin_manager.filter,
-                if self.plugin_manager.filtering { "▏" } else { " " }
+                if self.plugin_manager.filtering {
+                    "▏"
+                } else {
+                    " "
+                }
             )
         } else {
             " Plugins ".to_string()
@@ -399,8 +406,13 @@ impl Editor {
         let detail_width = width.saturating_sub(list_width + 4);
         let border_style = self.theme.border_style();
         for row in 0..content_rows {
-            self.screen
-                .put((x + 1 + list_width) as i64, (y + 1 + row) as i64, '│', border_style, 1);
+            self.screen.put(
+                (x + 1 + list_width) as i64,
+                (y + 1 + row) as i64,
+                '│',
+                border_style,
+                1,
+            );
         }
 
         if self.plugin_manager.items.is_empty() {
@@ -482,11 +494,7 @@ impl Editor {
     }
 }
 
-fn plugin_detail_lines(
-    editor: &Editor,
-    plugin: &PluginInfo,
-    width: usize,
-) -> Vec<(String, Style)> {
+fn plugin_detail_lines(editor: &Editor, plugin: &PluginInfo, width: usize) -> Vec<(String, Style)> {
     let text = editor.theme.text();
     let accent = editor.theme.accent_style();
     let muted = editor.theme.muted_style();
@@ -529,10 +537,20 @@ fn plugin_detail_lines(
     };
     push_wrapped(&mut lines, &format!("Commands: {commands}"), width, text);
     if !plugin.error.is_empty() {
-        push_wrapped(&mut lines, &format!("Error: {}", plugin.error), width, error);
+        push_wrapped(
+            &mut lines,
+            &format!("Error: {}", plugin.error),
+            width,
+            error,
+        );
     }
     if !plugin.entry_path.is_empty() {
-        push_wrapped(&mut lines, &format!("Entry: {}", plugin.entry_path), width, muted);
+        push_wrapped(
+            &mut lines,
+            &format!("Entry: {}", plugin.entry_path),
+            width,
+            muted,
+        );
     }
     if !plugin.manifest_path.is_empty() {
         push_wrapped(

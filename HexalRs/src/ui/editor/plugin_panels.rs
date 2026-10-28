@@ -134,9 +134,7 @@ impl Editor {
         } else if state.selected >= state.top + rows {
             state.top = state.selected + 1 - rows;
         }
-        state.top = state
-            .top
-            .min(state.lines.len().saturating_sub(rows));
+        state.top = state.top.min(state.lines.len().saturating_sub(rows));
     }
 
     fn move_plugin_panel_selection(&mut self, delta: isize) {
@@ -186,11 +184,7 @@ impl Editor {
             };
             return;
         }
-        let mut index = if first {
-            0
-        } else {
-            state.lines.len() - 1
-        };
+        let mut index = if first { 0 } else { state.lines.len() - 1 };
         let step = if first { 1isize } else { -1 };
         while index < state.lines.len() {
             if state.lines[index].selectable {
@@ -336,7 +330,8 @@ impl Editor {
         };
         self.sync_plugin_context(&mut manager);
         let revision = self.doc.revision();
-        let result = manager.handle_panel_key(panel_id, key, selected, &mut self.doc, &mut self.cursor);
+        let result =
+            manager.handle_panel_key(panel_id, key, selected, &mut self.doc, &mut self.cursor);
         self.plugins = Some(manager);
         self.apply_plugin_effects();
         if self.doc.revision() != revision {
@@ -392,7 +387,11 @@ impl Editor {
         if let Some(panel) = &mut self.plugin_panel {
             panel.top = panel.top.min(max_top);
         }
-        let top = self.plugin_panel.as_ref().map(|panel| panel.top).unwrap_or(0);
+        let top = self
+            .plugin_panel
+            .as_ref()
+            .map(|panel| panel.top)
+            .unwrap_or(0);
 
         for row in 0..content_rows {
             let index = top + row;

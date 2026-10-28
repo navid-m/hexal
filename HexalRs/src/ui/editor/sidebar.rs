@@ -643,8 +643,7 @@ impl Editor {
                     Ok(input) => match format::run(&formatter, &input, Some(&file)) {
                         Ok(output) => {
                             result.formatted += 1;
-                            let output = if git::has_utf8_bom(&input)
-                                && !git::has_utf8_bom(&output)
+                            let output = if git::has_utf8_bom(&input) && !git::has_utf8_bom(&output)
                             {
                                 let mut with_bom = Vec::with_capacity(output.len() + 3);
                                 with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
@@ -659,10 +658,8 @@ impl Editor {
                                     Err(error) => {
                                         result.failed += 1;
                                         if result.first_error.is_none() {
-                                            result.first_error = Some(format!(
-                                                "{}: {error}",
-                                                git::file_name(&file)
-                                            ));
+                                            result.first_error =
+                                                Some(format!("{}: {error}", git::file_name(&file)));
                                         }
                                     }
                                 }
@@ -796,10 +793,12 @@ impl Editor {
             self.format_selection(&formatter, path.as_deref(), save_after);
             return;
         }
+        let snapshot = self.capture_cursor_snapshot();
         match format::run(&formatter, &input, path.as_deref()) {
             Ok(output) => {
                 if output != input {
                     self.doc.replace_all_owned(output);
+                    self.restore_cursor_snapshot(snapshot);
                     self.doc.break_undo_group();
                     self.lsp_dirty = self.lsp.is_running();
                     self.lsp_dirty_since = std::time::Instant::now();
@@ -1140,11 +1139,7 @@ impl Editor {
         else {
             return;
         };
-        let completed = if total > 0 {
-            completed.min(total)
-        } else {
-            0
-        };
+        let completed = if total > 0 { completed.min(total) } else { 0 };
 
         let label = "Formatting";
         let label_style = self.theme.muted_style();
@@ -1158,8 +1153,13 @@ impl Editor {
         let count_width = count.chars().count() as isize;
         let count_x = width as isize - 1 - count_width - 1;
         if count_x > (1 + label.len() + 1) as isize {
-            self.screen
-                .put_str(count_x as i64, 0, &count, label_style, count.chars().count());
+            self.screen.put_str(
+                count_x as i64,
+                0,
+                &count,
+                label_style,
+                count.chars().count(),
+            );
         }
 
         let bar_x = 1 + label.len() + 1;
@@ -1169,8 +1169,7 @@ impl Editor {
         }
         let bar_width = bar_width as usize;
         let filled = if total > 0 {
-            ((bar_width as f64 * (completed as f64 / total as f64)).round() as usize)
-                .min(bar_width)
+            ((bar_width as f64 * (completed as f64 / total as f64)).round() as usize).min(bar_width)
         } else {
             0
         };
@@ -1644,7 +1643,7 @@ mod tests {
     use crate::core::document::Document;
     use crate::ui::editor::Editor;
     use std::sync::atomic::AtomicUsize;
-    use std::sync::{Arc, mpsc};
+    use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};
 
     fn random_bytes(seed: &mut u64, length: usize) -> Vec<u8> {
@@ -1744,9 +1743,7 @@ mod tests {
         });
 
         editor.render_sidebar_format_progress(40);
-        let row: String = (0..40)
-            .map(|x| editor.screen.at(x, 0).ch)
-            .collect();
+        let row: String = (0..40).map(|x| editor.screen.at(x, 0).ch).collect();
         assert!(row.starts_with(" Formatting "), "{row:?}");
         assert!(row.contains("2/4"), "{row:?}");
         assert!(row.contains('━'), "{row:?}");

@@ -118,11 +118,21 @@ fn paste_commands() -> Vec<(&'static str, Vec<&'static str>)> {
         return vec![
             (
                 "pwsh.exe",
-                vec!["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_PASTE],
+                vec![
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    POWERSHELL_PASTE,
+                ],
             ),
             (
                 "powershell.exe",
-                vec!["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_PASTE],
+                vec![
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    POWERSHELL_PASTE,
+                ],
             ),
         ];
     }
@@ -192,10 +202,7 @@ fn run_writer(program: &str, arguments: &[&str], text: &[u8]) -> Result<(), Stri
                     .unwrap_or_default();
                 let detail = String::from_utf8_lossy(&stderr).trim().to_string();
                 return Err(if detail.is_empty() {
-                    format!(
-                        "{program} exited with code {}",
-                        status.code().unwrap_or(-1)
-                    )
+                    format!("{program} exited with code {}", status.code().unwrap_or(-1))
                 } else {
                     detail
                 });
@@ -274,10 +281,7 @@ fn run_reader(program: &str, arguments: &[&str]) -> Result<Vec<u8>, String> {
     } else {
         let detail = String::from_utf8_lossy(&stderr).trim().to_string();
         Err(if detail.is_empty() {
-            format!(
-                "{program} exited with code {}",
-                status.code().unwrap_or(-1)
-            )
+            format!("{program} exited with code {}", status.code().unwrap_or(-1))
         } else {
             detail
         })

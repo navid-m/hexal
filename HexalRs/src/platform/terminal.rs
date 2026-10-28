@@ -108,7 +108,9 @@ impl Terminal {
             height: 24,
         };
         term.update_size();
-        term.write(b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1002h\x1b[?1006h")?;
+        term.write(
+            b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1004h\x1b[?1000h\x1b[?1002h\x1b[?1006h",
+        )?;
         Ok(term)
     }
 
@@ -345,7 +347,8 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         if self.raw {
-            let _ = self.write(b"\x1b[0m\x1b[?25h\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1004l\x1b[?1049l");
+            let _ = self
+                .write(b"\x1b[0m\x1b[?25h\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1004l\x1b[?1049l");
             unsafe {
                 libc::tcsetattr(0, libc::TCSAFLUSH, &self.original);
             }

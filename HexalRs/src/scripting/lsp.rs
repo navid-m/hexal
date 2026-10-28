@@ -6033,10 +6033,8 @@ mod tests {
 
     #[test]
     fn workspace_files_are_relative_to_the_workspace_root() {
-        let root = std::env::temp_dir().join(format!(
-            "hexal-workspace-files-test-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("hexal-workspace-files-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("src/nested")).unwrap();
         fs::write(root.join("README.md"), b"readme").unwrap();
