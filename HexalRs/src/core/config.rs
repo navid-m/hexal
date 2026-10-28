@@ -3,6 +3,9 @@
 //! The schema, defaults, path resolution and update behavior mirror the C#
 //! editor's `HexalConfig`. Unknown properties are preserved when display
 //! toggles are written.
+//!
+//! SPDX-License-Identifier: GPL-3.0-only
+//! (C) Navid Momtahen - 2026
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -89,7 +92,13 @@ impl Config {
     pub fn load_default() -> (Config, String) {
         let path = resolve_path();
         if !path.exists() {
-            return (Config { source_path: path, ..Config::default() }, String::new());
+            return (
+                Config {
+                    source_path: path,
+                    ..Config::default()
+                },
+                String::new(),
+            );
         }
         Config::load(&path)
     }
@@ -99,7 +108,10 @@ impl Config {
             Ok(text) => text,
             Err(error) => {
                 return (
-                    Config { source_path: path.to_path_buf(), ..Config::default() },
+                    Config {
+                        source_path: path.to_path_buf(),
+                        ..Config::default()
+                    },
                     error.to_string(),
                 );
             }
@@ -107,7 +119,10 @@ impl Config {
         match parse(&text, path) {
             Ok(config) => (config, String::new()),
             Err(error) => (
-                Config { source_path: path.to_path_buf(), ..Config::default() },
+                Config {
+                    source_path: path.to_path_buf(),
+                    ..Config::default()
+                },
                 format!("invalid JSON: {error}"),
             ),
         }
@@ -259,11 +274,8 @@ fn parse(text: &str, path: &Path) -> Result<Config, String> {
         )
         .unwrap_or(true),
         show_git_ignored: read_bool("showGitIgnored", "show_git_ignored").unwrap_or(false),
-        show_modified_indicators: read_bool(
-            "showModifiedIndicators",
-            "show_modified_indicators",
-        )
-        .unwrap_or(true),
+        show_modified_indicators: read_bool("showModifiedIndicators", "show_modified_indicators")
+            .unwrap_or(true),
         word_wrap: read_bool("wordWrap", "word_wrap").unwrap_or(false),
         keep_sidebar_focus_on_open: read_bool(
             "keepSidebarFocusOnOpen",
@@ -275,11 +287,8 @@ fn parse(text: &str, path: &Path) -> Result<Config, String> {
             "confirm_quit_without_saving",
         )
         .unwrap_or(true),
-        search_match_case_enabled: read_bool(
-            "searchMatchCaseEnabled",
-            "search_match_case_enabled",
-        )
-        .unwrap_or(false),
+        search_match_case_enabled: read_bool("searchMatchCaseEnabled", "search_match_case_enabled")
+            .unwrap_or(false),
     })
 }
 
@@ -316,7 +325,7 @@ fn home_directory() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, parse};
+    use super::{parse, Config};
     use std::path::Path;
 
     #[test]
@@ -345,29 +354,36 @@ mod tests {
         assert!(config.show_diff_lines);
         assert!(!config.word_wrap);
         assert!(!config.search_match_case_enabled);
-        assert_eq!(config.central_repository_url, super::DEFAULT_CENTRAL_REPOSITORY_URL);
+        assert_eq!(
+            config.central_repository_url,
+            super::DEFAULT_CENTRAL_REPOSITORY_URL
+        );
     }
 
     #[test]
     fn creates_missing_config_when_persisting() {
-        let directory = std::env::temp_dir().join(format!(
-            "hexal-config-create-{}",
-            std::process::id()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("hexal-config-create-{}", std::process::id()));
         let path = directory.join(".hexcfg");
         let _ = std::fs::remove_dir_all(&directory);
         Config::update_display_settings(&path, true, true, false).unwrap();
         let parsed = crate::util::json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
-            parsed.get("version").and_then(crate::util::json::Value::as_i64),
+            parsed
+                .get("version")
+                .and_then(crate::util::json::Value::as_i64),
             Some(1)
         );
         assert_eq!(
-            parsed.get("formatOnSave").and_then(crate::util::json::Value::as_bool),
+            parsed
+                .get("formatOnSave")
+                .and_then(crate::util::json::Value::as_bool),
             Some(false)
         );
         assert_eq!(
-            parsed.get("showGitIgnored").and_then(crate::util::json::Value::as_bool),
+            parsed
+                .get("showGitIgnored")
+                .and_then(crate::util::json::Value::as_bool),
             Some(true)
         );
         let _ = std::fs::remove_dir_all(directory);
@@ -375,11 +391,13 @@ mod tests {
 
     #[test]
     fn writes_display_settings_and_preserves_unknown_keys() {
-        let path = std::env::temp_dir().join(format!(
-            "hexal-config-test-{}.hexcfg",
-            std::process::id()
-        ));
-        std::fs::write(&path, r#"{"version":1,"unknown":{"a":1},"showDiffLines":true}"#).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("hexal-config-test-{}.hexcfg", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"{"version":1,"unknown":{"a":1},"showDiffLines":true}"#,
+        )
+        .unwrap();
         Config::update_display_settings(&path, false, true, true).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("{\n  \"version\": 1,\n"));
@@ -387,11 +405,15 @@ mod tests {
         assert!(text.contains("\"unknown\""));
         let parsed = crate::util::json::parse(&text).unwrap();
         assert_eq!(
-            parsed.get("showDiffLines").and_then(crate::util::json::Value::as_bool),
+            parsed
+                .get("showDiffLines")
+                .and_then(crate::util::json::Value::as_bool),
             Some(false)
         );
         assert_eq!(
-            parsed.get("showGitIgnored").and_then(crate::util::json::Value::as_bool),
+            parsed
+                .get("showGitIgnored")
+                .and_then(crate::util::json::Value::as_bool),
             Some(true)
         );
         assert_eq!(
