@@ -147,9 +147,14 @@ impl Editor {
 
         let plugin_commands = self.plugin_command_names();
         for name in plugin_commands {
+            let description = self
+                .plugins
+                .as_ref()
+                .and_then(|manager| manager.command_description(&name))
+                .unwrap_or_else(|| format!("Run the plugin command :{name}"));
             self.palette_commands.push(PaletteCommand {
                 title: format!("Plugin: {name}"),
-                description: format!("Run the plugin command :{name}"),
+                description,
                 action: PaletteAction::Plugin(name),
             });
         }

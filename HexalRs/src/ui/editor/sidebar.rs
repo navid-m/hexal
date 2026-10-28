@@ -1456,3 +1456,67 @@ fn reindent_selection(text: &[u8], prefix: &str) -> Vec<u8> {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_eol, reindent_selection, remove_common_indent};
+
+    fn random_bytes(seed: &mut u64, length: usize) -> Vec<u8> {
+        const ALPHABET: &[u8] = b" \t\r\nabcXYZ0123{}();:/\\";
+        let mut output = Vec::with_capacity(length);
+        for _ in 0..length {
+            *seed ^= *seed << 13;
+            *seed ^= *seed >> 7;
+            *seed ^= *seed << 17;
+            output.push(ALPHABET[(*seed as usize) % ALPHABET.len()]);
+        }
+        output
+    }
+
+    #[test]
+    fn formatting_helpers_handle_arbitrary_bytes_without_panicking() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        for length in 0..512 {
+            for _ in 0..8 {
+                let text = random_bytes(&mut seed, length);
+                let (stripped, prefix) = remove_common_indent(&text);
+                assert!(stripped.len() <= text.len());
+                let _ = reindent_selection(&stripped, &prefix);
+                let _ = normalize_eol(&text, b"\n");
+                let _ = normalize_eol(&text, b"\r\n");
+            }
+        }
+    }
+
+    #[test]
+    fn selection_indent_helpers_preserve_expected_text() {
+        let (text, prefix) = remove_common_indent(b"    one\n    two\n");
+        assert_eq!(text, b"one\ntwo\n");
+        assert_eq!(prefix, "    ");
+        assert_eq!(reindent_selection(&text, &prefix), b"    one\n    two\n");
+
+        let (text, prefix) = remove_common_indent(b"\tone\n\ttwo");
+        assert_eq!(text, b"one\ntwo");
+        assert_eq!(prefix, "\t");
+
+        let (text, prefix) = remove_common_indent(b"one\n  two\n");
+        assert_eq!(text, b"one\n  two\n");
+        assert_eq!(prefix, "");
+
+        let (text, prefix) = remove_common_indent(b"\n\n");
+        assert_eq!(text, b"\n\n");
+        assert_eq!(prefix, "");
+
+        let (text, prefix) = remove_common_indent(b"    \n    ");
+        assert_eq!(text, b"    \n    ");
+        assert_eq!(prefix, "");
+    }
+
+    #[test]
+    fn eol_normalization_handles_all_line_endings() {
+        assert_eq!(normalize_eol(b"a\r\nb\rc\nd", b"\n"), b"a\nb\nc\nd");
+        assert_eq!(normalize_eol(b"a\r\nb\rc\nd", b"\r\n"), b"a\r\nb\r\nc\r\nd");
+        assert_eq!(normalize_eol(b"\r", b"\n"), b"\n");
+        assert_eq!(normalize_eol(b"\r\n", b"\n"), b"\n");
+    }
+}

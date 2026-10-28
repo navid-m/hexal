@@ -146,6 +146,15 @@ pub fn run(
                     if started.elapsed() >= timeout {
                         let _ = child.kill();
                         let _ = child.wait();
+                        if let Some(writer) = writer {
+                            let _ = writer.join();
+                        }
+                        if let Some(reader) = stdout_reader {
+                            let _ = reader.join();
+                        }
+                        if let Some(reader) = stderr_reader {
+                            let _ = reader.join();
+                        }
                         return Err(format!(
                             "formatter timed out after {} ms",
                             timeout.as_millis()
@@ -156,6 +165,15 @@ pub fn run(
                 Err(error) => {
                     let _ = child.kill();
                     let _ = child.wait();
+                    if let Some(writer) = writer {
+                        let _ = writer.join();
+                    }
+                    if let Some(reader) = stdout_reader {
+                        let _ = reader.join();
+                    }
+                    if let Some(reader) = stderr_reader {
+                        let _ = reader.join();
+                    }
                     return Err(format!("formatter failed: {error}"));
                 }
             }
@@ -234,5 +252,91 @@ mod tests {
             timeout_ms: 5000,
         };
         assert!(run(&formatter, b"x", None).is_err());
+    }
+
+    fn shell(arguments: Vec<&str>) -> FormatterConfig {
+        FormatterConfig {
+            command: "sh".into(),
+            arguments: arguments.into_iter().map(str::to_string).collect(),
+            input: "stdin".into(),
+            output: "stdout".into(),
+            timeout_ms: 5000,
+        }
+    }
+
+    #[test]
+    fn runs_stdin_file_formatter() {
+        let mut formatter = shell(vec!["-c", "cat > \"$1\"", "sh", "{tmp}"]);
+        formatter.output = "file".into();
+        let output = run(&formatter, b"from stdin\n", None).unwrap();
+        assert_eq!(output, b"from stdin\n");
+    }
+
+    #[test]
+    fn runs_file_stdout_formatter() {
+        let mut formatter = shell(vec!["-c", "cat \"$1\"", "sh", "{file}"]);
+        formatter.input = "file".into();
+        let output = run(&formatter, b"from file\n", None).unwrap();
+        assert_eq!(output, b"from file\n");
+    }
+
+    #[test]
+    fn strips_a_utf8_bom_from_formatter_output() {
+        let formatter = shell(vec!["-c", "printf '\\357\\273\\277x'"]);
+        let output = run(&formatter, b"ignored", None).unwrap();
+        assert_eq!(output, b"x");
+    }
+
+    #[test]
+    fn preserves_binary_formatter_output() {
+        let formatter = shell(vec!["-c", "printf '\\000\\001\\377'"]);
+        let output = run(&formatter, b"ignored", None).unwrap();
+        assert_eq!(output, &[0, 1, 255]);
+    }
+
+    #[test]
+    fn reports_formatter_timeout() {
+        let mut formatter = shell(vec!["-c", "sleep 2"]);
+        formatter.timeout_ms = 50;
+        let error = run(&formatter, b"x", None).unwrap_err();
+        assert!(error.contains("timed out"), "{error}");
+    }
+
+    #[test]
+    fn reports_formatter_stderr_and_exit_code() {
+        let formatter = shell(vec!["-c", "echo boom >&2; exit 7"]);
+        let error = run(&formatter, b"x", None).unwrap_err();
+        assert!(error.contains("code 7"), "{error}");
+        assert!(error.contains("boom"), "{error}");
+    }
+
+    #[test]
+    fn file_formatter_must_create_the_output_file() {
+        let mut formatter = shell(vec!["-c", "cat > /dev/null"]);
+        formatter.output = "file".into();
+        let error = run(&formatter, b"x", None).unwrap_err();
+        assert!(error.contains("did not produce"), "{error}");
+    }
+
+    #[test]
+    fn handles_large_formatter_output() {
+        let formatter = shell(vec!["-c", "yes x | head -c 1000000"]);
+        let output = run(&formatter, b"ignored", None).unwrap();
+        assert_eq!(output.len(), 1_000_000);
+    }
+
+    #[test]
+    fn handles_large_formatter_input() {
+        let formatter = shell(vec!["-c", "cat"]);
+        let input = vec![b'a'; 1_000_000];
+        let output = run(&formatter, &input, None).unwrap();
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn formatter_that_closes_stdin_early_does_not_panic() {
+        let formatter = shell(vec!["-c", "exit 0"]);
+        let output = run(&formatter, &vec![b'a'; 100_000], None).unwrap();
+        assert!(output.is_empty());
     }
 }

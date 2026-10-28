@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
@@ -136,7 +136,8 @@ enum Incoming {
 
 pub struct Manager {
     child: Option<Child>,
-    input: Option<ChildStdin>,
+    outgoing: Option<Sender<Vec<u8>>>,
+    writer: Option<std::thread::JoinHandle<()>>,
     incoming: Option<Receiver<Incoming>>,
     reader: Option<std::thread::JoinHandle<()>>,
     stderr_reader: Option<std::thread::JoinHandle<()>>,
@@ -162,7 +163,8 @@ impl Default for Manager {
     fn default() -> Self {
         Manager {
             child: None,
-            input: None,
+            outgoing: None,
+            writer: None,
             incoming: None,
             reader: None,
             stderr_reader: None,
@@ -339,7 +341,21 @@ impl Manager {
         let stderr = child.stderr.take();
         let input = child.stdin.take();
         self.child = Some(child);
-        self.input = input;
+
+        // Writes happen on a dedicated thread so a slow or unresponsive
+        // language server can never stall the editor's input loop.
+        let (outgoing, writer_input) = mpsc::channel::<Vec<u8>>();
+        self.outgoing = Some(outgoing);
+        if let Some(mut input) = input {
+            self.writer = Some(std::thread::spawn(move || {
+                while let Ok(frame) = writer_input.recv() {
+                    if input.write_all(&frame).is_err() {
+                        break;
+                    }
+                }
+                let _ = input.flush();
+            }));
+        }
 
         let (sender, receiver) = mpsc::channel();
         self.incoming = Some(receiver);
@@ -1074,18 +1090,17 @@ impl Manager {
             let text = String::from_utf8_lossy(&body).into_owned();
             self.log(format!("--> {text}"));
         }
-        let Some(input) = &mut self.input else {
+        let Some(outgoing) = &self.outgoing else {
             return;
         };
-        let header = format!("Content-Length: {}\r\n\r\n", body.len());
-        if let Err(error) = input
-            .write_all(header.as_bytes())
-            .and_then(|_| input.write_all(&body))
-        {
-            self.log(format!("send failed: {error}"));
+        let mut frame = Vec::with_capacity(body.len() + 32);
+        frame.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
+        frame.extend_from_slice(&body);
+        if outgoing.send(frame).is_err() {
+            self.log("send failed: language server writer is gone".into());
             self.events.push(Event::Error {
                 server: self.server_name(),
-                message: error.to_string(),
+                message: "language server writer is gone".into(),
             });
         }
     }
@@ -1095,21 +1110,50 @@ impl Manager {
     }
 
     pub fn stop(&mut self) {
-        if self.child.is_none() && self.input.is_none() {
+        if self.child.is_none()
+            && self.outgoing.is_none()
+            && self.writer.is_none()
+            && self.incoming.is_none()
+            && self.reader.is_none()
+            && self.stderr_reader.is_none()
+        {
             return;
         }
-        if let Some(mut child) = self.child.take() {
+
+        // Tear down off the input thread. Killing the child unblocks any
+        // pending pipe writes/reads, and waiting for descendants is done in
+        // the background so switching documents never waits on a server.
+        self.outgoing = None;
+        let mut child = self.child.take();
+        if let Some(child) = &mut child {
             let _ = child.kill();
-            let _ = child.wait();
         }
-        self.input = None;
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+        let writer = self.writer.take();
+        let reader = self.reader.take();
+        let stderr_reader = self.stderr_reader.take();
+        let incoming = self.incoming.take();
+        if child.is_some()
+            || writer.is_some()
+            || reader.is_some()
+            || stderr_reader.is_some()
+            || incoming.is_some()
+        {
+            std::thread::spawn(move || {
+                if let Some(mut child) = child {
+                    let _ = child.wait();
+                }
+                if let Some(writer) = writer {
+                    let _ = writer.join();
+                }
+                if let Some(reader) = reader {
+                    let _ = reader.join();
+                }
+                if let Some(reader) = stderr_reader {
+                    let _ = reader.join();
+                }
+                drop(incoming);
+            });
         }
-        if let Some(reader) = self.stderr_reader.take() {
-            let _ = reader.join();
-        }
-        self.incoming = None;
         self.config = None;
         self.initialized = false;
         self.workspace_diagnostics_supported = false;
@@ -1843,9 +1887,9 @@ pub fn configs_for_language(language: &str) -> Vec<ServerConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::{path_to_uri, Event, Manager, ServerConfig};
+    use super::{Event, Manager, ServerConfig, path_to_uri};
     use std::fs;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn bundled_server_associations_are_available() {
@@ -2020,6 +2064,99 @@ while True:
         assert!(manager.is_serving(&path));
         assert_eq!(manager.uri_for_test(), uri);
         manager.stop();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_slow_server_does_not_block_edits_or_stop() {
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("hexal-lsp-slow-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let server = dir.join("server.py");
+        fs::write(
+            &server,
+            r#"
+import json, sys, time
+
+def read():
+    headers = {}
+    line = sys.stdin.buffer.readline()
+    if not line:
+        return None
+    while line and line not in (b'\n', b'\r\n'):
+        name, value = line.decode().split(':', 1)
+        headers[name.lower()] = value.strip()
+        line = sys.stdin.buffer.readline()
+    return json.loads(sys.stdin.buffer.read(int(headers.get('content-length', '0'))))
+
+def send(message):
+    body = json.dumps(message).encode()
+    sys.stdout.buffer.write(('Content-Length: %d\r\n\r\n' % len(body)).encode())
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+message = read()
+send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{}}})
+send({'jsonrpc':'2.0','method':'initialized','params':{}})
+time.sleep(3)
+"#,
+        )
+        .unwrap();
+
+        let document = dir.join("sample.rs");
+        fs::write(&document, b"fn main() {}\n").unwrap();
+        let workspace = dir.to_string_lossy().into_owned();
+        let path = document.to_string_lossy().into_owned();
+        let mut manager = Manager::new();
+        manager
+            .try_start(
+                ServerConfig {
+                    name: "slow".into(),
+                    command: "python3".into(),
+                    arguments: vec![server.to_string_lossy().into_owned()],
+                    language_id: "rust".into(),
+                },
+                &path,
+                "fn main() {}\n",
+                &workspace,
+            )
+            .unwrap();
+
+        let mut initialized = false;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !initialized {
+            manager.poll(Duration::from_millis(5));
+            for event in manager.take_events() {
+                if matches!(event, Event::Initialized) {
+                    initialized = true;
+                }
+            }
+        }
+        assert!(initialized);
+
+        let large_document = "x".repeat(2 * 1024 * 1024);
+        let started = Instant::now();
+        manager.did_change(&large_document);
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "did_change blocked for {:?}",
+            started.elapsed()
+        );
+
+        let started = Instant::now();
+        manager.stop();
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "stop blocked for {:?}",
+            started.elapsed()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

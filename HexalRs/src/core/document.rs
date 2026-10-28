@@ -6,11 +6,13 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::core::piece_table::PieceTable;
 
 const MAX_UNDO_GROUPS: usize = 4096;
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+static NEXT_DOCUMENT_ID: AtomicU64 = AtomicU64::new(1);
 
 pub use crate::core::piece_table::Eol;
 
@@ -37,6 +39,7 @@ struct Group {
 }
 
 pub struct Document {
+    id: u64,
     table: PieceTable,
     pub path: Option<String>,
     pub eol: Eol,
@@ -56,6 +59,7 @@ pub struct Document {
 impl Document {
     pub fn new() -> Document {
         Document {
+            id: NEXT_DOCUMENT_ID.fetch_add(1, Ordering::Relaxed),
             table: PieceTable::new(),
             path: None,
             eol: Eol::Lf,
@@ -131,6 +135,13 @@ impl Document {
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// A process-unique identity for this document. Unlike the revision
+    /// counter this changes when a different file is loaded into the editor,
+    /// which lets cached borrowed views detect replacement safely.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     pub fn use_tabs(&self) -> bool {

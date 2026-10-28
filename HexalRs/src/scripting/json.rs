@@ -7,7 +7,6 @@
 //! (C) Navid Momtahen - 2026
 
 use mlua::{Lua, Result as LuaResult, Table, Value as LuaValue};
-use std::cmp::Ordering;
 
 pub use crate::util::json::Value;
 
@@ -132,10 +131,6 @@ pub fn to_lua(lua: &Lua, value: &Value, null: &LuaValue) -> LuaResult<LuaValue> 
     })
 }
 
-pub fn get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
-    value.get(key)
-}
-
 pub fn get_i64(value: Option<&Value>, fallback: i64) -> i64 {
     value.and_then(Value::as_i64).unwrap_or(fallback)
 }
@@ -151,30 +146,10 @@ pub fn get_str(value: Option<&Value>, fallback: &str) -> String {
         .to_string()
 }
 
-pub fn object() -> Value {
-    Value::Object(Vec::new())
-}
-
-pub fn array() -> Value {
-    Value::Array(Vec::new())
-}
-
-pub fn set(object: &mut Value, key: &str, value: Value) {
-    object.set(key, value);
-}
-
 pub fn push(array: &mut Value, value: Value) {
     if let Value::Array(values) = array {
         values.push(value);
     }
-}
-
-pub fn number(value: i64) -> Value {
-    Value::Number(value as f64)
-}
-
-pub fn string(value: impl Into<String>) -> Value {
-    Value::String(value.into())
 }
 
 pub fn as_array(value: &Value) -> &[Value] {
@@ -183,10 +158,4 @@ pub fn as_array(value: &Value) -> &[Value] {
 
 pub fn as_object(value: &Value) -> &[(String, Value)] {
     value.as_object().unwrap_or(&[])
-}
-
-pub fn compare_number(left: &Value, right: &Value) -> Ordering {
-    left.as_i64()
-        .unwrap_or_default()
-        .cmp(&right.as_i64().unwrap_or_default())
 }

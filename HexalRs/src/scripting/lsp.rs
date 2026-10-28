@@ -362,8 +362,6 @@ pub struct DiagnosticEntry {
 
 #[derive(Clone)]
 pub struct PendingRequest {
-    pub id: i64,
-    pub method: String,
     pub callback: Option<Function>,
     pub completion_callbacks: Vec<Function>,
     pub done: bool,
@@ -377,8 +375,6 @@ pub struct ClientState {
     pub initialized: bool,
     pub notifications: Vec<Value>,
     pub versions: HashMap<String, i64>,
-    pub pending: HashMap<i64, (bool, Value, String)>,
-    pub next_id: i64,
 }
 
 impl ClientState {
@@ -387,8 +383,6 @@ impl ClientState {
             initialized: false,
             notifications: Vec::new(),
             versions: HashMap::new(),
-            pending: HashMap::new(),
-            next_id: 1,
         }
     }
 }
@@ -455,12 +449,6 @@ impl Server {
     }
 }
 
-pub struct WatchRegistration {
-    pub glob: String,
-    pub cancelled: bool,
-    pub callback: Option<Function>,
-}
-
 pub struct IndexState {
     pub files: HashMap<String, Vec<Value>>,
 }
@@ -487,7 +475,6 @@ pub struct Coordinator {
     pub modules: HashMap<String, Table>,
     pub workspace: Workspace,
     pub outgoing: Rc<RefCell<Vec<Value>>>,
-    pub watches: Vec<WatchRegistration>,
     pub indexes: Vec<Rc<RefCell<IndexState>>>,
     pub external_requests: Vec<LspRequest>,
     pub external_stops: Vec<String>,
@@ -524,7 +511,6 @@ impl Coordinator {
             modules: HashMap::new(),
             workspace: Workspace::new(root),
             outgoing,
-            watches: Vec::new(),
             indexes: Vec::new(),
             external_requests: Vec::new(),
             external_stops: Vec::new(),
@@ -872,14 +858,6 @@ fn add_module(
     Ok(table)
 }
 
-fn function<A, R>(lua: &Lua, f: impl Fn(&Lua, A) -> LuaResult<R> + 'static) -> LuaResult<Function>
-where
-    A: mlua::FromLuaMulti,
-    R: mlua::IntoLuaMulti,
-{
-    lua.create_function(f)
-}
-
 fn set_fn<A, R>(
     lua: &Lua,
     table: &Table,
@@ -907,14 +885,6 @@ fn to_lua(lua: &Lua, coordinator: &Rc<RefCell<Coordinator>>, value: &Value) -> L
     json::to_lua(lua, value, &null)
 }
 
-fn to_lua_table(
-    lua: &Lua,
-    coordinator: &Rc<RefCell<Coordinator>>,
-    value: &Value,
-) -> LuaResult<LuaValue> {
-    to_lua(lua, coordinator, value)
-}
-
 fn wrap(lua: &Lua, table: &Table) {
     if let Ok(wrap) = lua.globals().get::<Function>("__hexal_wrap_methods") {
         let _ = wrap.call::<()>(table.clone());
@@ -939,22 +909,6 @@ fn string_array(table: &Table, key: &str) -> Vec<String> {
         }
     }
     result
-}
-
-fn option_bool(table: &Table, key: &str, fallback: bool) -> bool {
-    table
-        .get::<Option<bool>>(key)
-        .ok()
-        .flatten()
-        .unwrap_or(fallback)
-}
-
-fn old_lsp_task(
-    lua: &Lua,
-    coordinator: &Rc<RefCell<Coordinator>>,
-    result: Value,
-) -> LuaResult<Table> {
-    task_table(lua, coordinator, result, String::new())
 }
 
 fn task_table(
@@ -1268,18 +1222,11 @@ fn fill_workspace(
     }
     {
         let workspace = workspace.clone();
-        let coordinator = coordinator.clone();
         set_fn(
             lua,
             &table,
             "watch",
-            move |lua, (glob, callback): (String, Option<Function>)| {
-                let watch = WatchRegistration {
-                    glob: glob.clone(),
-                    cancelled: false,
-                    callback,
-                };
-                coordinator.borrow_mut().watches.push(watch);
+            move |lua, (glob, _callback): (String, Option<Function>)| {
                 let watch_table = lua.create_table()?;
                 let cancelled = Rc::new(RefCell::new(false));
                 {
@@ -2294,8 +2241,6 @@ fn send_client_request(
         server.pending.insert(
             id,
             PendingRequest {
-                id,
-                method: method.to_string(),
                 callback,
                 completion_callbacks: Vec::new(),
                 done: false,

@@ -136,18 +136,21 @@ pub struct PluginSelection {
     pub linewise: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct PanelSegment {
     pub text: String,
     pub style: String,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct PanelLine {
     pub segments: Vec<PanelSegment>,
     pub selectable: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct PluginPanel {
     pub id: i64,
@@ -159,6 +162,7 @@ pub struct PluginPanel {
     pub lines: Vec<PanelLine>,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum HostRequest {
     Prompt {
@@ -316,10 +320,6 @@ impl HostState {
 
     pub fn line_count(&self) -> usize {
         self.line_starts.len().max(1)
-    }
-
-    pub fn line_start(&self, line: usize) -> usize {
-        self.line_starts[line.min(self.line_count() - 1)]
     }
 
     pub fn line_bounds(&self, line: usize) -> Option<(usize, usize)> {
@@ -576,6 +576,7 @@ pub struct Subscription {
     pub callback: Function,
 }
 
+#[allow(dead_code)]
 pub enum PromptCallback {
     Prompt(Function),
     Select(Function),
@@ -583,7 +584,6 @@ pub enum PromptCallback {
 
 pub struct RuntimeShared {
     pub plugin_id: String,
-    pub plugin_dir: String,
     pub commands: HashMap<String, CommandEntry>,
     pub command_version: u64,
     pub keybindings: Vec<KeyBinding>,
@@ -608,8 +608,8 @@ pub struct LuaRuntime {
     pub host: Rc<RefCell<HostState>>,
     pub shared: Rc<RefCell<RuntimeShared>>,
     pub plugin_id: String,
-    pub plugin_dir: String,
     loaded_revision: Option<u64>,
+    loaded_document_id: Option<u64>,
     synced_editor_cursor: Option<usize>,
     last_command: Option<(String, u64, CommandEntry)>,
     _raw: Box<RawCtx>,
@@ -661,7 +661,6 @@ impl LuaRuntime {
 
         let shared = Rc::new(RefCell::new(RuntimeShared {
             plugin_id: plugin_id.clone(),
-            plugin_dir: plugin_dir.clone(),
             commands: HashMap::new(),
             command_version: 0,
             keybindings: Vec::new(),
@@ -706,8 +705,8 @@ impl LuaRuntime {
             host,
             shared,
             plugin_id,
-            plugin_dir,
             loaded_revision: None,
+            loaded_document_id: None,
             synced_editor_cursor: None,
             last_command: None,
             _raw: raw,
@@ -894,7 +893,8 @@ impl LuaRuntime {
             return;
         }
         let revision = document.revision();
-        if self.loaded_revision != Some(revision) {
+        if self.loaded_document_id != Some(document.id()) || self.loaded_revision != Some(revision)
+        {
             if let Some((pointer, length)) = document.borrowed_text() {
                 self.host
                     .borrow_mut()
@@ -903,6 +903,7 @@ impl LuaRuntime {
                 self.host.borrow_mut().load(document.all_text(), cursor);
             }
             self.loaded_revision = Some(revision);
+            self.loaded_document_id = Some(document.id());
             self.synced_editor_cursor = Some(cursor);
             return;
         }
@@ -946,6 +947,7 @@ impl LuaRuntime {
         }
         *cursor = cursor_byte.min(document.size());
         self.loaded_revision = Some(document.revision());
+        self.loaded_document_id = Some(document.id());
         self.synced_editor_cursor = Some(*cursor);
         let mut host = self.host.borrow_mut();
         host.dirty = false;
@@ -962,6 +964,7 @@ impl LuaRuntime {
         )
     }
 
+    #[allow(dead_code)]
     pub fn resolve_prompt(&self, id: i64, value: Option<&str>) -> bool {
         let callback = self.shared.borrow_mut().prompts.remove(&id);
         let Some(PromptCallback::Prompt(callback)) = callback else {
@@ -977,6 +980,7 @@ impl LuaRuntime {
         true
     }
 
+    #[allow(dead_code)]
     pub fn resolve_select(&self, id: i64, index: Option<usize>) -> bool {
         let callback = self.shared.borrow_mut().prompts.remove(&id);
         let Some(PromptCallback::Select(callback)) = callback else {
@@ -1010,7 +1014,6 @@ impl Drop for LuaRuntime {
                 coordinator.modules.clear();
                 coordinator.servers.clear();
                 coordinator.diagnostic_handlers.clear();
-                coordinator.watches.clear();
             }
         }
         unsafe {
@@ -1104,16 +1107,6 @@ fn string_list(value: &Value) -> Vec<String> {
             _ => String::new(),
         })
         .collect()
-}
-
-fn stringify(value: Option<LuaValue>) -> String {
-    match value {
-        Some(LuaValue::String(text)) => text.to_string_lossy().to_string(),
-        Some(LuaValue::Integer(number)) => number.to_string(),
-        Some(LuaValue::Number(number)) => number.to_string(),
-        Some(LuaValue::Boolean(flag)) => flag.to_string(),
-        _ => String::new(),
-    }
 }
 
 fn arguments(values: &[LuaValue]) -> Vec<String> {
@@ -2362,18 +2355,30 @@ fn run_process(
         result.set("error", Value::String(format!("cannot start '{command}'")));
         return result;
     };
+    let stdout_reader = child.stdout.take().map(|mut stream| {
+        std::thread::spawn(move || {
+            let mut output = String::new();
+            let _ = stream.read_to_string(&mut output);
+            output
+        })
+    });
+    let stderr_reader = child.stderr.take().map(|mut stream| {
+        std::thread::spawn(move || {
+            let mut output = String::new();
+            let _ = stream.read_to_string(&mut output);
+            output
+        })
+    });
     let deadline = Instant::now() + Duration::from_millis(timeout as u64);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut stdout = String::new();
-                let mut stderr = String::new();
-                if let Some(mut stream) = child.stdout.take() {
-                    let _ = stream.read_to_string(&mut stdout);
-                }
-                if let Some(mut stream) = child.stderr.take() {
-                    let _ = stream.read_to_string(&mut stderr);
-                }
+                let stdout = stdout_reader
+                    .and_then(|reader| reader.join().ok())
+                    .unwrap_or_default();
+                let stderr = stderr_reader
+                    .and_then(|reader| reader.join().ok())
+                    .unwrap_or_default();
                 result.set("ok", Value::Bool(status.success()));
                 result.set("code", Value::Number(status.code().unwrap_or(-1) as f64));
                 result.set("stdout", Value::String(stdout));
@@ -2394,6 +2399,8 @@ fn run_process(
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = stdout_reader.and_then(|reader| reader.join().ok());
+                    let _ = stderr_reader.and_then(|reader| reader.join().ok());
                     result.set(
                         "error",
                         Value::String(format!("process timed out after {timeout} ms")),
@@ -2403,6 +2410,10 @@ fn run_process(
                 std::thread::sleep(Duration::from_millis(5));
             }
             Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.and_then(|reader| reader.join().ok());
+                let _ = stderr_reader.and_then(|reader| reader.join().ok());
                 result.set("error", Value::String(error.to_string()));
                 return result;
             }
@@ -2429,5 +2440,175 @@ unsafe extern "C" fn lua_alloc(
         } else {
             allocator.realloc(pointer as *mut u8, old_size, new_size) as *mut c_void
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HostState, LuaRuntime};
+    use crate::core::document::Document;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    fn runtime() -> (LuaRuntime, Rc<RefCell<HostState>>) {
+        let host = Rc::new(RefCell::new(HostState::default()));
+        let runtime = LuaRuntime::new("test", ".", host.clone()).expect("create Lua runtime");
+        (runtime, host)
+    }
+
+    #[test]
+    fn replaces_cached_borrowed_view_when_document_changes_identity() {
+        let (mut runtime, host) = runtime();
+        let first = Document::from_bytes(None, b"first\n".to_vec());
+        let second = Document::from_bytes(None, b"second\n".to_vec());
+        assert_eq!(first.revision(), second.revision());
+        assert_ne!(first.id(), second.id());
+
+        runtime.sync_from_document(&first, 0);
+        assert_eq!(host.borrow().bytes(), b"first\n");
+
+        // A different document with the same revision must invalidate the
+        // borrowed pointer, otherwise a subsequent plugin call could read
+        // freed memory from the previous piece table.
+        runtime.sync_from_document(&second, 0);
+        assert_eq!(host.borrow().bytes(), b"second\n");
+    }
+
+    #[test]
+    fn host_line_operations_clamp_and_handle_multibyte_text() {
+        let mut host = HostState::default();
+        host.load("a\n\u{263a}b\nlast".as_bytes().to_vec(), 2);
+        assert_eq!(host.line_count(), 3);
+        assert_eq!(host.line_bytes(1), Some("\u{263a}b".as_bytes()));
+        assert_eq!(host.line_bytes(99), None);
+
+        assert!(host.set_line(1, "wide \u{263a} line".as_bytes()));
+        assert_eq!(host.line_bytes(1), Some("wide \u{263a} line".as_bytes()));
+
+        host.set_cursor(99, 99);
+        assert_eq!(host.cursor_line, 2);
+        assert!(host.cursor_column <= host.line_bytes(2).map_or(0, |line| line.len()));
+
+        assert!(host.replace_range(0, 0, b"prefix "));
+        assert!(host.bytes().starts_with(b"prefix a\n"));
+        assert!(!host.replace_range(5, 1, b"x"));
+    }
+
+    #[test]
+    fn lua_command_can_read_and_edit_the_buffer() {
+        let (mut runtime, host) = runtime();
+        runtime
+            .lua
+            .load(
+                r#"
+                hexal.commands.register("test-edit", function()
+                    local first = hexal.editor.get_line(0)
+                    hexal.editor.insert_text("X")
+                    return #first
+                end)
+                "#,
+            )
+            .exec()
+            .unwrap();
+        let mut document = Document::from_bytes(None, b"hello\n".to_vec());
+        let mut cursor = 1usize;
+        let (handled, effects) = runtime
+            .call_command("test-edit", &[], &mut document, &mut cursor)
+            .unwrap();
+        assert!(handled);
+        assert!(effects.errors.is_empty(), "{:?}", effects.errors);
+        assert_eq!(document.all_text(), b"hXello\n");
+        assert_eq!(cursor, 2);
+        assert!(!host.borrow().dirty);
+    }
+
+    #[test]
+    fn lua_callbacks_can_reenter_commands_events_and_panels() {
+        let (mut runtime, host) = runtime();
+        runtime
+            .lua
+            .load(
+                r#"
+                hexal.commands.register("inner", function()
+                    hexal.editor.insert_text("I")
+                    return 1
+                end)
+                hexal.commands.register("outer", function()
+                    local panel = hexal.ui.panel({
+                        title = "Panel",
+                        lines = { "one" },
+                    })
+                    panel.set_lines({ "two" })
+                    local ok = hexal.commands.execute("inner")
+                    hexal.commands.register("dynamic", function()
+                        return 0
+                    end)
+                    return ok and 1 or 0
+                end)
+                hexal.events.on("custom", function()
+                    return hexal.commands.execute("inner")
+                end)
+                "#,
+            )
+            .exec()
+            .unwrap();
+        assert!(runtime.has_command("dynamic") == false);
+
+        let mut document = Document::from_bytes(None, b"hello\n".to_vec());
+        let mut cursor = 0usize;
+        let (handled, effects) = runtime
+            .call_command("outer", &[], &mut document, &mut cursor)
+            .unwrap();
+        assert!(handled);
+        assert!(effects.errors.is_empty(), "{:?}", effects.errors);
+        assert_eq!(document.all_text(), b"Ihello\n");
+        assert!(runtime.has_command("dynamic"));
+        assert_eq!(host.borrow().panels.len(), 1);
+        assert_eq!(host.borrow().panels[0].lines[0].segments[0].text, "two");
+
+        runtime.fire_event(
+            "custom",
+            &crate::util::json::Value::Object(Vec::new()),
+            &mut document,
+            &mut cursor,
+        );
+        runtime.apply_to_document(&mut document, &mut cursor);
+        assert_eq!(document.all_text(), b"IIhello\n");
+        assert!(
+            host.borrow().errors.is_empty(),
+            "{:?}",
+            host.borrow().errors
+        );
+    }
+
+    #[test]
+    fn exec_run_drains_large_output_without_deadlocking() {
+        let (mut runtime, _host) = runtime();
+        runtime
+            .lua
+            .load(
+                r#"
+                hexal.commands.register("large-output", function()
+                    local result = hexal.exec.run("sh", {
+                        "-c", "yes x | head -c 200000",
+                    })
+                    if result.ok and #result.stdout == 200000 then
+                        hexal.editor.insert_text("Y")
+                        return 1
+                    end
+                    return 0
+                end)
+                "#,
+            )
+            .exec()
+            .unwrap();
+        let mut document = Document::from_bytes(None, b"body\n".to_vec());
+        let mut cursor = 0usize;
+        let (handled, effects) = runtime
+            .call_command("large-output", &[], &mut document, &mut cursor)
+            .unwrap();
+        assert!(handled);
+        assert!(effects.errors.is_empty(), "{:?}", effects.errors);
+        assert_eq!(document.all_text(), b"Ybody\n");
     }
 }

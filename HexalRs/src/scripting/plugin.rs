@@ -16,6 +16,7 @@ use crate::scripting::lua::{
     HostEffects, HostRequest, HostState, KeyBinding, LuaRuntime, PluginPanel, PluginSelection,
 };
 
+#[allow(dead_code)]
 pub struct PluginInfo {
     pub id: String,
     pub name: String,
@@ -42,6 +43,7 @@ struct PluginEntry {
     license: String,
     directory: PathBuf,
     entry_path: PathBuf,
+    #[allow(dead_code)]
     manifest_path: PathBuf,
     lazy_language: String,
     enabled: bool,
@@ -69,6 +71,7 @@ pub struct PluginManager {
     pending_since: Instant,
 }
 
+#[allow(dead_code)]
 impl PluginManager {
     pub fn new(plugin_dir: impl Into<PathBuf>, state_path: Option<PathBuf>) -> PluginManager {
         let plugin_dir = plugin_dir.into();
@@ -228,7 +231,7 @@ impl PluginManager {
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "plugin".into());
-        let mut entry = PluginEntry {
+        let entry = PluginEntry {
             id: fallback.clone(),
             name: fallback.clone(),
             version: String::new(),
