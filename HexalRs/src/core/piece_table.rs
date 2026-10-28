@@ -1,12 +1,5 @@
 //! Piece table over immutable original text and an append-only add buffer.
 //!
-//! This is a faithful Rust port of the Zig (and C#) implementation. The piece
-//! sequence lives in an implicit treap stored in one array; every node is
-//! augmented with the byte and newline counts of its subtree. That gives
-//! expected `O(log p)` insertion, deletion, offset-to-line and line-to-offset
-//! queries, with pieces split on roughly 8 KiB newline boundaries to bound
-//! newline scans.
-//!
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
