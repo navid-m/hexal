@@ -310,6 +310,7 @@ impl Editor {
             Ok(()) => {
                 let path_changed = previous_path != self.doc.path;
                 self.command_files = None;
+                self.refresh_git_diff();
                 self.set_message(&format!("Saved {}", self.doc.display_name()));
                 self.notify_lsp_saved();
                 self.fire_plugin_buffer_event("buffer_saved");

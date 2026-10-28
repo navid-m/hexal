@@ -3,9 +3,10 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 
 const MAX_GITIGNORE_BYTES: u64 = 1024 * 1024;
 
@@ -467,6 +468,116 @@ pub fn display_relative(root: &Path, path: &Path) -> String {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GitDiffLineKind {
+    Deleted,
+    Added,
+    Modified,
+}
+
+/// Reads zero-context Git diff hunks for a file and maps them onto the
+/// current buffer's zero-based line numbers. Uses HEAD so staged and unstaged
+/// changes are both included, then falls back to the index for files without
+/// HEAD history.
+pub fn load_diff_lines(path: &Path, line_count: usize) -> BTreeMap<usize, GitDiffLineKind> {
+    let mut result = BTreeMap::new();
+    if line_count == 0 {
+        return result;
+    }
+    let full = absolute(path);
+    let Some(directory) = full.parent() else {
+        return result;
+    };
+    let Some(file_name) = full.file_name() else {
+        return result;
+    };
+    let file_name = file_name.to_string_lossy().into_owned();
+    let output = run_diff(directory, &file_name, true)
+        .or_else(|| run_diff(directory, &file_name, false));
+    if let Some(output) = output {
+        parse_diff_lines(&output, line_count, &mut result);
+    }
+    result
+}
+
+fn run_diff(directory: &Path, file_name: &str, use_head: bool) -> Option<String> {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(directory)
+        .args([
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--unified=0",
+        ]);
+    if use_head {
+        command.arg("HEAD");
+    }
+    command
+        .arg("--")
+        .arg(format!(":(literal){file_name}"))
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let output = command.output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn parse_diff_lines(
+    output: &str,
+    line_count: usize,
+    result: &mut BTreeMap<usize, GitDiffLineKind>,
+) {
+    for line in output.lines() {
+        let Some(rest) = line.strip_prefix("@@ ") else {
+            continue;
+        };
+        let Some(plus) = rest.find(" +") else {
+            continue;
+        };
+        let old = &rest[1..plus];
+        let new = rest[plus + 2..]
+            .split([' ', '@'])
+            .next()
+            .unwrap_or_default();
+        let (_, old_count) = parse_range(old);
+        let (new_start, new_count) = parse_range(new);
+        if new_count == 0 {
+            let target = new_start
+                .saturating_sub(1)
+                .min(line_count.saturating_sub(1));
+            result.insert(target, GitDiffLineKind::Deleted);
+            continue;
+        }
+        let kind = if old_count == 0 {
+            GitDiffLineKind::Added
+        } else {
+            GitDiffLineKind::Modified
+        };
+        for offset in 0..new_count {
+            let target = new_start.saturating_sub(1) + offset;
+            if target < line_count {
+                result.insert(target, kind);
+            }
+        }
+    }
+}
+
+fn parse_range(value: &str) -> (usize, usize) {
+    if let Some((start, count)) = value.split_once(',') {
+        (
+            start.parse().unwrap_or(0),
+            count.parse().unwrap_or(1),
+        )
+    } else {
+        (value.parse().unwrap_or(0), 1)
+    }
+}
+
 /// Write bytes atomically, preserving the previous permission bits.
 pub fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!(
@@ -635,6 +746,51 @@ pub fn preview_string(data: &[u8], limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_zero_context_diff_hunks() {
+        let output = "@@ -1,2 +1,3 @@\n@@ -10 +11,0 @@\n@@ -20,0 +21,2 @@\n";
+        let mut lines = BTreeMap::new();
+        parse_diff_lines(output, 30, &mut lines);
+        assert_eq!(lines.get(&0), Some(&GitDiffLineKind::Modified));
+        assert_eq!(lines.get(&1), Some(&GitDiffLineKind::Modified));
+        assert_eq!(lines.get(&2), Some(&GitDiffLineKind::Modified));
+        assert_eq!(lines.get(&10), Some(&GitDiffLineKind::Deleted));
+        assert_eq!(lines.get(&20), Some(&GitDiffLineKind::Added));
+        assert_eq!(lines.get(&21), Some(&GitDiffLineKind::Added));
+    }
+
+    #[test]
+    fn loads_line_markers_from_a_git_repository() {
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("hexal-git-diff-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let run = |arguments: &[&str]| {
+            assert!(Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(arguments)
+                .output()
+                .unwrap()
+                .status
+                .success());
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.name", "Hexal Test"]);
+        run(&["config", "user.email", "hexal@example.invalid"]);
+        let file = root.join("sample.txt");
+        fs::write(&file, b"one\ntwo\nthree\n").unwrap();
+        run(&["add", "sample.txt"]);
+        run(&["commit", "-qm", "initial"]);
+        fs::write(&file, b"one\nchanged\nthree\n").unwrap();
+
+        let lines = load_diff_lines(&file, 3);
+        assert_eq!(lines.get(&1), Some(&GitDiffLineKind::Modified));
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn glob_patterns() {

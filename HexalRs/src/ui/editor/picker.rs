@@ -42,6 +42,7 @@ impl Editor {
         self.jump_index = -1;
         self.refresh_language();
         self.auto_detect_indentation_on_open();
+        self.refresh_git_diff();
 
         let target_line = line.min(self.doc.line_count() - 1);
         let start = self.doc.line_start(target_line);
@@ -460,9 +461,21 @@ impl Editor {
             let problem = self.picker.items[self.picker.selected].problem.clone();
             self.close_picker();
             if let Some((path, line, column)) = problem {
-                let byte =
-                    super::lsp_ui::lsp_column_to_byte_offset(&path, line as i64, column as i64);
-                self.request_open(&path, line, byte, false);
+                let same = self
+                    .doc
+                    .path
+                    .as_deref()
+                    .is_some_and(|current| git::same_path(Path::new(current), Path::new(&path)));
+                if same {
+                    self.record_jump();
+                    self.move_to_line_character(line as i64, column as i64);
+                } else {
+                    let byte = super::lsp_ui::lsp_column_to_byte_offset(
+                        &path, line as i64, column as i64,
+                    );
+                    self.record_jump();
+                    self.request_open(&path, line, byte, false);
+                }
             }
             return;
         }
@@ -554,5 +567,72 @@ fn symbol_kind_name(kind: i64) -> &'static str {
         25 => "Operator",
         26 => "TypeParameter",
         _ => "Symbol",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::document::Document;
+
+    fn problem_item(path: String, line: usize, column: usize) -> PickerItem {
+        PickerItem {
+            display: String::new(),
+            file_index: 0,
+            line: 0,
+            column: 0,
+            theme_id: None,
+            target: None,
+            palette_index: None,
+            action_index: None,
+            symbol_index: None,
+            problem: Some((path, line, column)),
+        }
+    }
+
+    #[test]
+    fn diagnostic_picker_jumps_to_the_reported_line() {
+        let root = std::env::temp_dir().join(format!("hexal-picker-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let first = root.join("first.rs");
+        let second = root.join("second.rs");
+        let text = (0..20).map(|line| format!("line {line}")).collect::<Vec<_>>().join("\n");
+        std::fs::write(&first, &text).unwrap();
+        std::fs::write(&second, &text).unwrap();
+
+        let mut editor = Editor::new(
+            Document::from_bytes(
+                Some(first.to_string_lossy().into_owned()),
+                text.as_bytes().to_vec(),
+            ),
+            80,
+            24,
+        );
+        editor.picker.kind = PickerKind::Problems;
+        editor.picker.items = vec![problem_item(
+            first.to_string_lossy().into_owned(),
+            7,
+            0,
+        )];
+        editor.picker.selected = 0;
+        editor.open_picker_selection();
+        assert_eq!(editor.cursor_line(), 7);
+
+        editor.picker.kind = PickerKind::Problems;
+        editor.picker.items = vec![problem_item(
+            second.to_string_lossy().into_owned(),
+            11,
+            0,
+        )];
+        editor.picker.selected = 0;
+        editor.open_picker_selection();
+        assert_eq!(
+            editor.doc.path.as_deref(),
+            Some(second.to_string_lossy().as_ref())
+        );
+        assert_eq!(editor.cursor_line(), 11);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

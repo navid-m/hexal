@@ -7,6 +7,7 @@ mod about;
 mod command_completion;
 mod comments;
 mod debug;
+mod diff_lines;
 mod editing;
 mod find;
 mod input;
@@ -519,6 +520,7 @@ pub struct Editor {
     pending_sidebar_diff: Option<(String, String)>,
     sidebar_transfer: Option<(Vec<(PathBuf, bool)>, bool)>,
     sidebar_folders: Vec<PathBuf>,
+    git_diff: diff_lines::DiffLineState,
 
     lsp: LspManager,
     lsp_dirty: bool,
@@ -635,6 +637,7 @@ impl Editor {
             pending_sidebar_diff: None,
             sidebar_transfer: None,
             sidebar_folders: Vec::new(),
+            git_diff: diff_lines::DiffLineState::new(),
             lsp: LspManager::new(),
             lsp_dirty: false,
             lsp_synced_revision: u64::MAX,
@@ -682,6 +685,7 @@ impl Editor {
         editor.sidebar.show_git_ignored = editor.config.show_git_ignored;
         editor.search_match_case = editor.config.search_match_case_enabled;
         editor.refresh_language();
+        editor.refresh_git_diff();
         editor.load_plugins();
         if !config_error.is_empty() {
             editor.set_error(&format!("config: {config_error}"));

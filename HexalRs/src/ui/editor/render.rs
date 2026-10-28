@@ -23,7 +23,8 @@ impl Editor {
     }
 
     pub(super) fn gutter_width(&self) -> usize {
-        util::digit_count(self.doc.line_count()) + 1
+        let marker = usize::from(self.sidebar.show_modified);
+        util::digit_count(self.doc.line_count()) + 1 + marker
     }
 
     pub(super) fn clamp_viewport(&mut self) {
@@ -118,7 +119,8 @@ impl Editor {
     pub(super) fn render_line_number(&mut self, line: usize, row: usize) {
         let digits = util::digit_count(self.doc.line_count());
         let number = line + 1;
-        let x = self.editor_left() + digits - util::digit_count(number);
+        let marker_width = usize::from(self.sidebar.show_modified);
+        let x = self.editor_left() + marker_width + digits - util::digit_count(number);
         let highlight = self.line_highlight_style(line);
         if let Some(highlight) = highlight {
             let left = self.editor_left();
@@ -130,6 +132,20 @@ impl Editor {
                 ' ',
                 highlight,
             );
+        }
+        if marker_width > 0 {
+            if let Some((marker, mut marker_style)) = self.git_diff_marker(line) {
+                if let Some(highlight) = highlight {
+                    marker_style.bg = highlight.bg;
+                }
+                self.screen.put(
+                    self.editor_left() as i64,
+                    row as i64,
+                    marker,
+                    marker_style,
+                    1,
+                );
+            }
         }
         let mut style = if line == self.cursor_line() {
             self.theme.current_line_number_style()

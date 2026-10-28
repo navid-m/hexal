@@ -246,6 +246,7 @@ impl Editor {
     pub(super) fn toggle_diff_lines(&mut self) {
         self.sidebar.show_modified = !self.sidebar.show_modified;
         self.sidebar.refresh(None);
+        self.refresh_git_diff();
         self.force_full_redraw = true;
         self.persist_display_settings();
         self.set_message(if self.sidebar.show_modified {
@@ -260,6 +261,7 @@ impl Editor {
         self.config = config;
         self.sidebar.show_modified = self.config.show_diff_lines;
         self.sidebar.show_git_ignored = self.config.show_git_ignored;
+        self.refresh_git_diff();
         self.command_files = None;
         self.picker.files_loaded = false;
         self.picker.files.clear();
