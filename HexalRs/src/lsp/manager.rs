@@ -1887,7 +1887,7 @@ pub fn configs_for_language(language: &str) -> Vec<ServerConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, Manager, ServerConfig, path_to_uri};
+    use super::{path_to_uri, Event, Manager, ServerConfig};
     use std::fs;
     use std::time::{Duration, Instant};
 

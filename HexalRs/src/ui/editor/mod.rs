@@ -31,7 +31,7 @@ use crate::languages::{FormatterConfig, Highlighter, Language, Registry, Token};
 use crate::lsp::{self, Manager as LspManager};
 use crate::platform::terminal::{Event, Key, Terminal};
 use crate::scripting::plugin::PluginManager;
-use crate::ui::help::{HELP_LINES, HelpLineKind, HelpState};
+use crate::ui::help::{HelpLineKind, HelpState, HELP_LINES};
 use crate::ui::renderer::Renderer;
 use crate::ui::screen::Screen;
 use crate::ui::sidebar::{self as ui_sidebar, Action as SidebarAction, Sidebar};

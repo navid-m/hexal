@@ -163,14 +163,8 @@ impl Editor {
         let tab_width = self.doc.tab_width().max(1);
         let line_highlight = self.line_highlight_style(line);
         if let Some(highlight) = line_highlight {
-            self.screen.fill(
-                gutter as i64,
-                row as i64,
-                text_width,
-                1,
-                ' ',
-                highlight,
-            );
+            self.screen
+                .fill(gutter as i64, row as i64, text_width, 1, ' ', highlight);
         }
 
         let mut offset = 0usize;

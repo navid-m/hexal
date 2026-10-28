@@ -70,9 +70,7 @@
       {
         "name": "neocmakelsp",
         "command": "neocmakelsp",
-        "args": [
-          "stdio"
-        ]
+        "args": ["stdio"]
       },
       {
         "name": "cmake-language-server",
@@ -87,9 +85,7 @@
       {
         "name": "coffeescript-language-server",
         "command": "coffeescript-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -109,9 +105,7 @@
       {
         "name": "liger",
         "command": "liger",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -121,9 +115,7 @@
       {
         "name": "vscode-css-language-server",
         "command": "vscode-css-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -138,23 +130,17 @@
       {
         "name": "pyright",
         "command": "pyright-langserver",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "ty",
         "command": "ty",
-        "args": [
-          "server"
-        ]
+        "args": ["server"]
       },
       {
         "name": "mypy",
         "command": "mypy",
-        "args": [
-          "--lsp"
-        ]
+        "args": ["--lsp"]
       }
     ]
   },
@@ -164,10 +150,7 @@
       {
         "name": "dart",
         "command": "dart",
-        "args": [
-          "language-server",
-          "--client-id=hexal"
-        ]
+        "args": ["language-server", "--client-id=hexal"]
       }
     ]
   },
@@ -192,9 +175,7 @@
       {
         "name": "docker-langserver",
         "command": "docker-langserver",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -214,9 +195,7 @@
       {
         "name": "elp",
         "command": "elp",
-        "args": [
-          "server"
-        ]
+        "args": ["server"]
       }
     ]
   },
@@ -226,9 +205,7 @@
       {
         "name": "elvish-lsp",
         "command": "elvish",
-        "args": [
-          "-lsp"
-        ]
+        "args": ["-lsp"]
       }
     ]
   },
@@ -243,9 +220,7 @@
       {
         "name": "elp",
         "command": "elp",
-        "args": [
-          "server"
-        ]
+        "args": ["server"]
       }
     ]
   },
@@ -255,9 +230,7 @@
       {
         "name": "fish-lsp",
         "command": "fish-lsp",
-        "args": [
-          "start"
-        ]
+        "args": ["start"]
       }
     ]
   },
@@ -317,9 +290,7 @@
       {
         "name": "ember-language-server",
         "command": "ember-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -329,9 +300,7 @@
       {
         "name": "hare-lsp",
         "command": "hare-lsp",
-        "args": [
-          "-S"
-        ]
+        "args": ["-S"]
       },
       {
         "name": "hare-ls",
@@ -351,16 +320,12 @@
       {
         "name": "haskell-language-server",
         "command": "haskell-language-server-wrapper",
-        "args": [
-          "--lsp"
-        ]
+        "args": ["--lsp"]
       },
       {
         "name": "haskell-language-server",
         "command": "haskell-language-server",
-        "args": [
-          "--lsp"
-        ]
+        "args": ["--lsp"]
       }
     ]
   },
@@ -380,9 +345,7 @@
       {
         "name": "terraform-ls",
         "command": "terraform-ls",
-        "args": [
-          "serve"
-        ]
+        "args": ["serve"]
       }
     ]
   },
@@ -392,23 +355,17 @@
       {
         "name": "vscode-html-language-server",
         "command": "vscode-html-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "superhtml",
         "command": "superhtml",
-        "args": [
-          "lsp"
-        ]
+        "args": ["lsp"]
       },
       {
         "name": "html-languageserver",
         "command": "html-languageserver",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -433,23 +390,17 @@
       {
         "name": "typescript-language-server",
         "command": "typescript-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "vtsls",
         "command": "vtsls",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "biome",
         "command": "biome",
-        "args": [
-          "lsp-proxy"
-        ]
+        "args": ["lsp-proxy"]
       }
     ]
   },
@@ -459,9 +410,7 @@
       {
         "name": "vscode-json-languageserver",
         "command": "vscode-json-languageserver",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -471,23 +420,17 @@
       {
         "name": "typescript-language-server",
         "command": "typescript-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "vtsls",
         "command": "vtsls",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "biome",
         "command": "biome",
-        "args": [
-          "lsp-proxy"
-        ]
+        "args": ["lsp-proxy"]
       }
     ]
   },
@@ -502,9 +445,7 @@
       {
         "name": "kotlin-lsp",
         "command": "kotlin-lsp",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -589,9 +530,7 @@
       {
         "name": "markdown-language-server",
         "command": "markdown-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -601,9 +540,7 @@
       {
         "name": "mermaid-language-server",
         "command": "mermaid-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -633,9 +570,7 @@
       {
         "name": "nu-lsp",
         "command": "nu",
-        "args": [
-          "--lsp"
-        ]
+        "args": ["--lsp"]
       },
       {
         "name": "nu-lsp",
@@ -650,9 +585,7 @@
       {
         "name": "perlnavigator",
         "command": "perlnavigator",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -662,16 +595,12 @@
       {
         "name": "intelephense",
         "command": "intelephense",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "phpactor",
         "command": "phpactor",
-        "args": [
-          "language-server"
-        ]
+        "args": ["language-server"]
       },
       {
         "name": "php-language-server",
@@ -726,9 +655,7 @@
       {
         "name": "purescript-language-server",
         "command": "purescript-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -738,23 +665,17 @@
       {
         "name": "pyright",
         "command": "pyright-langserver",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "ty",
         "command": "ty",
-        "args": [
-          "server"
-        ]
+        "args": ["server"]
       },
       {
         "name": "mypy",
         "command": "mypy",
-        "args": [
-          "--lsp"
-        ]
+        "args": ["--lsp"]
       },
       {
         "name": "mypy-language-server",
@@ -789,12 +710,7 @@
       {
         "name": "R",
         "command": "R",
-        "args": [
-          "--vanilla",
-          "--no-echo",
-          "-e",
-          "languageserver::run()"
-        ]
+        "args": ["--vanilla", "--no-echo", "-e", "languageserver::run()"]
       }
     ]
   },
@@ -804,10 +720,7 @@
       {
         "name": "racket-langserver",
         "command": "racket",
-        "args": [
-          "-l",
-          "racket-langserver"
-        ]
+        "args": ["-l", "racket-langserver"]
       },
       {
         "name": "racket-langserver",
@@ -822,17 +735,12 @@
       {
         "name": "roslyn-language-server",
         "command": "roslyn-language-server",
-        "args": [
-          "--stdio",
-          "--autoLoadProjects"
-        ]
+        "args": ["--stdio", "--autoLoadProjects"]
       },
       {
         "name": "razor-language-server",
         "command": "razor-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -847,9 +755,7 @@
       {
         "name": "solargraph",
         "command": "solargraph",
-        "args": [
-          "stdio"
-        ]
+        "args": ["stdio"]
       }
     ]
   },
@@ -884,9 +790,7 @@
       {
         "name": "vscode-css-language-server",
         "command": "vscode-css-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -896,9 +800,7 @@
       {
         "name": "bash-language-server",
         "command": "bash-language-server",
-        "args": [
-          "start"
-        ]
+        "args": ["start"]
       }
     ]
   },
@@ -923,11 +825,7 @@
       {
         "name": "sql-language-server",
         "command": "sql-language-server",
-        "args": [
-          "up",
-          "--method",
-          "stdio"
-        ]
+        "args": ["up", "--method", "stdio"]
       }
     ]
   },
@@ -937,16 +835,12 @@
       {
         "name": "svelteserver",
         "command": "svelteserver",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "svelte-language-server",
         "command": "svelte-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -986,17 +880,12 @@
       {
         "name": "taplo",
         "command": "taplo",
-        "args": [
-          "lsp",
-          "stdio"
-        ]
+        "args": ["lsp", "stdio"]
       },
       {
         "name": "tombi",
         "command": "tombi",
-        "args": [
-          "lsp"
-        ]
+        "args": ["lsp"]
       }
     ]
   },
@@ -1006,23 +895,17 @@
       {
         "name": "typescript-language-server",
         "command": "typescript-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "vtsls",
         "command": "vtsls",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "biome",
         "command": "biome",
-        "args": [
-          "lsp-proxy"
-        ]
+        "args": ["lsp-proxy"]
       }
     ]
   },
@@ -1032,9 +915,7 @@
       {
         "name": "twiggy-language-server",
         "command": "twiggy-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -1044,23 +925,17 @@
       {
         "name": "typescript-language-server",
         "command": "typescript-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "vtsls",
         "command": "vtsls",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "biome",
         "command": "biome",
-        "args": [
-          "lsp-proxy"
-        ]
+        "args": ["lsp-proxy"]
       }
     ]
   },
@@ -1085,9 +960,7 @@
       {
         "name": "vue-language-server",
         "command": "vue-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       }
     ]
   },
@@ -1137,16 +1010,12 @@
       {
         "name": "yaml-language-server",
         "command": "yaml-language-server",
-        "args": [
-          "--stdio"
-        ]
+        "args": ["--stdio"]
       },
       {
         "name": "helm_ls",
         "command": "helm_ls",
-        "args": [
-          "serve"
-        ]
+        "args": ["serve"]
       }
     ]
   },

@@ -3,7 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use std::alloc::{Layout, alloc as rust_alloc, dealloc as rust_dealloc};
+use std::alloc::{alloc as rust_alloc, dealloc as rust_dealloc, Layout};
 
 const LUA_GRAIN: usize = 16;
 const LUA_SMALL_LIMIT: usize = 1024;

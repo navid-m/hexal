@@ -902,30 +902,24 @@ mod tests {
         assert!(manager.has_command("upper"));
         assert!(manager.has_command("UPPER"));
         assert_eq!(manager.command_names(), vec!["upper".to_string()]);
-        assert!(
-            manager
-                .execute_command("upper", &[], &mut document, &mut cursor)
-                .unwrap()
-        );
+        assert!(manager
+            .execute_command("upper", &[], &mut document, &mut cursor)
+            .unwrap());
         assert_eq!(document.all_text(), b"HELLO");
         let effects = manager.take_effects();
-        assert!(
-            effects
-                .messages
-                .iter()
-                .any(|(message, _)| message == "UPPER_OK")
-        );
+        assert!(effects
+            .messages
+            .iter()
+            .any(|(message, _)| message == "UPPER_OK"));
 
         let mut data = Value::Object(Vec::new());
         data.set("line", Value::Number(2.0));
         manager.fire_event("cursor_moved", &data, &mut document, &mut cursor);
         let effects = manager.take_effects();
-        assert!(
-            effects
-                .messages
-                .iter()
-                .any(|(message, _)| message == "MOVED:2")
-        );
+        assert!(effects
+            .messages
+            .iter()
+            .any(|(message, _)| message == "MOVED:2"));
 
         manager
             .set_enabled("example", false, &mut document, &mut cursor)
@@ -1038,12 +1032,10 @@ mod tests {
             Some(true)
         );
         let effects = manager.take_effects();
-        assert!(
-            effects
-                .messages
-                .iter()
-                .any(|(message, _)| message == "SEQUENCE")
-        );
+        assert!(effects
+            .messages
+            .iter()
+            .any(|(message, _)| message == "SEQUENCE"));
         assert_eq!(
             manager.handle_key_token("unknown", "normal", &mut document, &mut cursor),
             None
@@ -1104,12 +1096,10 @@ mod tests {
         manager.load_all(&mut document, &mut cursor);
         assert!(manager.errors().is_empty(), "{:?}", manager.errors());
         let effects = manager.take_effects();
-        assert!(
-            effects
-                .messages
-                .iter()
-                .any(|(message, _)| message == "PROCESS_PANEL_OK")
-        );
+        assert!(effects
+            .messages
+            .iter()
+            .any(|(message, _)| message == "PROCESS_PANEL_OK"));
         let panels = manager.panels();
         assert_eq!(panels.len(), 1);
         assert_eq!(panels[0].title, "Changed");
@@ -1156,18 +1146,14 @@ mod tests {
         assert_eq!(manager.plugin_count(), 1);
         assert_eq!(manager.deferred_count(), 0);
         let effects = manager.take_effects();
-        assert!(
-            effects
-                .messages
-                .iter()
-                .any(|(message, _)| message == "LAZY_STARTED")
-        );
-        assert!(
-            effects
-                .messages
-                .iter()
-                .any(|(message, _)| message == "OPENED:rust")
-        );
+        assert!(effects
+            .messages
+            .iter()
+            .any(|(message, _)| message == "LAZY_STARTED"));
+        assert!(effects
+            .messages
+            .iter()
+            .any(|(message, _)| message == "OPENED:rust"));
         let _ = fs::remove_dir_all(root);
     }
 }

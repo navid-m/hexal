@@ -457,13 +457,11 @@ mod tests {
         editor.command_line = "E src/main.rs".into();
         editor.command_cursor = editor.command_line.len();
         editor.submit_command();
-        assert!(
-            editor
-                .doc
-                .path
-                .as_deref()
-                .is_some_and(|path| path.ends_with("src/main.rs"))
-        );
+        assert!(editor
+            .doc
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with("src/main.rs")));
     }
 
     #[test]

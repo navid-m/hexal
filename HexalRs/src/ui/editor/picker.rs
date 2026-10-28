@@ -80,8 +80,7 @@ impl Editor {
         self.picker.items.clear();
 
         if kind != PickerKind::Palette && !self.picker.files_loaded {
-            self.picker.files =
-                files::scan_with_ignored(20_000, self.sidebar.show_git_ignored);
+            self.picker.files = files::scan_with_ignored(20_000, self.sidebar.show_git_ignored);
             self.picker.files_loaded = true;
         }
         self.rebuild_picker();
@@ -518,7 +517,11 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 { height - 3 } else { 1 }
+        if height >= 3 {
+            height - 3
+        } else {
+            1
+        }
     }
 }
 

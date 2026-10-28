@@ -7,7 +7,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-
 const MAX_GITIGNORE_BYTES: u64 = 1024 * 1024;
 
 const BUILT_IN_IGNORED_DIRECTORIES: &[&str] = &[
@@ -109,9 +108,19 @@ impl GitIgnore {
                 continue;
             }
             let matched = if rule.anchored || rule.pattern.contains('/') {
-                matches_anchored(&rule.pattern, &base_relative, is_directory, rule.directory_only)
+                matches_anchored(
+                    &rule.pattern,
+                    &base_relative,
+                    is_directory,
+                    rule.directory_only,
+                )
             } else {
-                matches_component(&rule.pattern, &base_relative, is_directory, rule.directory_only)
+                matches_component(
+                    &rule.pattern,
+                    &base_relative,
+                    is_directory,
+                    rule.directory_only,
+                )
             };
             if matched {
                 ignored = !rule.negated;
@@ -273,16 +282,12 @@ fn glob_inner(pattern: &[char], text: &[char]) -> bool {
         }
         '\\' => {
             if pattern.len() > 1 {
-                !text.is_empty()
-                    && text[0] == pattern[1]
-                    && glob_inner(&pattern[2..], &text[1..])
+                !text.is_empty() && text[0] == pattern[1] && glob_inner(&pattern[2..], &text[1..])
             } else {
                 !text.is_empty() && text[0] == '\\' && glob_inner(&pattern[1..], &text[1..])
             }
         }
-        value => {
-            !text.is_empty() && text[0] == value && glob_inner(&pattern[1..], &text[1..])
-        }
+        value => !text.is_empty() && text[0] == value && glob_inner(&pattern[1..], &text[1..]),
     }
 }
 
@@ -333,7 +338,8 @@ pub fn load_git_status(root: &Path) -> GitStatus {
         if !untracked && !modified {
             continue;
         }
-        let full = absolute(&repository_root.join(path_text.replace('/', std::path::MAIN_SEPARATOR_STR)));
+        let full =
+            absolute(&repository_root.join(path_text.replace('/', std::path::MAIN_SEPARATOR_STR)));
         if !is_inside(&root, &full) && full != root {
             continue;
         }
@@ -517,7 +523,10 @@ pub fn copy_path(source: &Path, target: &Path, is_directory: bool) -> Result<(),
             return Err("Cannot copy a folder inside itself.".into());
         }
         if target.exists() {
-            return Err(format!("Destination already exists: '{}'", target.display()));
+            return Err(format!(
+                "Destination already exists: '{}'",
+                target.display()
+            ));
         }
         copy_directory(source, target)
     } else {
@@ -530,7 +539,10 @@ pub fn copy_path(source: &Path, target: &Path, is_directory: bool) -> Result<(),
             }
         }
         if target.exists() {
-            return Err(format!("Destination already exists: '{}'", target.display()));
+            return Err(format!(
+                "Destination already exists: '{}'",
+                target.display()
+            ));
         }
         fs::copy(source, target)
             .map(|_| ())
@@ -641,9 +653,7 @@ mod tests {
             root: root.clone(),
             rules: Vec::new(),
         };
-        ignore
-            .rules
-            .push(parse_rule("*.log", &root).expect("rule"));
+        ignore.rules.push(parse_rule("*.log", &root).expect("rule"));
         assert!(ignore.is_ignored(Path::new("/tmp/project/a.log"), false));
         assert!(ignore.is_ignored(Path::new("/tmp/project/sub/a.log"), false));
         assert!(!ignore.is_ignored(Path::new("/tmp/project/a.rs"), false));

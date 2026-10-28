@@ -6,7 +6,12 @@
 use crate::platform::terminal::{Event, Key};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum HelpLineKind { Section, Entry, Text, Blank }
+pub enum HelpLineKind {
+    Section,
+    Entry,
+    Text,
+    Blank,
+}
 
 #[derive(Clone, Copy)]
 pub struct HelpLine {
@@ -15,17 +20,47 @@ pub struct HelpLine {
     pub right: &'static str,
 }
 
-const fn section(left: &'static str) -> HelpLine { HelpLine { kind: HelpLineKind::Section, left, right: "" } }
-const fn entry(left: &'static str, right: &'static str) -> HelpLine { HelpLine { kind: HelpLineKind::Entry, left, right } }
-const fn text(left: &'static str) -> HelpLine { HelpLine { kind: HelpLineKind::Text, left, right: "" } }
-const fn blank() -> HelpLine { HelpLine { kind: HelpLineKind::Blank, left: "", right: "" } }
+const fn section(left: &'static str) -> HelpLine {
+    HelpLine {
+        kind: HelpLineKind::Section,
+        left,
+        right: "",
+    }
+}
+const fn entry(left: &'static str, right: &'static str) -> HelpLine {
+    HelpLine {
+        kind: HelpLineKind::Entry,
+        left,
+        right,
+    }
+}
+const fn text(left: &'static str) -> HelpLine {
+    HelpLine {
+        kind: HelpLineKind::Text,
+        left,
+        right: "",
+    }
+}
+const fn blank() -> HelpLine {
+    HelpLine {
+        kind: HelpLineKind::Blank,
+        left: "",
+        right: "",
+    }
+}
 
 pub const HELP_LINES: &[HelpLine] = &[
     section("Fundamentals"),
-    entry("i / I", "Insert before the cursor / at the start of the line"),
+    entry(
+        "i / I",
+        "Insert before the cursor / at the start of the line",
+    ),
     entry("a / A", "Append after the cursor / at the end of the line"),
     entry("o / O", "Open a new line below / above and enter INSERT"),
-    entry("Esc", "Return to NORMAL, cancel SELECT, or dismiss a prompt"),
+    entry(
+        "Esc",
+        "Return to NORMAL, cancel SELECT, or dismiss a prompt",
+    ),
     entry(":", "Open the Ex command line"),
     entry("Ctrl+P", "Open the command palette"),
     entry(":w / :wq / :q", "Write, write and quit, or quit"),
@@ -54,7 +89,10 @@ pub const HELP_LINES: &[HelpLine] = &[
     entry("Space y", "Copy the selection to the system clipboard"),
     entry("Space X", "Cut the selection to the system clipboard"),
     entry("Space p / Space P", "Paste at the cursor / on a new line"),
-    entry("Ctrl+Space", "Request language-server completions in INSERT"),
+    entry(
+        "Ctrl+Space",
+        "Request language-server completions in INSERT",
+    ),
     blank(),
     section("Search"),
     entry("/", "Literal search in the current file"),
@@ -97,11 +135,17 @@ pub const HELP_LINES: &[HelpLine] = &[
     blank(),
     section("Formatting and configuration"),
     entry(":fmt", "Format the buffer, or just the active selection"),
-    entry(":fmta <ext>", "Format all non-ignored workspace files with an extension"),
+    entry(
+        ":fmta <ext>",
+        "Format all non-ignored workspace files with an extension",
+    ),
     entry(":ww", "Toggle word wrap (persisted to .hexcfg)"),
     entry(":cw", "Trim trailing whitespace from every line"),
     entry(":cfg / :rcfg", "Open .hexcfg / reload configuration"),
-    entry(":rla[!]", "Reload all open files and hard-refresh the interface"),
+    entry(
+        ":rla[!]",
+        "Reload all open files and hard-refresh the interface",
+    ),
     entry(":open-log / :ol", "Open the Hexal log (~/.hexal/hexal.log)"),
     entry(":path", "Show the current file's absolute path"),
     entry(":lang <id>", "Override the language for the current buffer"),
@@ -117,8 +161,14 @@ pub const HELP_LINES: &[HelpLine] = &[
     entry(":dbg-stop", "Stop the debug session"),
     blank(),
     section("Plugins, themes and reload"),
-    entry(":rcfg", "Reload grammars, themes, plugins and language servers"),
-    entry("Ctrl+P then type", "Search every command, including plugin commands"),
+    entry(
+        ":rcfg",
+        "Reload grammars, themes, plugins and language servers",
+    ),
+    entry(
+        "Ctrl+P then type",
+        "Search every command, including plugin commands",
+    ),
     entry(":help", "Open this help window"),
     blank(),
     text("NOTE: The majority of commands accept lowercase or uppercase names, but arguments"),
@@ -132,7 +182,10 @@ pub struct HelpState {
 
 impl HelpState {
     pub fn new() -> HelpState {
-        HelpState { visible: false, top: 0 }
+        HelpState {
+            visible: false,
+            top: 0,
+        }
     }
 
     pub fn open(&mut self) {
@@ -161,7 +214,13 @@ impl HelpState {
     }
 
     /// Returns true when the key was handled and the screen must repaint.
-    pub fn handle(&mut self, event: Event, columns: usize, rows: usize, scroll_lines: usize) -> bool {
+    pub fn handle(
+        &mut self,
+        event: Event,
+        columns: usize,
+        rows: usize,
+        scroll_lines: usize,
+    ) -> bool {
         let (_, _, _, _, list_rows) = self.layout(columns, rows);
         match event.key {
             Key::Escape | Key::Enter => {
@@ -169,12 +228,20 @@ impl HelpState {
                 true
             }
             Key::Up | Key::ScrollUp => {
-                let step = if event.key == Key::ScrollUp { scroll_lines } else { 1 };
+                let step = if event.key == Key::ScrollUp {
+                    scroll_lines
+                } else {
+                    1
+                };
                 self.top = self.top.saturating_sub(step);
                 true
             }
             Key::Down | Key::ScrollDown => {
-                let step = if event.key == Key::ScrollDown { scroll_lines } else { 1 };
+                let step = if event.key == Key::ScrollDown {
+                    scroll_lines
+                } else {
+                    1
+                };
                 self.top = (self.top + step).min(self.max_top(columns, rows));
                 true
             }

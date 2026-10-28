@@ -262,8 +262,8 @@ impl Sidebar {
 
     pub fn resize(&mut self, columns: usize, delta: isize) {
         let maximum = MIN_WIDTH.max(MAX_WIDTH.min(columns.saturating_sub(MIN_EDITOR_WIDTH)));
-        let target = (self.width(columns) as isize + delta).clamp(MIN_WIDTH as isize, maximum as isize)
-            as usize;
+        let target = (self.width(columns) as isize + delta)
+            .clamp(MIN_WIDTH as isize, maximum as isize) as usize;
         self.width_override = Some(target);
     }
 
@@ -471,9 +471,9 @@ impl Sidebar {
         selected
             .into_iter()
             .filter(|node| {
-                !directories
-                    .iter()
-                    .any(|directory| node.path != *directory && git::is_inside(directory, &node.path))
+                !directories.iter().any(|directory| {
+                    node.path != *directory && git::is_inside(directory, &node.path)
+                })
             })
             .collect()
     }
@@ -482,10 +482,7 @@ impl Sidebar {
         if self.selection_count() > 1 {
             if self.selection_count() == 2 {
                 let selected = self.selected_nodes();
-                if selected.len() == 2
-                    && !selected[0].is_directory
-                    && !selected[1].is_directory
-                {
+                if selected.len() == 2 && !selected[0].is_directory && !selected[1].is_directory {
                     return TWO_FILE_MENU;
                 }
             }
@@ -690,10 +687,9 @@ fn add_folders(
                 continue;
             }
         }
-        if sources
-            .iter()
-            .any(|node| node.is_directory && (child == node.path || git::is_inside(&node.path, &child)))
-        {
+        if sources.iter().any(|node| {
+            node.is_directory && (child == node.path || git::is_inside(&node.path, &child))
+        }) {
             continue;
         }
         output.push(child.clone());

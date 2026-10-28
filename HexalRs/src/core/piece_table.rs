@@ -624,7 +624,10 @@ fn choose_end(source: &[u8], start: usize, limit: usize) -> usize {
     }
     let max_end = limit.min(start + MAX_PIECE_SIZE);
     if max_end < limit {
-        if let Some(relative) = source[start..max_end].iter().rposition(|&byte| byte == b'\n') {
+        if let Some(relative) = source[start..max_end]
+            .iter()
+            .rposition(|&byte| byte == b'\n')
+        {
             return start + relative + 1;
         }
     }
@@ -715,10 +718,7 @@ mod tests {
                     let length = (state as usize >> 8) % (reference.len() - offset + 1);
                     table.erase(offset, length);
                     table.insert(offset, &text[..text_length]);
-                    reference.splice(
-                        offset..offset + length,
-                        text[..text_length].iter().copied(),
-                    );
+                    reference.splice(offset..offset + length, text[..text_length].iter().copied());
                 }
             }
             assert_eq!(table.range_alloc(0, table.size()), reference);

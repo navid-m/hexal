@@ -972,7 +972,11 @@ impl Editor {
             let marker_count = modified as usize + untracked as usize;
             let indent = 1 + node.depth * 2;
             let marker = if node.is_directory {
-                if node.expanded { "▾" } else { "▸" }
+                if node.expanded {
+                    "▾"
+                } else {
+                    "▸"
+                }
             } else {
                 " "
             };
