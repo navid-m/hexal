@@ -323,19 +323,43 @@ impl HostState {
     }
 
     pub fn line_bounds(&self, line: usize) -> Option<(usize, usize)> {
-        if line >= self.line_starts.len() {
+        let text = self.bytes();
+        let start = *self.line_starts.get(line)?;
+        if start > text.len() {
             return None;
         }
-        let text = self.bytes();
-        let start = self.line_starts[line];
         if line + 1 >= self.line_starts.len() {
             return Some((start, text.len()));
         }
-        let mut end = self.line_starts[line + 1] - 1;
+        let mut end = self.line_starts[line + 1].saturating_sub(1).min(text.len());
+        if end < start {
+            end = start;
+        }
         if end > start && text[end - 1] == b'\r' {
             end -= 1;
         }
         Some((start, end))
+    }
+
+    fn lines_are_consistent(&self) -> bool {
+        let length = self.bytes().len();
+        if self.line_starts.first().copied() != Some(0) {
+            return false;
+        }
+        let mut previous = 0usize;
+        for &start in &self.line_starts {
+            if start < previous || start > length {
+                return false;
+            }
+            previous = start;
+        }
+        true
+    }
+
+    fn ensure_lines(&mut self) {
+        if !self.lines_are_consistent() {
+            self.rebuild_lines();
+        }
     }
 
     pub fn line_bytes(&self, line: usize) -> Option<&[u8]> {
@@ -952,6 +976,11 @@ impl LuaRuntime {
         let mut host = self.host.borrow_mut();
         host.dirty = false;
         host.text_view = document.borrowed_text();
+        if host.text_view.is_none() && host.text.is_empty() && document.size() > 0 {
+            host.load(document.all_text(), *cursor);
+        } else {
+            host.ensure_lines();
+        }
         host.take_effects()
     }
 
@@ -2475,6 +2504,21 @@ mod tests {
     }
 
     #[test]
+    fn stale_line_indexes_cannot_index_past_the_buffer() {
+        let mut host = HostState::default();
+        host.line_starts = vec![0, 4, 8, 12];
+        assert_eq!(host.bytes(), b"");
+        assert_eq!(host.line_bounds(0), Some((0, 0)));
+        assert_eq!(host.line_bounds(2), None);
+        assert_eq!(host.line_bytes(1), None);
+        assert_eq!(host.cursor_byte(), 0);
+
+        host.ensure_lines();
+        assert_eq!(host.line_count(), 1);
+        assert_eq!(host.line_bounds(0), Some((0, 0)));
+    }
+
+    #[test]
     fn host_line_operations_clamp_and_handle_multibyte_text() {
         let mut host = HostState::default();
         host.load("a\n\u{263a}b\nlast".as_bytes().to_vec(), 2);
@@ -2492,6 +2536,22 @@ mod tests {
         assert!(host.replace_range(0, 0, b"prefix "));
         assert!(host.bytes().starts_with(b"prefix a\n"));
         assert!(!host.replace_range(5, 1, b"x"));
+    }
+
+    #[test]
+    fn apply_to_document_keeps_the_host_view_consistent() {
+        let (mut runtime, host) = runtime();
+        let mut document = Document::from_bytes(None, b"one\ntwo\nthree\n".to_vec());
+        document.insert(0, b"x");
+        let mut cursor = 0usize;
+        runtime.sync_from_document(&document, cursor);
+        assert_eq!(host.borrow().bytes(), document.all_text());
+
+        let effects = runtime.apply_to_document(&mut document, &mut cursor);
+        assert!(effects.errors.is_empty(), "{:?}", effects.errors);
+        assert_eq!(host.borrow().bytes(), document.all_text());
+        assert_eq!(host.borrow().line_count(), document.line_count());
+        assert!(host.borrow().line_bytes(document.line_count() - 1).is_some());
     }
 
     #[test]
