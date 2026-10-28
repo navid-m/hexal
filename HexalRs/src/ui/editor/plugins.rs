@@ -171,7 +171,7 @@ impl Editor {
             }
         }
         if let Some(clipboard) = effects.clipboard {
-            self.clipboard = clipboard;
+            self.store_clipboard(clipboard.as_bytes());
         }
         for (plugin_id, message) in effects.errors {
             crate::util::log::write(&format!("plugin {plugin_id}: {message}"));

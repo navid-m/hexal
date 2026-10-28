@@ -924,11 +924,14 @@ impl Editor {
 
     fn copy_dap_debug_report(&mut self) {
         let report = self.dap.build_debug_report();
-        self.store_clipboard(report.as_bytes());
-        self.dap_debug.status = format!(
-            "Copied {} characters to the clipboard.",
-            report.encode_utf16().count()
-        );
+        if self.store_clipboard(report.as_bytes()) {
+            self.dap_debug.status = format!(
+                "Copied {} characters to the clipboard.",
+                report.encode_utf16().count()
+            );
+        } else {
+            self.dap_debug.status = "Copy failed.".to_string();
+        }
     }
 
     pub(super) fn handle_dap_debug_input(&mut self, event: Event) {

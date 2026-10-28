@@ -912,6 +912,11 @@ impl LuaRuntime {
         }
     }
 
+    pub fn set_workspace_root(&mut self, root: &str) {
+        let coordinator = self.shared.borrow().lsp.clone();
+        coordinator.borrow_mut().set_workspace_root(root);
+    }
+
     pub fn sync_from_document(&mut self, document: &Document, cursor: usize) {
         if self.host.borrow().dirty {
             return;

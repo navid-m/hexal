@@ -114,6 +114,13 @@ impl PluginManager {
         self.columns = columns;
         self.rows = rows;
         self.selection = selection;
+        if let Some(root) = self.workspace_root.clone() {
+            for entry in &mut self.entries {
+                if let Some(runtime) = &mut entry.runtime {
+                    runtime.set_workspace_root(&root);
+                }
+            }
+        }
     }
 
     pub fn errors(&self) -> &[String] {
@@ -346,6 +353,9 @@ impl PluginManager {
             }
         };
         self.set_host_context();
+        if let Some(root) = &self.workspace_root {
+            runtime.set_workspace_root(root);
+        }
         runtime.sync_from_document(document, *cursor);
         if let Err(error) = runtime.load_file(&entry_path.to_string_lossy()) {
             crate::util::log::write(&format!("plugin {id}: {error}"));

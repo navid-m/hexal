@@ -520,6 +520,10 @@ impl Coordinator {
         }))
     }
 
+    pub fn set_workspace_root(&mut self, root: &str) {
+        self.workspace = Workspace::new(root.to_string());
+    }
+
     pub fn active_server(&self) -> Option<Rc<RefCell<Server>>> {
         self.servers
             .iter()
@@ -1592,6 +1596,22 @@ fn resolve_workspace_path(root: &str, uri: &str) -> PathBuf {
     } else {
         Path::new(root).join(path)
     }
+}
+
+fn collect_workspace_files(root: &str, limit: usize) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_files(Path::new(root), limit, &mut files);
+    let mut relative: Vec<String> = files
+        .into_iter()
+        .map(|file| {
+            Path::new(&file)
+                .strip_prefix(root)
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .unwrap_or(file)
+        })
+        .collect();
+    relative.sort();
+    relative
 }
 
 fn collect_files(root: &Path, limit: usize, output: &mut Vec<String>) {
@@ -5252,11 +5272,22 @@ fn bind_fs(lua: &Lua, module: &Table, coordinator: &Rc<RefCell<Coordinator>>) ->
             lua,
             module,
             "workspace_files",
-            move |lua, _options: Option<LuaValue>| {
+            move |lua, options: Option<LuaValue>| {
                 let root = coordinator.borrow().workspace.root_path.clone();
-                let mut files = Vec::new();
-                collect_files(Path::new(&root), 4096, &mut files);
-                let result = Value::Array(files.into_iter().map(Value::String).collect());
+                let mut max_results = 20_000usize;
+                if let Some(LuaValue::Table(table)) = options {
+                    if let Ok(Some(limit)) = table.get::<Option<usize>>("max_results") {
+                        max_results = limit.max(1);
+                    } else if let Ok(Some(limit)) = table.get::<Option<usize>>("maxResults") {
+                        max_results = limit.max(1);
+                    }
+                }
+                let result = Value::Array(
+                    collect_workspace_files(&root, max_results)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect(),
+                );
                 Ok(match to_lua(lua, &coordinator, &result)? {
                     LuaValue::Table(table) => table,
                     _ => lua.create_table()?,
@@ -5992,5 +6023,36 @@ fn auto_client_result(method: &str, message: &Value, server: &Rc<RefCell<Server>
             result
         }
         _ => Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_workspace_files;
+    use std::fs;
+
+    #[test]
+    fn workspace_files_are_relative_to_the_workspace_root() {
+        let root = std::env::temp_dir().join(format!(
+            "hexal-workspace-files-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src/nested")).unwrap();
+        fs::write(root.join("README.md"), b"readme").unwrap();
+        fs::write(root.join("src/main.rs"), b"main").unwrap();
+        fs::write(root.join("src/nested/lib.rs"), b"lib").unwrap();
+
+        let files = collect_workspace_files(&root.to_string_lossy(), 100);
+        assert_eq!(
+            files,
+            vec![
+                "README.md".to_string(),
+                "src/main.rs".to_string(),
+                "src/nested/lib.rs".to_string()
+            ]
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

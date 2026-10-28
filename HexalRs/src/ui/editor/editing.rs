@@ -579,7 +579,9 @@ impl Editor {
             return;
         }
         let text = self.doc.range(start, end - start);
-        self.store_clipboard(&text);
+        if !self.store_clipboard(&text) {
+            return;
+        }
         if self.mode == Mode::Select {
             self.cursor = start;
             self.cancel_selection();
@@ -605,7 +607,9 @@ impl Editor {
             return;
         }
         let text = self.doc.range(start, end - start);
-        self.store_clipboard(&text);
+        if !self.store_clipboard(&text) {
+            return;
+        }
         self.doc.replace(start, end - start, b"");
         self.cursor = start.min(self.doc.size());
         self.anchor = self.cursor;
@@ -615,32 +619,52 @@ impl Editor {
         self.set_message(&format!("Cut {} byte(s).", text.len()));
     }
 
-    pub(super) fn store_clipboard(&mut self, text: &[u8]) {
+    pub(super) fn store_clipboard(&mut self, text: &[u8]) -> bool {
         self.clipboard = String::from_utf8_lossy(text).into_owned();
-        let encoded = util::base64_encode(text);
-        self.pending_osc = Some(format!("\x1b]52;c;{encoded}\x07").into_bytes());
+        match crate::platform::clipboard::copy(text) {
+            Ok(crate::platform::clipboard::CopyOutcome::System) => {
+                self.pending_osc = None;
+                true
+            }
+            Ok(crate::platform::clipboard::CopyOutcome::Osc52) => {
+                let encoded = util::base64_encode(text);
+                self.pending_osc = Some(format!("\x1b]52;c;{encoded}\x07").into_bytes());
+                true
+            }
+            Err(error) => {
+                self.set_error(&format!("clipboard: {error}"));
+                false
+            }
+        }
     }
 
     pub(super) fn paste_clipboard(&mut self, new_line: bool) {
-        if self.clipboard.is_empty() {
-            self.set_error("clipboard is empty");
+        let clipboard_text = match crate::platform::clipboard::paste() {
+            Ok(text) => text,
+            Err(error) => {
+                self.set_error(&error);
+                return;
+            }
+        };
+        if clipboard_text.is_empty() {
+            self.set_message("The system clipboard is empty.");
             return;
         }
-        let text = self.clipboard.clone();
+        let text = normalize_pasted_text(&clipboard_text, self.doc.eol.as_bytes());
         if new_line {
             let line = self.cursor_line();
             let end = self.doc.line_end(line);
-            let mut builder = Vec::new();
+            let mut builder = Vec::with_capacity(text.len() + 2);
             builder.extend_from_slice(self.doc.eol.as_bytes());
-            builder.extend_from_slice(text.as_bytes());
+            builder.extend_from_slice(&text);
             self.doc.insert(end, &builder);
             self.cursor = (end + builder.len()).min(self.doc.size());
         } else if self.mode == Mode::Select {
             let (start, end) = self.selection_range();
-            self.doc.replace(start, end - start, text.as_bytes());
+            self.doc.replace(start, end - start, &text);
             self.cursor = (start + text.len()).min(self.doc.size());
         } else {
-            self.doc.insert(self.cursor, text.as_bytes());
+            self.doc.insert(self.cursor, &text);
             self.cursor += text.len();
         }
         self.mode = Mode::Normal;
@@ -777,4 +801,46 @@ fn has_balanced_quotes_and_angles(content: &[u8]) -> bool {
         }
     }
     !in_double && !in_single
+}
+
+fn normalize_pasted_text(text: &[u8], eol: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(text.len() + eol.len());
+    let mut index = 0usize;
+    while index < text.len() {
+        match text[index] {
+            b'\r' => {
+                index += 1;
+                if index < text.len() && text[index] == b'\n' {
+                    index += 1;
+                }
+                output.extend_from_slice(eol);
+            }
+            b'\n' => {
+                index += 1;
+                output.extend_from_slice(eol);
+            }
+            byte => {
+                output.push(byte);
+                index += 1;
+            }
+        }
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_pasted_text;
+
+    #[test]
+    fn pasted_text_uses_the_document_line_ending() {
+        assert_eq!(
+            normalize_pasted_text(b"one\r\ntwo\rthree\nfour", b"\n"),
+            b"one\ntwo\nthree\nfour"
+        );
+        assert_eq!(
+            normalize_pasted_text(b"one\r\ntwo\nthree", b"\r\n"),
+            b"one\r\ntwo\r\nthree"
+        );
+    }
 }

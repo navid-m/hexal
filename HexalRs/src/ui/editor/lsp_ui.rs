@@ -1234,9 +1234,12 @@ impl Editor {
                 }
                 'y' | 'Y' => {
                     let report = self.lsp.build_debug_report();
-                    self.store_clipboard(report.as_bytes());
-                    self.lsp_debug.status =
-                        format!("Copied {} characters to the clipboard.", report.len());
+                    if self.store_clipboard(report.as_bytes()) {
+                        self.lsp_debug.status =
+                            format!("Copied {} characters to the clipboard.", report.len());
+                    } else {
+                        self.lsp_debug.status = "Copy failed.".to_string();
+                    }
                 }
                 'c' | 'C' => {
                     self.lsp.clear_log();
