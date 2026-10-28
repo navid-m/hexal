@@ -51,6 +51,12 @@ fn main() {
         }
         return;
     }
+    if args
+        .get(1)
+        .is_some_and(|argument| argument.eq_ignore_ascii_case("install-plugin"))
+    {
+        std::process::exit(run_install_plugin(&args[1..]));
+    }
 
     let mut file: Option<String> = None;
     let mut options_ended = false;
@@ -108,6 +114,35 @@ fn main() {
     }
 }
 
+fn run_install_plugin(arguments: &[String]) -> i32 {
+    if arguments.len() != 2 {
+        eprintln!("usage: hexal install-plugin <name>");
+        return 2;
+    }
+
+    let (config, config_error) = core::config::Config::load_default();
+    if !config_error.is_empty() {
+        eprintln!("hexal: config: {config_error}");
+    }
+
+    let repository = if config.central_repository_url.trim().is_empty() {
+        core::config::DEFAULT_CENTRAL_REPOSITORY_URL
+    } else {
+        config.central_repository_url.trim()
+    };
+    let directory = util::plugin_install::plugin_directory();
+    match util::plugin_install::install(&arguments[1], repository, &directory) {
+        Ok(path) => {
+            println!("Installed plugin '{}' to {}", arguments[1], path.display());
+            0
+        }
+        Err(error) => {
+            eprintln!("hexal: install-plugin: {error}");
+            1
+        }
+    }
+}
+
 fn run_lua_bench(args: &[String]) -> Result<(), String> {
     if args.len() < 3 || args.len() > 4 {
         return Err("usage: hexalrs --lua-bench <plugin.lua> <command> <iterations> [file]".into());
@@ -129,8 +164,11 @@ fn run_lua_bench(args: &[String]) -> Result<(), String> {
     };
     let mut cursor = 0usize;
 
+    let _ = &cursor;
+    let host = std::rc::Rc::new(std::cell::RefCell::new(scripting::lua::HostState::default()));
     let start = std::time::Instant::now();
-    let mut runtime = LuaRuntime::new().map_err(|error| format!("cannot start Lua: {error}"))?;
+    let mut runtime = LuaRuntime::new("lua-bench", ".", host)
+        .map_err(|error| format!("cannot start Lua: {error}"))?;
     runtime
         .load_file(plugin)
         .map_err(|error| format!("cannot load '{plugin}': {error}"))?;

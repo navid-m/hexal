@@ -135,11 +135,7 @@ impl Editor {
             PaletteAction::Quit,
         );
 
-        let plugin_commands = self
-            .lua
-            .as_ref()
-            .map(|runtime| runtime.command_names())
-            .unwrap_or_default();
+        let plugin_commands = self.plugin_command_names();
         for name in plugin_commands {
             self.palette_commands.push(PaletteCommand {
                 title: format!("Plugin: {name}"),

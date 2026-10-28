@@ -26,6 +26,7 @@ impl Editor {
                 return;
             }
         };
+        self.fire_plugin_buffer_event("buffer_closed");
         self.doc = new_doc;
         self.mode = Mode::Normal;
         self.anchor = 0;
@@ -58,6 +59,7 @@ impl Editor {
         self.doc.break_undo_group();
         self.last_revision = self.doc.revision();
         self.restart_lsp_for_buffer();
+        self.fire_plugin_buffer_event("buffer_opened");
         self.set_message(&format!("Opened {}", self.doc.display_name()));
     }
 
@@ -515,11 +517,7 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 {
-            height - 3
-        } else {
-            1
-        }
+        if height >= 3 { height - 3 } else { 1 }
     }
 }
 

@@ -147,6 +147,61 @@ impl Editor {
                     if self.picker.kind == PickerKind::Problems {
                         self.rebuild_picker();
                     }
+                    if self
+                        .plugins
+                        .as_ref()
+                        .map(|plugins| plugins.has_subscribers("__lsp_diagnostics"))
+                        .unwrap_or(false)
+                    {
+                        let path = self.doc.path.clone().unwrap_or_default();
+                        let diagnostics = self.lsp.diagnostics_for_path(&path);
+                        let mut data = crate::util::json::Value::Object(Vec::new());
+                        data.set(
+                            "server",
+                            crate::util::json::Value::String(self.lsp.server_name()),
+                        );
+                        data.set(
+                            "uri",
+                            crate::util::json::Value::String(
+                                lsp::manager::path_to_uri(&path, false).unwrap_or_default(),
+                            ),
+                        );
+                        let mut items = crate::util::json::Value::Array(Vec::new());
+                        for diagnostic in diagnostics {
+                            let mut item = crate::util::json::Value::Object(Vec::new());
+                            item.set(
+                                "line",
+                                crate::util::json::Value::Number(diagnostic.line as f64),
+                            );
+                            item.set(
+                                "column",
+                                crate::util::json::Value::Number(diagnostic.column as f64),
+                            );
+                            item.set(
+                                "severity",
+                                crate::util::json::Value::Number(diagnostic.severity as f64),
+                            );
+                            item.set(
+                                "message",
+                                crate::util::json::Value::String(diagnostic.message),
+                            );
+                            item.set(
+                                "source",
+                                crate::util::json::Value::String(diagnostic.source),
+                            );
+                            let tags = diagnostic
+                                .tags
+                                .into_iter()
+                                .map(|tag| crate::util::json::Value::Number(tag as f64))
+                                .collect();
+                            item.set("tags", crate::util::json::Value::Array(tags));
+                            if let crate::util::json::Value::Array(values) = &mut items {
+                                values.push(item);
+                            }
+                        }
+                        data.set("diagnostics", items);
+                        self.fire_plugin_event("__lsp_diagnostics", data);
+                    }
                 }
                 lsp::Event::Hover { text } => {
                     if !self.hover_request_pending {

@@ -3,16 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use std::alloc::{alloc as rust_alloc, dealloc as rust_dealloc, Layout};
-use std::cell::{RefCell, UnsafeCell};
-use std::collections::HashMap;
-use std::ffi::CStr;
-use std::fs;
-use std::os::raw::{c_char, c_int, c_void};
-use std::ptr;
-use std::slice;
-
-use mlua::{ffi, Lua, StdLib};
+use std::alloc::{Layout, alloc as rust_alloc, dealloc as rust_dealloc};
 
 const LUA_GRAIN: usize = 16;
 const LUA_SMALL_LIMIT: usize = 1024;
@@ -58,9 +49,7 @@ impl LuaAllocator {
                 return head as *mut u8;
             }
             let block = (class + 1) * LUA_GRAIN;
-            return unsafe {
-                rust_alloc(Layout::from_size_align_unchecked(block, LUA_GRAIN))
-            };
+            return unsafe { rust_alloc(Layout::from_size_align_unchecked(block, LUA_GRAIN)) };
         }
         unsafe { rust_alloc(Layout::from_size_align_unchecked(size, LUA_GRAIN)) }
     }
@@ -76,20 +65,14 @@ impl LuaAllocator {
                 return;
             }
             let block = (class + 1) * LUA_GRAIN;
-            unsafe {
-                rust_dealloc(pointer, Layout::from_size_align_unchecked(block, LUA_GRAIN))
-            };
+            unsafe { rust_dealloc(pointer, Layout::from_size_align_unchecked(block, LUA_GRAIN)) };
             return;
         }
-        unsafe {
-            rust_dealloc(pointer, Layout::from_size_align_unchecked(size, LUA_GRAIN))
-        };
+        unsafe { rust_dealloc(pointer, Layout::from_size_align_unchecked(size, LUA_GRAIN)) };
     }
 
     unsafe fn realloc(&mut self, pointer: *mut u8, old_size: usize, new_size: usize) -> *mut u8 {
-        if let (Some(old_class), Some(new_class)) =
-            (Self::class(old_size), Self::class(new_size))
-        {
+        if let (Some(old_class), Some(new_class)) = (Self::class(old_size), Self::class(new_size)) {
             if old_class == new_class {
                 return pointer;
             }
@@ -116,10 +99,7 @@ impl Drop for LuaAllocator {
                 unsafe {
                     rust_dealloc(
                         node as *mut u8,
-                        Layout::from_size_align_unchecked(
-                            (class + 1) * LUA_GRAIN,
-                            LUA_GRAIN,
-                        ),
+                        Layout::from_size_align_unchecked((class + 1) * LUA_GRAIN, LUA_GRAIN),
                     )
                 };
                 node = next;
@@ -128,96 +108,221 @@ impl Drop for LuaAllocator {
     }
 }
 
-use crate::core::document::Document;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs;
+use std::io::Read;
+use std::os::raw::{c_int, c_void};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::rc::Rc;
+use std::slice;
+use std::time::{Duration, Instant};
 
-/// In-memory buffer exposed to Lua. Keeping a snapshot makes plugin callbacks
-/// simple and lets commands be atomic from the editor's point of view.
-struct LuaHost {
-    text: Vec<u8>,
-    /// Non-owning view of the document's original buffer after a write-back.
-    /// Materialised into `text` before any host-side mutation.
-    text_view: Option<(*const u8, usize)>,
-    line_starts: Vec<usize>,
-    cursor_line: usize,
-    cursor_column: usize,
-    dirty: bool,
-    message: Option<String>,
+use mlua::{Function, Lua, Result as LuaResult, Table, Value as LuaValue};
+
+use crate::core::document::Document;
+use crate::scripting::json::{self, Value};
+use crate::scripting::lsp::{Coordinator, LspRequest};
+use crate::util::json as hosted_json;
+
+#[derive(Clone, Debug)]
+pub struct PluginSelection {
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub text: String,
+    pub linewise: bool,
 }
 
-impl LuaHost {
-    fn new() -> LuaHost {
-        LuaHost {
+#[derive(Clone, Debug)]
+pub struct PanelSegment {
+    pub text: String,
+    pub style: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct PanelLine {
+    pub segments: Vec<PanelSegment>,
+    pub selectable: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PluginPanel {
+    pub id: i64,
+    pub plugin_id: String,
+    pub title: String,
+    pub footer: String,
+    pub selectable: bool,
+    pub selected: usize,
+    pub lines: Vec<PanelLine>,
+}
+
+#[derive(Clone, Debug)]
+pub enum HostRequest {
+    Prompt {
+        id: i64,
+        label: String,
+    },
+    Select {
+        id: i64,
+        title: String,
+        items: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HostEffects {
+    pub messages: Vec<(String, bool)>,
+    pub statuses: Vec<(String, Option<String>)>,
+    pub clipboard: Option<String>,
+    pub lsp_requests: Vec<LspRequest>,
+    pub lsp_stops: Vec<String>,
+    pub errors: Vec<(String, String)>,
+    pub panels_changed: bool,
+}
+
+/// Mutable editor state mirrored into the Lua host for one invocation.
+pub struct HostState {
+    pub text: Vec<u8>,
+    text_view: Option<(*const u8, usize)>,
+    pub line_starts: Vec<usize>,
+    pub cursor_line: usize,
+    pub cursor_column: usize,
+    pub dirty: bool,
+    pub selection: Option<PluginSelection>,
+    pub buffer_id: String,
+    pub path: Option<String>,
+    pub language: String,
+    pub workspace_root: Option<String>,
+    pub columns: usize,
+    pub rows: usize,
+    pub messages: Vec<(String, bool)>,
+    pub statuses: Vec<(String, Option<String>)>,
+    pub clipboard: Option<String>,
+    pub lsp_requests: Vec<LspRequest>,
+    pub lsp_stops: Vec<String>,
+    pub errors: Vec<(String, String)>,
+    pub requests: Vec<HostRequest>,
+    pub panels: Vec<PluginPanel>,
+    pub next_panel_id: i64,
+    pub pending_commands: Vec<(String, Vec<String>)>,
+}
+
+impl Default for HostState {
+    fn default() -> Self {
+        HostState {
             text: Vec::new(),
             text_view: None,
             line_starts: vec![0],
             cursor_line: 0,
             cursor_column: 0,
             dirty: false,
-            message: None,
+            selection: None,
+            buffer_id: "[No Name]".into(),
+            path: None,
+            language: String::new(),
+            workspace_root: None,
+            columns: 80,
+            rows: 24,
+            messages: Vec::new(),
+            statuses: Vec::new(),
+            clipboard: None,
+            lsp_requests: Vec::new(),
+            lsp_stops: Vec::new(),
+            errors: Vec::new(),
+            requests: Vec::new(),
+            panels: Vec::new(),
+            next_panel_id: 1,
+            pending_commands: Vec::new(),
         }
     }
+}
 
-    fn load(&mut self, text: Vec<u8>, cursor_line: usize, cursor_column: usize) {
+impl HostState {
+    pub fn load(&mut self, text: Vec<u8>, cursor: usize) {
         self.text = text;
         self.text_view = None;
         self.rebuild_lines();
-        self.cursor_line = cursor_line.min(self.line_count().saturating_sub(1));
-        self.cursor_column = cursor_column;
+        let line = self.line_of_offset(cursor);
+        self.cursor_line = line;
+        self.cursor_column = scalar_column(
+            &self.line_bounds(line).unwrap_or((0, 0)),
+            &self.text,
+            cursor,
+        );
         self.dirty = false;
-        self.message = None;
     }
 
-    fn bytes(&self) -> &[u8] {
+    pub fn load_with_view(
+        &mut self,
+        text: Vec<u8>,
+        view: Option<(*const u8, usize)>,
+        cursor: usize,
+    ) {
+        self.text = text;
+        self.text_view = view;
+        self.rebuild_lines();
+        let line = self.line_of_offset(cursor);
+        self.cursor_line = line;
+        self.cursor_column = scalar_column(
+            &self.line_bounds(line).unwrap_or((0, 0)),
+            self.bytes(),
+            cursor,
+        );
+        self.dirty = false;
+    }
+
+    pub fn bytes(&self) -> &[u8] {
         match self.text_view {
-            // Safety: the pointer is the document's immutable original buffer
-            // and is cleared before any host-side mutation or document edit.
             Some((pointer, length)) => unsafe { slice::from_raw_parts(pointer, length) },
             None => &self.text,
         }
     }
 
-    fn materialize(&mut self) {
+    pub fn materialize(&mut self) {
         let Some((pointer, length)) = self.text_view.take() else {
             return;
         };
-        // Safety: see `bytes`.
         let bytes = unsafe { slice::from_raw_parts(pointer, length) };
         self.text.clear();
         self.text.extend_from_slice(bytes);
     }
 
-    fn rebuild_lines(&mut self) {
-        self.line_starts.clear();
-        self.line_starts.push(0);
-        let bytes = &self.text;
-        let mut position = 0usize;
-        while position < bytes.len() {
-            let found = unsafe {
-                libc::memchr(
-                    bytes[position..].as_ptr() as *const c_void,
-                    b'\n' as c_int,
-                    bytes.len() - position,
-                )
-            };
-            if found.is_null() {
-                break;
+    pub fn rebuild_lines(&mut self) {
+        let mut starts = vec![0usize];
+        {
+            let bytes = self.bytes();
+            let mut position = 0usize;
+            while position < bytes.len() {
+                let found = unsafe {
+                    libc::memchr(
+                        bytes[position..].as_ptr() as *const c_void,
+                        b'\n' as c_int,
+                        bytes.len() - position,
+                    )
+                };
+                if found.is_null() {
+                    break;
+                }
+                let index = found as usize - bytes.as_ptr() as usize;
+                starts.push(index + 1);
+                position = index + 1;
             }
-            let index = found as usize - bytes.as_ptr() as usize;
-            self.line_starts.push(index + 1);
-            position = index + 1;
         }
+        self.line_starts = starts;
     }
 
-    fn line_count(&self) -> usize {
+    pub fn line_count(&self) -> usize {
         self.line_starts.len().max(1)
     }
 
-    fn line_start(&self, line: usize) -> usize {
+    pub fn line_start(&self, line: usize) -> usize {
         self.line_starts[line.min(self.line_count() - 1)]
     }
 
-    #[inline]
-    fn line_bounds(&self, line: usize) -> Option<(usize, usize)> {
+    pub fn line_bounds(&self, line: usize) -> Option<(usize, usize)> {
         if line >= self.line_starts.len() {
             return None;
         }
@@ -226,8 +331,6 @@ impl LuaHost {
         if line + 1 >= self.line_starts.len() {
             return Some((start, text.len()));
         }
-        // Line starts are recorded immediately after a newline, so the byte
-        // before the next start is the terminator and does not need a check.
         let mut end = self.line_starts[line + 1] - 1;
         if end > start && text[end - 1] == b'\r' {
             end -= 1;
@@ -235,33 +338,32 @@ impl LuaHost {
         Some((start, end))
     }
 
-    #[inline]
-    fn line_end(&self, line: usize) -> usize {
-        self.line_bounds(line)
-            .map(|(_, end)| end)
-            .unwrap_or_else(|| self.bytes().len())
-    }
-
-    #[inline]
-    fn line_bytes(&self, line: usize) -> Option<&[u8]> {
+    pub fn line_bytes(&self, line: usize) -> Option<&[u8]> {
         let (start, end) = self.line_bounds(line)?;
         Some(&self.bytes()[start..end])
     }
 
-    fn set_line(&mut self, line: usize, value: &[u8]) -> bool {
-        if line >= self.line_count() {
-            return false;
-        }
-        self.materialize();
-        let start = self.line_start(line);
-        let end = self.line_end(line);
-        self.text.splice(start..end, value.iter().copied());
-        self.rebuild_lines();
-        self.dirty = true;
-        true
+    pub fn line_of_offset(&self, offset: usize) -> usize {
+        self.line_starts
+            .partition_point(|&start| start <= offset)
+            .saturating_sub(1)
+            .min(self.line_starts.len().saturating_sub(1))
     }
 
-    fn set_text(&mut self, value: &[u8]) {
+    pub fn cursor_byte(&self) -> usize {
+        let (start, end) = self.line_bounds(self.cursor_line).unwrap_or((0, 0));
+        let text = &self.bytes()[start..end];
+        start + column_to_byte(text, self.cursor_column)
+    }
+
+    pub fn set_cursor(&mut self, line: usize, column: usize) {
+        self.cursor_line = line.min(self.line_count().saturating_sub(1));
+        let (start, end) = self.line_bounds(self.cursor_line).unwrap_or((0, 0));
+        let text = &self.bytes()[start..end];
+        self.cursor_column = column.min(scalar_len(text));
+    }
+
+    pub fn set_text(&mut self, value: &[u8]) {
         self.text_view = None;
         self.text.clear();
         self.text.extend_from_slice(value);
@@ -270,436 +372,2040 @@ impl LuaHost {
         self.dirty = true;
     }
 
-    fn byte_offset(&self) -> usize {
-        let line = self.cursor_line.min(self.line_count() - 1);
-        let (start, end) = self.line_bounds(line).unwrap_or((0, 0));
-        start + self.cursor_column.min(end.saturating_sub(start))
-    }
-
-    fn set_cursor(&mut self, line: usize, column: usize) {
-        self.cursor_line = line.min(self.line_count().saturating_sub(1));
-        let (start, end) = self.line_bounds(self.cursor_line).unwrap_or((0, 0));
-        self.cursor_column = column.min(end.saturating_sub(start));
-    }
-
-    fn insert(&mut self, value: &[u8]) {
+    pub fn set_line(&mut self, line: usize, value: &[u8]) -> bool {
+        if line >= self.line_count() {
+            return false;
+        }
         self.materialize();
-        let offset = self.byte_offset();
+        let (start, end) = self.line_bounds(line).unwrap_or((0, 0));
+        self.text.splice(start..end, value.iter().copied());
+        self.rebuild_lines();
+        self.dirty = true;
+        true
+    }
+
+    pub fn insert(&mut self, value: &[u8]) {
+        self.materialize();
+        let offset = self.cursor_byte();
         self.text.splice(offset..offset, value.iter().copied());
         self.rebuild_lines();
         let new_offset = offset + value.len();
-        let line = line_of_offset_in(&self.line_starts, new_offset);
-        self.cursor_line = line;
-        self.cursor_column = new_offset - self.line_starts[line];
+        self.cursor_line = self.line_of_offset(new_offset);
+        self.cursor_column = scalar_column(
+            &self.line_bounds(self.cursor_line).unwrap_or((0, 0)),
+            &self.text,
+            new_offset,
+        );
         self.dirty = true;
     }
 
-    fn take_message(&mut self) -> Option<String> {
-        self.message.take()
+    pub fn replace_range(&mut self, start: usize, end: usize, value: &[u8]) -> bool {
+        if end < start || end > self.bytes().len() {
+            return false;
+        }
+        self.materialize();
+        self.text.splice(start..end, value.iter().copied());
+        self.rebuild_lines();
+        let new_offset = start + value.len();
+        self.cursor_line = self.line_of_offset(new_offset);
+        self.cursor_column = scalar_column(
+            &self.line_bounds(self.cursor_line).unwrap_or((0, 0)),
+            &self.text,
+            new_offset,
+        );
+        self.dirty = true;
+        true
+    }
+
+    pub fn take_effects(&mut self) -> HostEffects {
+        HostEffects {
+            messages: std::mem::take(&mut self.messages),
+            statuses: std::mem::take(&mut self.statuses),
+            clipboard: self.clipboard.take(),
+            lsp_requests: std::mem::take(&mut self.lsp_requests),
+            lsp_stops: std::mem::take(&mut self.lsp_stops),
+            errors: std::mem::take(&mut self.errors),
+            panels_changed: false,
+        }
     }
 }
 
-/// Pointer passed as a Lua light userdata upvalue. Boxed by LuaRuntime so its
-/// address stays stable for the lifetime of the Lua state.
-struct RawContext {
-    // Single-threaded, synchronous callbacks: avoid RefCell checks on the hot
-    // host API path. Runtime and callbacks never overlap access to the host.
-    host: UnsafeCell<LuaHost>,
-    commands: RefCell<HashMap<String, c_int>>,
+#[inline]
+fn scalar_len(bytes: &[u8]) -> usize {
+    if bytes.is_ascii() {
+        bytes.len()
+    } else {
+        String::from_utf8_lossy(bytes).chars().count()
+    }
+}
+
+#[inline]
+fn column_to_byte(bytes: &[u8], column: usize) -> usize {
+    if bytes.is_ascii() {
+        return column.min(bytes.len());
+    }
+    String::from_utf8_lossy(bytes)
+        .char_indices()
+        .nth(column)
+        .map(|(index, _)| index)
+        .unwrap_or(bytes.len())
+}
+
+#[inline]
+fn scalar_column(bounds: &(usize, usize), bytes: &[u8], offset: usize) -> usize {
+    let start = bounds.0.min(bytes.len());
+    let end = bounds.1.max(start).min(bytes.len());
+    let offset = offset.clamp(start, end);
+    if bytes[start..offset].is_ascii() {
+        offset - start
+    } else {
+        String::from_utf8_lossy(&bytes[start..offset])
+            .chars()
+            .count()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin configuration
+// ---------------------------------------------------------------------------
+
+pub struct PluginConfigStore {
+    path: PathBuf,
+    values: Value,
+}
+
+impl PluginConfigStore {
+    pub fn new(path: PathBuf) -> PluginConfigStore {
+        PluginConfigStore {
+            path,
+            values: Value::Object(Vec::new()),
+        }
+    }
+
+    pub fn load(&mut self) -> Result<(), String> {
+        if !self.path.exists() {
+            return Ok(());
+        }
+        let text = fs::read_to_string(&self.path).map_err(|error| error.to_string())?;
+        let value = hosted_json::parse(&text)?;
+        if !matches!(value, Value::Object(_)) {
+            return Err("configuration root must be a JSON object".into());
+        }
+        self.values = value;
+        Ok(())
+    }
+
+    pub fn get(&self, key: &str, fallback: Value) -> Value {
+        if let Some(value) = self.values.get(key) {
+            return value.clone();
+        }
+        let mut current = &self.values;
+        for part in key.split('.').filter(|part| !part.is_empty()) {
+            let Some(value) = current.get(part) else {
+                return fallback;
+            };
+            current = value;
+        }
+        current.clone()
+    }
+
+    pub fn set(&mut self, key: &str, value: Value) {
+        if key.is_empty() {
+            return;
+        }
+        let parts: Vec<&str> = key.split('.').filter(|part| !part.is_empty()).collect();
+        if parts.len() <= 1 {
+            self.values.set(key, value);
+            return;
+        }
+        let mut current = &mut self.values;
+        for part in &parts[..parts.len() - 1] {
+            if current.get(part).is_none() {
+                current.set(part, Value::Object(Vec::new()));
+            }
+            let Value::Object(entries) = current else {
+                return;
+            };
+            let Some((_, child)) = entries.iter_mut().find(|(name, _)| name == part) else {
+                return;
+            };
+            current = child;
+        }
+        current.set(parts[parts.len() - 1], value);
+    }
+
+    pub fn snapshot(&self) -> Value {
+        self.values.clone()
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        if let Some(directory) = self.path.parent() {
+            fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+        }
+        let mut output = hosted_json::to_string(&self.values, true);
+        output.push('\n');
+        fs::write(&self.path, output).map_err(|error| error.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Script host
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct CommandEntry {
+    pub name: String,
+    pub description: String,
+    pub callback: Option<Function>,
+    pub raw_reference: Option<i32>,
+}
+
+#[derive(Clone)]
+pub struct KeyBinding {
+    pub plugin_id: String,
+    pub mode: String,
+    pub keys: Vec<String>,
+    pub command: Option<String>,
+    pub callback: Option<Function>,
+}
+
+#[derive(Clone)]
+pub struct Subscription {
+    pub id: i64,
+    pub event: String,
+    pub callback: Function,
+}
+
+pub enum PromptCallback {
+    Prompt(Function),
+    Select(Function),
+}
+
+pub struct RuntimeShared {
+    pub plugin_id: String,
+    pub plugin_dir: String,
+    pub commands: HashMap<String, CommandEntry>,
+    pub command_version: u64,
+    pub keybindings: Vec<KeyBinding>,
+    pub subscriptions: Vec<Subscription>,
+    pub next_subscription: i64,
+    pub next_request: i64,
+    pub prompts: HashMap<i64, PromptCallback>,
+    pub panel_handlers: HashMap<i64, Function>,
+    pub config: PluginConfigStore,
+    pub lsp: Rc<RefCell<Coordinator>>,
+}
+
+pub struct RawCtx {
+    host: Rc<RefCell<HostState>>,
+    shared: Rc<RefCell<RuntimeShared>>,
 }
 
 pub struct LuaRuntime {
     lua: &'static Lua,
-    state: *mut ffi::lua_State,
-    ctx: Box<RawContext>,
+    state: *mut mlua::ffi::lua_State,
     _allocator: Box<LuaAllocator>,
+    pub host: Rc<RefCell<HostState>>,
+    pub shared: Rc<RefCell<RuntimeShared>>,
+    pub plugin_id: String,
+    pub plugin_dir: String,
     loaded_revision: Option<u64>,
     synced_editor_cursor: Option<usize>,
-    last_command: Option<(String, c_int)>,
-    message: Option<String>,
+    last_command: Option<(String, u64, CommandEntry)>,
+    _raw: Box<RawCtx>,
 }
 
 impl LuaRuntime {
-    pub fn new() -> Result<LuaRuntime, mlua::Error> {
-        // Create the state with Rust's allocator so Lua strings and tables use
-        // the same fast allocator as the rest of the editor.
+    pub fn new(
+        plugin_id: impl Into<String>,
+        plugin_dir: impl Into<String>,
+        host: Rc<RefCell<HostState>>,
+    ) -> Result<LuaRuntime, String> {
+        let plugin_id = plugin_id.into();
+        let plugin_dir = plugin_dir.into();
         let mut allocator = LuaAllocator::new();
         let state = unsafe {
-            ffi::lua_newstate(lua_alloc, (&mut *allocator) as *mut LuaAllocator as *mut c_void)
+            mlua::ffi::lua_newstate(
+                lua_alloc,
+                (&mut *allocator) as *mut LuaAllocator as *mut c_void,
+            )
         };
         if state.is_null() {
-            return Err(mlua::Error::RuntimeError("cannot create Lua state".into()));
+            return Err("cannot create Lua state".into());
         }
-        // Safety: the state is valid for the lifetime of this runtime, and the
-        // returned reference is not used after Drop closes the state.
         let lua: &'static Lua = unsafe { Lua::get_or_init_from_ptr(state) };
-        if let Err(error) = lua.load_std_libs(StdLib::ALL_SAFE) {
-            unsafe { ffi::lua_close(state) };
-            return Err(error);
+        unsafe {
+            mlua::ffi::luaL_requiref(state, c"_G".as_ptr(), mlua::ffi::luaopen_base, 1);
+            mlua::ffi::lua_pop(state, 1);
+        }
+        if let Err(error) = lua.load_std_libs(mlua::StdLib::ALL_SAFE) {
+            unsafe { mlua::ffi::lua_close(state) };
+            return Err(error.to_string());
         }
 
-        let ctx = Box::new(RawContext {
-            host: UnsafeCell::new(LuaHost::new()),
-            commands: RefCell::new(HashMap::new()),
+        let root = lua.create_table().map_err(|error| error.to_string())?;
+        lua.globals()
+            .set("hexal", root.clone())
+            .map_err(|error| error.to_string())?;
+        lua.load(PRELUDE)
+            .set_name("hexal-prelude")
+            .exec()
+            .map_err(|error| error.to_string())?;
+
+        let coordinator = Coordinator::new(lua, plugin_id.clone(), plugin_dir.clone());
+        let config_path = crate::core::config::hexal_home_directory()
+            .join("plugin-config")
+            .join(format!("{}.json", sanitize_file_name(&plugin_id)));
+        let mut config = PluginConfigStore::new(config_path);
+        let config_error = config.load().err().unwrap_or_default();
+
+        let shared = Rc::new(RefCell::new(RuntimeShared {
+            plugin_id: plugin_id.clone(),
+            plugin_dir: plugin_dir.clone(),
+            commands: HashMap::new(),
+            command_version: 0,
+            keybindings: Vec::new(),
+            subscriptions: Vec::new(),
+            next_subscription: 1,
+            next_request: 1,
+            prompts: HashMap::new(),
+            panel_handlers: HashMap::new(),
+            config,
+            lsp: coordinator.clone(),
+        }));
+
+        let raw = Box::new(RawCtx {
+            host: host.clone(),
+            shared: shared.clone(),
         });
-        // Safety: ctx is boxed, lives as long as the runtime, and is only
-        // dereferenced from synchronous Lua callbacks on this thread.
-        unsafe {
-            register_api(state, &*ctx);
+        register_host_api(lua, &root, &host, &shared, &coordinator, &*raw)
+            .map_err(|error| error.to_string())?;
+        crate::scripting::lsp::register(lua, &root, coordinator.clone())
+            .map_err(|error| error.to_string())?;
+        augment_lsp_modules(lua, &root, &shared, &coordinator)
+            .map_err(|error| error.to_string())?;
+
+        let escaped = plugin_dir.replace('\\', "/").replace('\'', "\\'");
+        lua.load(format!(
+            "package.path = '{escaped}/?.lua;{escaped}/?/init.lua;' .. package.path"
+        ))
+        .set_name("hexal-package-path")
+        .exec()
+        .map_err(|error| error.to_string())?;
+
+        if !config_error.is_empty() {
+            host.borrow_mut()
+                .errors
+                .push((plugin_id.clone(), format!("config: {config_error}")));
         }
+
         Ok(LuaRuntime {
             lua,
             state,
-            ctx,
             _allocator: allocator,
+            host,
+            shared,
+            plugin_id,
+            plugin_dir,
             loaded_revision: None,
             synced_editor_cursor: None,
             last_command: None,
-            message: None,
+            _raw: raw,
         })
     }
 
-    pub fn load_file(&mut self, path: &str) -> Result<(), mlua::Error> {
-        let source = fs::read_to_string(path).map_err(|error| {
-            mlua::Error::RuntimeError(format!("cannot read plugin '{path}': {error}"))
-        })?;
-        self.last_command = None;
-        self.lua.load(source).set_name(path).exec()
-    }
-
-    pub fn has_command(&self, name: &str) -> bool {
-        self.ctx.commands.borrow().contains_key(name)
-    }
-
-    pub fn command_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.ctx.commands.borrow().keys().cloned().collect();
-        names.sort();
-        names
+    pub fn load_file(&mut self, path: &str) -> Result<(), String> {
+        let source = fs::read_to_string(path)
+            .map_err(|error| format!("cannot read plugin '{path}': {error}"))?;
+        self.lua
+            .load(source)
+            .set_name(path)
+            .exec()
+            .map_err(|error| error.to_string())
     }
 
     pub fn invoke(
         &mut self,
         name: &str,
-        doc: &mut Document,
+        document: &mut Document,
         cursor: &mut usize,
-    ) -> Result<i64, mlua::Error> {
-        let reference = match self.last_command.as_ref() {
-            Some((cached_name, cached_reference)) if cached_name == name => *cached_reference,
-            _ => {
-                let reference = self
-                    .ctx
-                    .commands
-                    .borrow()
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| {
-                        mlua::Error::RuntimeError(format!("unknown Lua command '{name}'"))
-                    })?;
-                self.last_command = Some((name.to_string(), reference));
-                reference
+    ) -> Result<i64, String> {
+        let Some(command) = self.cached_command(name) else {
+            return Err(format!("unknown Lua command '{name}'"));
+        };
+        self.sync_from_document(document, *cursor);
+        let checksum = if let Some(reference) = command.raw_reference {
+            self.call_raw_reference(reference, &[])
+                .map(|value| value as i64)?
+        } else {
+            let result = match command.callback {
+                Some(callback) => callback.call::<LuaValue>(mlua::MultiValue::new()),
+                None => return Ok(0),
+            };
+            match result {
+                Ok(LuaValue::Integer(value)) => value,
+                Ok(LuaValue::Number(value)) => value as i64,
+                Ok(LuaValue::Boolean(value)) => i64::from(value),
+                Ok(_) => 0,
+                Err(error) => return Err(error.to_string()),
             }
         };
-
-        let revision = doc.revision();
-        let editor_cursor = *cursor;
-        if self.loaded_revision != Some(revision) {
-            let line = doc.line_of_offset(editor_cursor);
-            let column = editor_cursor - doc.line_start(line);
-            let text = doc.all_text();
-            unsafe { host_mut(&self.ctx) }.load(text, line, column);
-            self.loaded_revision = Some(revision);
-            self.synced_editor_cursor = Some(editor_cursor);
-        } else if self.synced_editor_cursor != Some(editor_cursor) {
-            let line = doc.line_of_offset(editor_cursor);
-            let column = editor_cursor - doc.line_start(line);
-            unsafe { host_mut(&self.ctx) }.set_cursor(line, column);
-            self.synced_editor_cursor = Some(editor_cursor);
-        }
-
-        let state = self.state;
-        let checksum = unsafe {
-            ffi::lua_rawgeti(state, ffi::LUA_REGISTRYINDEX, reference as ffi::lua_Integer);
-            let status = ffi::lua_pcallk(state, 0, 1, 0, 0, None);
-            if status != ffi::LUA_OK {
-                self.loaded_revision = None;
-                let message = capture_error(state);
-                ffi::lua_settop(state, 0);
-                return Err(mlua::Error::RuntimeError(message));
-            }
-            let mut is_number: c_int = 0;
-            let value = ffi::lua_tointegerx(state, -1, &mut is_number);
-            ffi::lua_settop(state, 0);
-            value
-        };
-
-        let (dirty, offset) = unsafe {
-            let host = host(&self.ctx);
-            (host.dirty, host.byte_offset())
-        };
-        if dirty {
-            let host = unsafe { host_mut(&self.ctx) };
-            let data = std::mem::take(&mut host.text);
-            doc.replace_all_owned(data);
-            // The document now owns the moved buffer. Point the host at it so
-            // the next command can keep reading without another copy.
-            host.text_view = doc.borrowed_text();
-        }
-        *cursor = offset.min(doc.size());
-        self.synced_editor_cursor = Some(*cursor);
-        self.message = unsafe {
-            let host = host_mut(&self.ctx);
-            host.dirty = false;
-            host.take_message()
-        };
-        self.loaded_revision = Some(doc.revision());
+        let _effects = self.apply_to_document(document, cursor);
         Ok(checksum)
     }
 
-    pub fn take_message(&mut self) -> Option<String> {
-        self.message.take()
-    }
-}
-
-fn line_of_offset_in(line_starts: &[usize], offset: usize) -> usize {
-    line_starts
-        .partition_point(|&start| start <= offset)
-        .saturating_sub(1)
-        .min(line_starts.len().saturating_sub(1))
-}
-
-unsafe fn register_api(state: *mut ffi::lua_State, ctx: *const RawContext) {
-    unsafe {
-        ffi::lua_createtable(state, 0, 0);
-        add_function(state, ctx, c"line_count", api_line_count);
-        add_function(state, ctx, c"get_line", api_get_line);
-        add_function(state, ctx, c"set_line", api_set_line);
-        add_function(state, ctx, c"get_text", api_get_text);
-        add_function(state, ctx, c"set_text", api_set_text);
-        add_function(state, ctx, c"cursor", api_cursor);
-        add_function(state, ctx, c"set_cursor", api_set_cursor);
-        add_function(state, ctx, c"insert", api_insert);
-        add_function(state, ctx, c"message", api_message);
-        add_function(state, ctx, c"register_command", api_register_command);
-        add_function(state, ctx, c"command", api_register_command);
-        ffi::lua_setglobal(state, c"hexal".as_ptr());
-    }
-}
-
-unsafe fn add_function(
-    state: *mut ffi::lua_State,
-    ctx: *const RawContext,
-    name: &CStr,
-    function: ffi::lua_CFunction,
-) {
-    unsafe {
-        ffi::lua_pushlightuserdata(state, ctx as *mut c_void);
-        ffi::lua_pushcclosure(state, function, 1);
-        ffi::lua_setfield(state, -2, name.as_ptr());
-    }
-}
-
-unsafe fn host<'a>(ctx: &'a RawContext) -> &'a LuaHost {
-    unsafe { &*ctx.host.get() }
-}
-
-unsafe fn host_mut<'a>(ctx: &'a RawContext) -> &'a mut LuaHost {
-    unsafe { &mut *ctx.host.get() }
-}
-
-unsafe fn context<'a>(state: *mut ffi::lua_State) -> &'a RawContext {
-    unsafe {
-        let pointer = ffi::lua_touserdata(state, ffi::lua_upvalueindex(1));
-        &*(pointer as *const RawContext)
-    }
-}
-
-unsafe fn fail(state: *mut ffi::lua_State, message: &CStr) -> ! {
-    unsafe {
-        ffi::lua_pushlstring(state, message.as_ptr(), message.to_bytes().len());
-        ffi::lua_error(state)
-    }
-}
-
-unsafe fn arg_bytes<'a>(state: *mut ffi::lua_State, index: c_int) -> Option<&'a [u8]> {
-    unsafe {
-        let mut length = 0usize;
-        let pointer = ffi::lua_tolstring(state, index, &mut length);
-        if pointer.is_null() {
-            None
-        } else {
-            Some(slice::from_raw_parts(pointer as *const u8, length))
-        }
-    }
-}
-
-unsafe fn arg_integer(state: *mut ffi::lua_State, index: c_int) -> Option<ffi::lua_Integer> {
-    unsafe {
-        let mut is_number: c_int = 0;
-        let value = ffi::lua_tointegerx(state, index, &mut is_number);
-        if is_number == 0 {
-            None
-        } else {
-            Some(value)
-        }
-    }
-}
-
-unsafe fn push_bytes(state: *mut ffi::lua_State, bytes: &[u8]) -> c_int {
-    unsafe {
-        ffi::lua_pushlstring(state, bytes.as_ptr() as *const c_char, bytes.len());
-    }
-    1
-}
-
-unsafe extern "C-unwind" fn api_line_count(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        ffi::lua_pushinteger(state, host(ctx).line_count() as ffi::lua_Integer);
-    }
-    1
-}
-
-unsafe extern "C-unwind" fn api_get_line(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let Some(line) = arg_integer(state, 1) else {
-            fail(state, c"get_line: expected a line number");
-        };
-        if line < 0 {
-            fail(state, c"get_line: line index must be >= 0");
-        }
-        let host = host(ctx);
-        let Some(bytes) = host.line_bytes(line as usize) else {
-            fail(state, c"get_line: line out of range");
-        };
-        push_bytes(state, bytes)
-    }
-}
-
-unsafe extern "C-unwind" fn api_set_line(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let Some(line) = arg_integer(state, 1) else {
-            fail(state, c"set_line: expected a line number");
-        };
-        if line < 0 {
-            fail(state, c"set_line: line index must be >= 0");
-        }
-        let Some(value) = arg_bytes(state, 2) else {
-            fail(state, c"set_line: expected a string");
-        };
-        let changed = { host_mut(ctx).set_line(line as usize, value) };
-        if !changed {
-            fail(state, c"set_line: line out of range");
-        }
-    }
-    0
-}
-
-unsafe extern "C-unwind" fn api_get_text(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let host = host(ctx);
-        push_bytes(state, host.bytes())
-    }
-}
-
-unsafe extern "C-unwind" fn api_set_text(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let Some(value) = arg_bytes(state, 1) else {
-            fail(state, c"set_text: expected a string");
-        };
-        {
-            host_mut(ctx).set_text(value);
-        }
-    }
-    0
-}
-
-unsafe extern "C-unwind" fn api_cursor(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let host = host(ctx);
-        ffi::lua_pushinteger(state, host.cursor_line as ffi::lua_Integer);
-        ffi::lua_pushinteger(state, host.cursor_column as ffi::lua_Integer);
-    }
-    2
-}
-
-unsafe extern "C-unwind" fn api_set_cursor(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let (Some(line), Some(column)) = (arg_integer(state, 1), arg_integer(state, 2)) else {
-            fail(state, c"set_cursor: expected line and column numbers");
-        };
-        if line < 0 || column < 0 {
-            fail(state, c"set_cursor: line and column must be >= 0");
-        }
-        {
-            host_mut(ctx).set_cursor(line as usize, column as usize);
-        }
-    }
-    0
-}
-
-unsafe extern "C-unwind" fn api_insert(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let Some(value) = arg_bytes(state, 1) else {
-            fail(state, c"insert: expected a string");
-        };
-        {
-            host_mut(ctx).insert(value);
-        }
-    }
-    0
-}
-
-unsafe extern "C-unwind" fn api_message(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let Some(value) = arg_bytes(state, 1) else {
-            fail(state, c"message: expected a string");
-        };
-        {
-            host_mut(ctx).message = Some(String::from_utf8_lossy(value).into_owned());
-        }
-    }
-    0
-}
-
-unsafe extern "C-unwind" fn api_register_command(state: *mut ffi::lua_State) -> c_int {
-    unsafe {
-        let ctx = context(state);
-        let Some(name_bytes) = arg_bytes(state, 1) else {
-            fail(state, c"register_command: expected a name");
-        };
-        if ffi::lua_type(state, 2) != ffi::LUA_TFUNCTION {
-            fail(state, c"register_command: expected a function");
-        }
-        let Ok(name) = std::str::from_utf8(name_bytes) else {
-            fail(state, c"register_command: name must be valid UTF-8");
-        };
-
-        ffi::lua_pushvalue(state, 2);
-        let reference = ffi::luaL_ref(state, ffi::LUA_REGISTRYINDEX);
-        if let Some(old) = ctx
+    pub fn command_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .shared
+            .borrow()
             .commands
-            .borrow_mut()
-            .insert(name.to_string(), reference)
-        {
-            ffi::luaL_unref(state, ffi::LUA_REGISTRYINDEX, old);
-        }
-        ffi::lua_pushboolean(state, 1);
+            .values()
+            .map(|command| command.name.clone())
+            .collect();
+        names.sort();
+        names
     }
-    1
+
+    pub fn has_command(&self, name: &str) -> bool {
+        self.find_command(name).is_some()
+    }
+
+    pub fn find_command(&self, name: &str) -> Option<CommandEntry> {
+        let shared = self.shared.borrow();
+        shared
+            .commands
+            .get(&name.to_lowercase())
+            .cloned()
+            .or_else(|| {
+                shared
+                    .commands
+                    .values()
+                    .find(|command| command.name.eq_ignore_ascii_case(name))
+                    .cloned()
+            })
+    }
+
+    fn cached_command(&mut self, name: &str) -> Option<CommandEntry> {
+        let version = self.shared.borrow().command_version;
+        if let Some((cached_name, cached_version, command)) = &self.last_command {
+            if cached_name == name && *cached_version == version {
+                return Some(command.clone());
+            }
+        }
+        let command = self.find_command(name)?;
+        self.last_command = Some((name.to_string(), version, command.clone()));
+        Some(command)
+    }
+
+    pub fn call_command(
+        &mut self,
+        name: &str,
+        args: &[String],
+        document: &mut Document,
+        cursor: &mut usize,
+    ) -> Result<(bool, HostEffects), String> {
+        let Some(command) = self.cached_command(name) else {
+            return Ok((false, HostEffects::default()));
+        };
+        self.sync_from_document(document, *cursor);
+        if let Some(reference) = command.raw_reference {
+            let result = self.call_raw_reference(reference, args);
+            let effects = self.apply_to_document(document, cursor);
+            result?;
+            return Ok((true, effects));
+        }
+        let values: Vec<LuaValue> = args
+            .iter()
+            .filter_map(|argument| self.lua.create_string(argument).ok().map(LuaValue::String))
+            .collect();
+        let result = match command.callback {
+            Some(callback) => callback
+                .call::<LuaValue>(mlua::MultiValue::from_vec(values))
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+            None => return Ok((false, HostEffects::default())),
+        };
+        let effects = self.apply_to_document(document, cursor);
+        if let Err(error) = result {
+            return Err(error);
+        }
+        Ok((true, effects))
+    }
+
+    pub fn call_key_callback(
+        &mut self,
+        callback: &Function,
+        document: &mut Document,
+        cursor: &mut usize,
+    ) -> Result<(bool, HostEffects), String> {
+        self.sync_from_document(document, *cursor);
+        let result = callback.call::<LuaValue>(());
+        let effects = self.apply_to_document(document, cursor);
+        match result {
+            Ok(LuaValue::Boolean(false)) => Ok((false, effects)),
+            Ok(_) => Ok((true, effects)),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn call_raw_reference(
+        &self,
+        reference: i32,
+        args: &[String],
+    ) -> Result<mlua::ffi::lua_Integer, String> {
+        unsafe { call_raw_on_state(self.lua.state(), reference, args) }
+    }
+
+    pub fn fire_event(
+        &mut self,
+        event: &str,
+        data: &Value,
+        document: &mut Document,
+        cursor: &mut usize,
+    ) {
+        let subscriptions: Vec<Function> = self
+            .shared
+            .borrow()
+            .subscriptions
+            .iter()
+            .filter(|subscription| subscription.event.eq_ignore_ascii_case(event))
+            .map(|subscription| subscription.callback.clone())
+            .collect();
+        if subscriptions.is_empty() {
+            return;
+        }
+        self.sync_from_document(document, *cursor);
+        let null = self.shared.borrow().lsp.borrow().null.clone();
+        let Ok(value) = json::to_lua(self.lua, data, &null) else {
+            return;
+        };
+        for callback in subscriptions {
+            if let Err(error) = callback.call::<()>(value.clone()) {
+                self.host.borrow_mut().errors.push((
+                    self.plugin_id.clone(),
+                    format!("event '{event}' failed: {error}"),
+                ));
+            }
+        }
+    }
+
+    pub fn sync_from_document(&mut self, document: &Document, cursor: usize) {
+        if self.host.borrow().dirty {
+            return;
+        }
+        let revision = document.revision();
+        if self.loaded_revision != Some(revision) {
+            if let Some((pointer, length)) = document.borrowed_text() {
+                self.host
+                    .borrow_mut()
+                    .load_with_view(Vec::new(), Some((pointer, length)), cursor);
+            } else {
+                self.host.borrow_mut().load(document.all_text(), cursor);
+            }
+            self.loaded_revision = Some(revision);
+            self.synced_editor_cursor = Some(cursor);
+            return;
+        }
+        if self.synced_editor_cursor != Some(cursor) {
+            let line = document.line_of_offset(cursor);
+            let line_start = document.line_start(line);
+            let before = document.range(line_start, cursor.saturating_sub(line_start));
+            let column = String::from_utf8_lossy(&before).chars().count();
+            let mut host = self.host.borrow_mut();
+            host.cursor_line = line;
+            host.cursor_column = column;
+            self.synced_editor_cursor = Some(cursor);
+        }
+    }
+
+    pub fn apply_to_document(
+        &mut self,
+        document: &mut Document,
+        cursor: &mut usize,
+    ) -> HostEffects {
+        let (dirty, data, cursor_byte) = {
+            let host = self.host.borrow();
+            (
+                host.dirty,
+                if host.dirty {
+                    Some(host.bytes().to_vec())
+                } else {
+                    None
+                },
+                {
+                    let (start, end) = host.line_bounds(host.cursor_line).unwrap_or((0, 0));
+                    let bytes = host.bytes();
+                    start + column_to_byte(&bytes[start..end.min(bytes.len())], host.cursor_column)
+                },
+            )
+        };
+        if dirty {
+            let data = data.unwrap_or_default();
+            document.replace_all_owned(data);
+            document.break_undo_group();
+        }
+        *cursor = cursor_byte.min(document.size());
+        self.loaded_revision = Some(document.revision());
+        self.synced_editor_cursor = Some(*cursor);
+        let mut host = self.host.borrow_mut();
+        host.dirty = false;
+        host.text_view = document.borrowed_text();
+        host.take_effects()
+    }
+
+    pub fn drain_requests(&self) -> (Vec<LspRequest>, Vec<String>) {
+        let lsp = self.shared.borrow().lsp.clone();
+        let mut state = lsp.borrow_mut();
+        (
+            std::mem::take(&mut state.external_requests),
+            std::mem::take(&mut state.external_stops),
+        )
+    }
+
+    pub fn resolve_prompt(&self, id: i64, value: Option<&str>) -> bool {
+        let callback = self.shared.borrow_mut().prompts.remove(&id);
+        let Some(PromptCallback::Prompt(callback)) = callback else {
+            return false;
+        };
+        let _ = callback.call::<()>(match value {
+            Some(value) => match self.lua.create_string(value) {
+                Ok(value) => LuaValue::String(value),
+                Err(_) => LuaValue::Nil,
+            },
+            None => LuaValue::Nil,
+        });
+        true
+    }
+
+    pub fn resolve_select(&self, id: i64, index: Option<usize>) -> bool {
+        let callback = self.shared.borrow_mut().prompts.remove(&id);
+        let Some(PromptCallback::Select(callback)) = callback else {
+            return false;
+        };
+        let _ = callback.call::<()>(match index {
+            Some(index) => LuaValue::Integer(index as i64 + 1),
+            None => LuaValue::Nil,
+        });
+        true
+    }
+
+    pub fn keybindings(&self) -> Vec<KeyBinding> {
+        self.shared.borrow().keybindings.clone()
+    }
 }
 
 impl Drop for LuaRuntime {
     fn drop(&mut self) {
+        // Release every Lua handle while the state is still alive. mlua's
+        // handles unref their registry entries on drop, which must never
+        // happen after `lua_close`.
+        if let Ok(mut shared) = self.shared.try_borrow_mut() {
+            shared.commands.clear();
+            shared.keybindings.clear();
+            shared.subscriptions.clear();
+            shared.prompts.clear();
+            shared.panel_handlers.clear();
+            if let Ok(mut coordinator) = shared.lsp.try_borrow_mut() {
+                coordinator.null = LuaValue::Nil;
+                coordinator.modules.clear();
+                coordinator.servers.clear();
+                coordinator.diagnostic_handlers.clear();
+                coordinator.watches.clear();
+            }
+        }
         unsafe {
-            ffi::lua_close(self.state);
+            mlua::ffi::lua_close(self.state);
+        }
+    }
+}
+
+const PRELUDE: &str = r##"
+(function()
+    __hexal_wrap_methods = function(t)
+        if type(t) ~= "table" or rawget(t, "__hexal_wrapped") then
+            return t
+        end
+        rawset(t, "__hexal_wrapped", true)
+        local functions = {}
+        for k, v in pairs(t) do
+            if type(v) == "function" then
+                functions[k] = v
+            end
+        end
+        for k, f in pairs(functions) do
+            rawset(t, k, function(...)
+                local n = select("#", ...)
+                local args = table.pack(...)
+                local first = 1
+                if n > 0 and args[1] == t then
+                    first = 2
+                end
+                return f(table.unpack(args, first, n))
+            end)
+        end
+        return t
+    end
+end)()
+"##;
+
+fn sanitize_file_name(id: &str) -> String {
+    let value: String = id
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            character => character,
+        })
+        .collect();
+    if value.is_empty() {
+        "plugin".into()
+    } else {
+        value
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Core API
+// ---------------------------------------------------------------------------
+
+fn from_lua(coordinator: &Rc<RefCell<Coordinator>>, value: &LuaValue) -> Value {
+    let null = coordinator.borrow().null.clone();
+    json::from_lua(value, &null)
+}
+
+fn from_table(coordinator: &Rc<RefCell<Coordinator>>, table: &Table) -> Value {
+    from_lua(coordinator, &LuaValue::Table(table.clone()))
+}
+
+fn to_lua(lua: &Lua, coordinator: &Rc<RefCell<Coordinator>>, value: &Value) -> LuaResult<LuaValue> {
+    let null = coordinator.borrow().null.clone();
+    json::to_lua(lua, value, &null)
+}
+
+fn set_fn<A, R>(
+    lua: &Lua,
+    table: &Table,
+    name: &str,
+    function: impl Fn(&Lua, A) -> LuaResult<R> + 'static,
+) -> LuaResult<()>
+where
+    A: mlua::FromLuaMulti,
+    R: mlua::IntoLuaMulti,
+{
+    table.set(name, lua.create_function(function)?)
+}
+
+fn string_list(value: &Value) -> Vec<String> {
+    json::as_array(value)
+        .iter()
+        .map(|value| match value {
+            Value::String(text) => text.clone(),
+            Value::Number(number) => number.to_string(),
+            Value::Bool(flag) => flag.to_string(),
+            _ => String::new(),
+        })
+        .collect()
+}
+
+fn stringify(value: Option<LuaValue>) -> String {
+    match value {
+        Some(LuaValue::String(text)) => text.to_string_lossy().to_string(),
+        Some(LuaValue::Integer(number)) => number.to_string(),
+        Some(LuaValue::Number(number)) => number.to_string(),
+        Some(LuaValue::Boolean(flag)) => flag.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn arguments(values: &[LuaValue]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| match value {
+            LuaValue::String(text) => text.to_string_lossy().to_string(),
+            LuaValue::Integer(number) => number.to_string(),
+            LuaValue::Number(number) => number.to_string(),
+            LuaValue::Boolean(flag) => flag.to_string(),
+            _ => String::new(),
+        })
+        .collect()
+}
+
+fn register_host_api(
+    lua: &Lua,
+    root: &Table,
+    host: &Rc<RefCell<HostState>>,
+    shared: &Rc<RefCell<RuntimeShared>>,
+    coordinator: &Rc<RefCell<Coordinator>>,
+    raw: &RawCtx,
+) -> LuaResult<()> {
+    root.set("api_version", 1)?;
+
+    let editor = module(lua, root, "editor")?;
+    {
+        let host = host.clone();
+        set_fn(lua, &editor, "get_current_buffer", move |_, ()| {
+            Ok(host.borrow().buffer_id.clone())
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &editor, "get_workspace_root", move |_, ()| {
+            Ok(host.borrow().workspace_root.clone())
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &editor, "get_text", move |lua, ()| {
+            let text = String::from_utf8_lossy(host.borrow().bytes()).into_owned();
+            Ok(LuaValue::String(lua.create_string(text)?))
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &editor, "get_line", move |lua, line: i64| {
+            if line < 0 {
+                host.borrow_mut()
+                    .messages
+                    .push((format!("line {line} is out of range"), true));
+                return Ok(LuaValue::Nil);
+            }
+            let text = {
+                let host = host.borrow();
+                host.line_bytes(line as usize)
+                    .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            };
+            match text {
+                Some(text) => Ok(LuaValue::String(lua.create_string(text)?)),
+                None => {
+                    host.borrow_mut()
+                        .messages
+                        .push((format!("line {line} is out of range"), true));
+                    Ok(LuaValue::Nil)
+                }
+            }
+        })?;
+    }
+    {
+        let host = host.clone();
+        let coordinator = coordinator.clone();
+        set_fn(lua, &editor, "get_cursor", move |lua, ()| {
+            let (line, column) = {
+                let host = host.borrow();
+                (host.cursor_line, host.cursor_column)
+            };
+            let mut value = Value::Object(Vec::new());
+            value.set("line", Value::Number(line as f64));
+            value.set("column", Value::Number(column as f64));
+            to_lua(lua, &coordinator, &value)
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &editor,
+            "set_cursor",
+            move |_, (line, column): (i64, i64)| {
+                if line < 0 || column < 0 {
+                    host.borrow_mut()
+                        .messages
+                        .push(("line and column must not be negative".into(), true));
+                    return Ok(false);
+                }
+                let mut host = host.borrow_mut();
+                if line as usize >= host.line_count() {
+                    let message = format!("line {line} is out of range");
+                    host.messages.push((message, true));
+                    return Ok(false);
+                }
+                host.set_cursor(line as usize, column as usize);
+                Ok(true)
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        let coordinator = coordinator.clone();
+        set_fn(lua, &editor, "get_selection", move |lua, ()| {
+            let selection = host.borrow().selection.clone();
+            let Some(selection) = selection else {
+                return Ok(LuaValue::Nil);
+            };
+            let mut value = Value::Object(Vec::new());
+            value.set("start_line", Value::Number(selection.start_line as f64));
+            value.set("start_column", Value::Number(selection.start_column as f64));
+            value.set("end_line", Value::Number(selection.end_line as f64));
+            value.set("end_column", Value::Number(selection.end_column as f64));
+            value.set("text", Value::String(selection.text));
+            value.set("linewise", Value::Bool(selection.linewise));
+            to_lua(lua, &coordinator, &value)
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &editor,
+            "insert_text",
+            move |_, text: Option<String>| {
+                if let Some(text) = text {
+                    host.borrow_mut().insert(text.as_bytes());
+                }
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        let coordinator = coordinator.clone();
+        set_fn(lua, &editor, "replace_range", move |lua, (start, finish, text): (Option<LuaValue>, Option<LuaValue>, Option<String>)| {
+            let to_offset = |value: Option<LuaValue>| -> Option<usize> {
+                match value {
+                    Some(LuaValue::Integer(value)) if value >= 0 => Some(value as usize),
+                    Some(LuaValue::Number(value)) if value >= 0.0 => Some(value as usize),
+                    Some(LuaValue::Table(table)) => {
+                        let value = from_table(&coordinator, &table);
+                        let line = value.get("line").and_then(Value::as_i64).unwrap_or(0).max(0) as usize;
+                        let column = value
+                            .get("column")
+                            .or_else(|| value.get("character"))
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0)
+                            .max(0) as usize;
+                        let host = host.borrow();
+                        let (line_start, line_end) = host.line_bounds(line)?;
+                        let bytes = host.bytes();
+                        Some(line_start + column_to_byte(&bytes[line_start..line_end], column))
+                    }
+                    _ => None,
+                }
+            };
+            let Some(start) = to_offset(start) else {
+                host.borrow_mut().messages.push(("invalid range".into(), true));
+                return Ok(false);
+            };
+            let Some(end) = to_offset(finish) else {
+                host.borrow_mut().messages.push(("invalid range".into(), true));
+                return Ok(false);
+            };
+            let ok = host.borrow_mut().replace_range(start, end, text.unwrap_or_default().as_bytes());
+            if !ok {
+                host.borrow_mut().messages.push(("range is outside the document".into(), true));
+            }
+            let _ = lua;
+            Ok(ok)
+        })?;
+    }
+
+    let commands = module(lua, root, "commands")?;
+    {
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &commands,
+            "register",
+            move |_, (name, callback, description): (String, Option<Function>, Option<String>)| {
+                let Some(callback) = callback else {
+                    return Ok(false);
+                };
+                if name.trim().is_empty() {
+                    return Ok(false);
+                }
+                {
+                    let mut shared = shared.borrow_mut();
+                    shared.commands.insert(
+                        name.to_lowercase(),
+                        CommandEntry {
+                            name,
+                            description: description.unwrap_or_default(),
+                            callback: Some(callback),
+                            raw_reference: None,
+                        },
+                    );
+                    shared.command_version = shared.command_version.wrapping_add(1);
+                }
+                Ok(true)
+            },
+        )?;
+    }
+    {
+        let shared = shared.clone();
+        set_fn(lua, &commands, "unregister", move |_, name: String| {
+            let mut shared = shared.borrow_mut();
+            shared.command_version = shared.command_version.wrapping_add(1);
+            Ok(shared.commands.remove(&name.to_lowercase()).is_some())
+        })?;
+    }
+    {
+        let shared = shared.clone();
+        let host = host.clone();
+        set_fn(
+            lua,
+            &commands,
+            "execute",
+            move |lua, (name, args): (String, mlua::Variadic<LuaValue>)| {
+                let entries = arguments(args.iter().cloned().collect::<Vec<_>>().as_slice());
+                let command = shared.borrow().commands.get(&name.to_lowercase()).cloned();
+                if let Some(command) = command {
+                    if let Some(reference) = command.raw_reference {
+                        let state = lua.state();
+                        let result = unsafe { call_raw_on_state(state, reference, &entries) };
+                        if let Err(error) = result {
+                            host.borrow_mut()
+                                .errors
+                                .push((shared.borrow().plugin_id.clone(), error));
+                            return Ok(false);
+                        }
+                        return Ok(true);
+                    }
+                    if let Some(callback) = command.callback {
+                        let values: Vec<LuaValue> = entries
+                            .iter()
+                            .filter_map(|argument| {
+                                lua.create_string(argument).ok().map(LuaValue::String)
+                            })
+                            .collect();
+                        return match callback.call::<LuaValue>(mlua::MultiValue::from_vec(values)) {
+                            Ok(_) => Ok(true),
+                            Err(error) => {
+                                host.borrow_mut()
+                                    .errors
+                                    .push((shared.borrow().plugin_id.clone(), error.to_string()));
+                                Ok(false)
+                            }
+                        };
+                    }
+                }
+                host.borrow_mut().pending_commands.push((name, entries));
+                Ok(true)
+            },
+        )?;
+    }
+
+    let keymap = module(lua, root, "keymap")?;
+    {
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &keymap,
+            "map",
+            move |_, (keys, command, mode): (String, Option<String>, Option<String>)| {
+                let Some(command) = command else {
+                    return Ok(false);
+                };
+                add_binding(&shared, &keys, Some(command), None, mode.as_deref())
+            },
+        )?;
+    }
+    {
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &keymap,
+            "map_callback",
+            move |_, (keys, callback, mode): (String, Option<Function>, Option<String>)| {
+                let Some(callback) = callback else {
+                    return Ok(false);
+                };
+                add_binding(&shared, &keys, None, Some(callback), mode.as_deref())
+            },
+        )?;
+    }
+    {
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &keymap,
+            "unmap",
+            move |_, (keys, mode): (String, Option<String>)| {
+                let keys = normalize_keys(&keys);
+                if keys.is_empty() {
+                    return Ok(false);
+                }
+                let mode = mode.unwrap_or_else(|| "normal".into());
+                let mut shared = shared.borrow_mut();
+                let before = shared.keybindings.len();
+                shared.keybindings.retain(|binding| {
+                    !(binding.mode.eq_ignore_ascii_case(&mode) && binding.keys == keys)
+                });
+                Ok(shared.keybindings.len() != before)
+            },
+        )?;
+    }
+
+    let ui = module(lua, root, "ui")?;
+    {
+        let host = host.clone();
+        set_fn(lua, &ui, "message", move |_, text: Option<String>| {
+            host.borrow_mut()
+                .messages
+                .push((text.unwrap_or_default(), false));
+            Ok(())
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &ui, "warn", move |_, text: Option<String>| {
+            host.borrow_mut()
+                .messages
+                .push((text.unwrap_or_default(), true));
+            Ok(())
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &ui, "copy", move |_, text: Option<String>| {
+            host.borrow_mut().clipboard = Some(text.unwrap_or_default());
+            Ok(true)
+        })?;
+    }
+    {
+        let host = host.clone();
+        let coordinator = coordinator.clone();
+        set_fn(lua, &ui, "terminal_size", move |lua, ()| {
+            let mut value = Value::Object(Vec::new());
+            let host = host.borrow();
+            value.set("columns", Value::Number(host.columns as f64));
+            value.set("rows", Value::Number(host.rows as f64));
+            to_lua(lua, &coordinator, &value)
+        })?;
+    }
+    {
+        let host = host.clone();
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &ui,
+            "prompt",
+            move |_, (label, callback): (String, Function)| {
+                let id = next_request(&shared);
+                shared
+                    .borrow_mut()
+                    .prompts
+                    .insert(id, PromptCallback::Prompt(callback));
+                host.borrow_mut()
+                    .requests
+                    .push(HostRequest::Prompt { id, label });
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &ui,
+            "select",
+            move |_, (title, items, callback): (String, Option<LuaValue>, Function)| {
+                let items = items
+                    .as_ref()
+                    .map(|value| string_list(&from_lua(&shared.borrow().lsp, value)))
+                    .unwrap_or_default();
+                if items.is_empty() {
+                    let _ = callback.call::<()>(LuaValue::Nil);
+                    return Ok(());
+                }
+                let id = next_request(&shared);
+                shared
+                    .borrow_mut()
+                    .prompts
+                    .insert(id, PromptCallback::Select(callback));
+                host.borrow_mut()
+                    .requests
+                    .push(HostRequest::Select { id, title, items });
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &ui,
+            "set_status",
+            move |_, (key, text): (String, Option<String>)| {
+                if key.is_empty() {
+                    return Ok(false);
+                }
+                let mut host = host.borrow_mut();
+                if let Some(existing) = host.statuses.iter_mut().find(|(name, _)| *name == key) {
+                    existing.1 = text;
+                } else {
+                    host.statuses.push((key, text));
+                }
+                Ok(true)
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        let shared = shared.clone();
+        let coordinator = coordinator.clone();
+        set_fn(
+            lua,
+            &ui,
+            "panel",
+            move |lua, (options, on_key): (Option<Table>, Option<Function>)| {
+                let options = match options {
+                    Some(options) => options,
+                    None => lua.create_table()?,
+                };
+                let value = from_table(&coordinator, &options);
+                let title = value
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Plugin")
+                    .to_string();
+                let footer = value
+                    .get("footer")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let selectable = value
+                    .get("selectable")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                let selected = value
+                    .get("selected")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(1)
+                    .max(1) as usize
+                    - 1;
+                let lines = value
+                    .get("lines")
+                    .map(parse_panel_lines)
+                    .unwrap_or_default();
+                let id = {
+                    let mut host = host.borrow_mut();
+                    let id = host.next_panel_id;
+                    host.next_panel_id += 1;
+                    host.panels.push(PluginPanel {
+                        id,
+                        plugin_id: shared.borrow().plugin_id.clone(),
+                        title,
+                        footer,
+                        selectable,
+                        selected,
+                        lines,
+                    });
+                    id
+                };
+                if let Some(on_key) = on_key {
+                    shared.borrow_mut().panel_handlers.insert(id, on_key);
+                }
+                let panel = panel_table(lua, &host, &coordinator, id)?;
+                Ok(LuaValue::Table(panel))
+            },
+        )?;
+    }
+
+    let events = module(lua, root, "events")?;
+    {
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &events,
+            "on",
+            move |_, (event, callback): (String, Option<Function>)| {
+                let Some(callback) = callback else {
+                    return Ok(0i64);
+                };
+                if event.trim().is_empty() {
+                    return Ok(0i64);
+                }
+                let mut shared = shared.borrow_mut();
+                let id = shared.next_subscription;
+                shared.next_subscription += 1;
+                shared.subscriptions.push(Subscription {
+                    id,
+                    event,
+                    callback,
+                });
+                Ok(id)
+            },
+        )?;
+    }
+    {
+        let shared = shared.clone();
+        set_fn(lua, &events, "off", move |_, id: i64| {
+            let mut shared = shared.borrow_mut();
+            let before = shared.subscriptions.len();
+            shared
+                .subscriptions
+                .retain(|subscription| subscription.id != id);
+            Ok(shared.subscriptions.len() != before)
+        })?;
+    }
+
+    let exec = module(lua, root, "exec")?;
+    {
+        let host = host.clone();
+        let coordinator = coordinator.clone();
+        set_fn(
+            lua,
+            &exec,
+            "run",
+            move |lua, (command, args, options): (String, Option<LuaValue>, Option<LuaValue>)| {
+                let value = run_process(
+                    &host,
+                    &coordinator,
+                    &command,
+                    args.as_ref(),
+                    options.as_ref(),
+                );
+                to_lua(lua, &coordinator, &value)
+            },
+        )?;
+    }
+
+    let config = module(lua, root, "config")?;
+    {
+        let shared = shared.clone();
+        let coordinator = coordinator.clone();
+        set_fn(
+            lua,
+            &config,
+            "get",
+            move |lua, (key, fallback): (String, Option<LuaValue>)| {
+                let fallback = fallback
+                    .as_ref()
+                    .map(|value| from_lua(&coordinator, value))
+                    .unwrap_or(Value::Null);
+                let value = shared.borrow().config.get(&key, fallback);
+                to_lua(lua, &coordinator, &value)
+            },
+        )?;
+    }
+    {
+        let shared = shared.clone();
+        let coordinator = coordinator.clone();
+        set_fn(
+            lua,
+            &config,
+            "set",
+            move |_, (key, value): (String, Option<LuaValue>)| {
+                if key.is_empty() {
+                    return Ok(false);
+                }
+                let value = value
+                    .as_ref()
+                    .map(|value| from_lua(&coordinator, value))
+                    .unwrap_or(Value::Null);
+                shared.borrow_mut().config.set(&key, value);
+                Ok(true)
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        let shared = shared.clone();
+        set_fn(lua, &config, "save", move |_, ()| {
+            match shared.borrow().config.save() {
+                Ok(()) => Ok(true),
+                Err(error) => {
+                    host.borrow_mut()
+                        .messages
+                        .push((format!("config save failed: {error}"), true));
+                    Ok(false)
+                }
+            }
+        })?;
+    }
+    {
+        let shared = shared.clone();
+        let coordinator = coordinator.clone();
+        set_fn(lua, &config, "get_all", move |lua, ()| {
+            let value = shared.borrow().config.snapshot();
+            Ok(match to_lua(lua, &coordinator, &value)? {
+                LuaValue::Table(table) => table,
+                _ => lua.create_table()?,
+            })
+        })?;
+    }
+
+    // Legacy buffer API retained for existing Rust plugins. These functions
+    // are on the hottest benchmark path, so they use the raw Lua C API instead
+    // of mlua's value conversion layer.
+    let raw_ptr = raw as *const RawCtx as *mut c_void;
+    add_raw_fn(lua, "line_count", raw_ptr, raw_line_count)?;
+    add_raw_fn(lua, "get_line", raw_ptr, raw_get_line)?;
+    add_raw_fn(lua, "set_line", raw_ptr, raw_set_line)?;
+    add_raw_fn(lua, "get_text", raw_ptr, raw_get_text)?;
+    add_raw_fn(lua, "set_text", raw_ptr, raw_set_text)?;
+    add_raw_fn(lua, "cursor", raw_ptr, raw_cursor)?;
+    add_raw_fn(lua, "set_cursor", raw_ptr, raw_set_cursor)?;
+    add_raw_fn(lua, "insert", raw_ptr, raw_insert)?;
+    add_raw_fn(lua, "register_command", raw_ptr, raw_register_command)?;
+
+    // Expose `command` as an alias for the legacy `register_command`.
+    if let Ok(value) = root.get::<LuaValue>("register_command") {
+        root.set("command", value)?;
+    }
+    Ok(())
+}
+
+fn augment_lsp_modules(
+    lua: &Lua,
+    root: &Table,
+    shared: &Rc<RefCell<RuntimeShared>>,
+    coordinator: &Rc<RefCell<Coordinator>>,
+) -> LuaResult<()> {
+    let lsp = root.get::<Table>("lsp")?;
+    {
+        let shared = shared.clone();
+        set_fn(lua, &lsp, "on_diagnostics", move |_, callback: Function| {
+            let mut shared = shared.borrow_mut();
+            let id = shared.next_subscription;
+            shared.next_subscription += 1;
+            shared.subscriptions.push(Subscription {
+                id,
+                event: "__lsp_diagnostics".into(),
+                callback,
+            });
+            Ok(id)
+        })?;
+    }
+
+    let documents = lsp.get::<Table>("documents")?;
+    {
+        let coordinator = coordinator.clone();
+        set_fn(lua, &documents, "open_documents", move |lua, ()| {
+            let documents: Vec<crate::scripting::lsp::Document> =
+                coordinator.borrow().documents.clone();
+            let index = Rc::new(RefCell::new(0usize));
+            let coordinator = coordinator.clone();
+            lua.create_function(move |lua, ()| {
+                let mut index = index.borrow_mut();
+                let Some(document) = documents.get(*index).cloned() else {
+                    return Ok(LuaValue::Nil);
+                };
+                *index += 1;
+                let table =
+                    crate::scripting::lsp::document_table_public(lua, &coordinator, document)?;
+                Ok(LuaValue::Table(table))
+            })
+        })?;
+    }
+
+    let fs = root.get::<Table>("fs")?;
+    {
+        set_fn(
+            lua,
+            &fs,
+            "join",
+            move |_, parts: mlua::Variadic<LuaValue>| {
+                let text = parts
+                    .iter()
+                    .filter_map(|value| {
+                        value
+                            .as_string()
+                            .map(|text| text.to_string_lossy().to_string())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(std::path::MAIN_SEPARATOR_STR);
+                Ok(text)
+            },
+        )?;
+    }
+    for table in [lsp, documents, fs] {
+        let _ = table.raw_set("__hexal_wrapped", LuaValue::Nil);
+        if let Ok(wrap) = lua.globals().get::<Function>("__hexal_wrap_methods") {
+            let _ = wrap.call::<()>(table);
+        }
+    }
+    Ok(())
+}
+
+fn add_raw_fn(
+    lua: &Lua,
+    name: &str,
+    context: *mut c_void,
+    function: mlua::ffi::lua_CFunction,
+) -> LuaResult<()> {
+    let c_name = std::ffi::CString::new(name).unwrap_or_default();
+    unsafe {
+        let state = lua.state();
+        mlua::ffi::lua_getglobal(state, c"hexal".as_ptr());
+        mlua::ffi::lua_pushlightuserdata(state, context);
+        mlua::ffi::lua_pushcclosure(state, function, 1);
+        mlua::ffi::lua_setfield(state, -2, c_name.as_ptr());
+        mlua::ffi::lua_pop(state, 1);
+    }
+    Ok(())
+}
+
+unsafe fn raw_context(state: *mut mlua::ffi::lua_State) -> &'static RawCtx {
+    unsafe {
+        let pointer = mlua::ffi::lua_touserdata(state, mlua::ffi::lua_upvalueindex(1));
+        &*(pointer as *const RawCtx)
+    }
+}
+
+unsafe fn raw_arg_int(state: *mut mlua::ffi::lua_State, index: i32) -> Option<i64> {
+    unsafe {
+        let mut is_number = 0;
+        let value = mlua::ffi::lua_tointegerx(state, index, &mut is_number);
+        (is_number != 0).then_some(value)
+    }
+}
+
+unsafe fn raw_arg_bytes<'a>(state: *mut mlua::ffi::lua_State, index: i32) -> Option<&'a [u8]> {
+    unsafe {
+        let mut length = 0usize;
+        let pointer = mlua::ffi::lua_tolstring(state, index, &mut length);
+        if pointer.is_null() {
+            None
+        } else {
+            Some(std::slice::from_raw_parts(pointer as *const u8, length))
+        }
+    }
+}
+
+unsafe fn raw_push_bytes(state: *mut mlua::ffi::lua_State, bytes: &[u8]) {
+    unsafe {
+        mlua::ffi::lua_pushlstring(state, bytes.as_ptr() as *const i8, bytes.len());
+    }
+}
+
+unsafe extern "C-unwind" fn raw_line_count(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let count = context.host.borrow().line_count();
+        mlua::ffi::lua_pushinteger(state, count as mlua::ffi::lua_Integer);
+    }
+    1
+}
+
+unsafe extern "C-unwind" fn raw_get_line(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let Some(line) = raw_arg_int(state, 1) else {
+            return 0;
+        };
+        if line < 0 {
+            return 0;
+        }
+        let line = line as usize;
+        let text = {
+            let host = context.host.borrow();
+            host.line_bytes(line).map(|bytes| bytes.to_vec())
+        };
+        match text {
+            Some(text) => {
+                raw_push_bytes(state, &text);
+                1
+            }
+            None => {
+                mlua::ffi::lua_pushnil(state);
+                1
+            }
+        }
+    }
+}
+
+unsafe extern "C-unwind" fn raw_set_line(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let Some(line) = raw_arg_int(state, 1) else {
+            mlua::ffi::lua_pushboolean(state, 0);
+            return 1;
+        };
+        let Some(text) = raw_arg_bytes(state, 2).map(|bytes| bytes.to_vec()) else {
+            mlua::ffi::lua_pushboolean(state, 0);
+            return 1;
+        };
+        let changed = if line < 0 {
+            false
+        } else {
+            context.host.borrow_mut().set_line(line as usize, &text)
+        };
+        mlua::ffi::lua_pushboolean(state, i32::from(changed));
+    }
+    1
+}
+
+unsafe extern "C-unwind" fn raw_get_text(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let host = context.host.borrow();
+        raw_push_bytes(state, host.bytes());
+    }
+    1
+}
+
+unsafe extern "C-unwind" fn raw_set_text(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        if let Some(text) = raw_arg_bytes(state, 1).map(|bytes| bytes.to_vec()) {
+            context.host.borrow_mut().set_text(&text);
+        }
+    }
+    0
+}
+
+unsafe extern "C-unwind" fn raw_cursor(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let (line, column) = {
+            let host = context.host.borrow();
+            (host.cursor_line, host.cursor_column)
+        };
+        mlua::ffi::lua_pushinteger(state, line as mlua::ffi::lua_Integer);
+        mlua::ffi::lua_pushinteger(state, column as mlua::ffi::lua_Integer);
+    }
+    2
+}
+
+unsafe extern "C-unwind" fn raw_set_cursor(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let (Some(line), Some(column)) = (raw_arg_int(state, 1), raw_arg_int(state, 2)) else {
+            mlua::ffi::lua_pushboolean(state, 0);
+            return 1;
+        };
+        if line < 0 || column < 0 {
+            mlua::ffi::lua_pushboolean(state, 0);
+            return 1;
+        }
+        context
+            .host
+            .borrow_mut()
+            .set_cursor(line as usize, column as usize);
+        mlua::ffi::lua_pushboolean(state, 1);
+    }
+    1
+}
+
+unsafe extern "C-unwind" fn raw_insert(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        if let Some(text) = raw_arg_bytes(state, 1).map(|bytes| bytes.to_vec()) {
+            context.host.borrow_mut().insert(&text);
+        }
+    }
+    0
+}
+
+unsafe fn call_raw_on_state(
+    state: *mut mlua::ffi::lua_State,
+    reference: i32,
+    args: &[String],
+) -> Result<mlua::ffi::lua_Integer, String> {
+    unsafe {
+        mlua::ffi::lua_rawgeti(
+            state,
+            mlua::ffi::LUA_REGISTRYINDEX,
+            reference as mlua::ffi::lua_Integer,
+        );
+        for argument in args {
+            mlua::ffi::lua_pushlstring(state, argument.as_ptr() as *const i8, argument.len());
+        }
+        let status = mlua::ffi::lua_pcallk(state, args.len() as i32, 1, 0, 0, None);
+        if status != mlua::ffi::LUA_OK {
+            let mut length = 0usize;
+            let pointer = mlua::ffi::lua_tolstring(state, -1, &mut length);
+            let message = if pointer.is_null() {
+                "Lua error".to_string()
+            } else {
+                String::from_utf8_lossy(std::slice::from_raw_parts(pointer as *const u8, length))
+                    .into_owned()
+            };
+            mlua::ffi::lua_settop(state, 0);
+            return Err(message);
+        }
+        let mut is_number = 0;
+        let value = mlua::ffi::lua_tointegerx(state, -1, &mut is_number);
+        mlua::ffi::lua_settop(state, 0);
+        Ok(value)
+    }
+}
+
+unsafe extern "C-unwind" fn raw_register_command(state: *mut mlua::ffi::lua_State) -> i32 {
+    unsafe {
+        let context = raw_context(state);
+        let Some(name) =
+            raw_arg_bytes(state, 1).map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        else {
+            mlua::ffi::lua_pushboolean(state, 0);
+            return 1;
+        };
+        if name.trim().is_empty() || mlua::ffi::lua_type(state, 2) != mlua::ffi::LUA_TFUNCTION {
+            mlua::ffi::lua_pushboolean(state, 0);
+            return 1;
+        }
+        let description = raw_arg_bytes(state, 3)
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .unwrap_or_default();
+        mlua::ffi::lua_pushvalue(state, 2);
+        let reference = mlua::ffi::luaL_ref(state, mlua::ffi::LUA_REGISTRYINDEX);
+        let mut shared = context.shared.borrow_mut();
+        shared.command_version = shared.command_version.wrapping_add(1);
+        if let Some(old) = shared.commands.insert(
+            name.to_lowercase(),
+            CommandEntry {
+                name,
+                description,
+                callback: None,
+                raw_reference: Some(reference),
+            },
+        ) {
+            if let Some(old) = old.raw_reference {
+                mlua::ffi::luaL_unref(state, mlua::ffi::LUA_REGISTRYINDEX, old);
+            }
+        }
+        mlua::ffi::lua_pushboolean(state, 1);
+    }
+    1
+}
+
+fn module(lua: &Lua, root: &Table, name: &str) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    root.set(name, table.clone())?;
+    Ok(table)
+}
+
+fn next_request(shared: &Rc<RefCell<RuntimeShared>>) -> i64 {
+    let mut shared = shared.borrow_mut();
+    let id = shared.next_request;
+    shared.next_request += 1;
+    id
+}
+
+fn add_binding(
+    shared: &Rc<RefCell<RuntimeShared>>,
+    keys: &str,
+    command: Option<String>,
+    callback: Option<Function>,
+    mode: Option<&str>,
+) -> LuaResult<bool> {
+    let keys = normalize_keys(keys);
+    if keys.is_empty() || (command.is_none() && callback.is_none()) {
+        return Ok(false);
+    }
+    let mode = mode.unwrap_or("normal").trim().to_lowercase();
+    let mut shared = shared.borrow_mut();
+    shared
+        .keybindings
+        .retain(|binding| !(binding.mode.eq_ignore_ascii_case(&mode) && binding.keys == keys));
+    let plugin_id = shared.plugin_id.clone();
+    shared.keybindings.push(KeyBinding {
+        plugin_id,
+        mode,
+        keys,
+        command,
+        callback,
+    });
+    Ok(true)
+}
+
+pub fn normalize_keys(keys: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    for part in keys.split_whitespace() {
+        let lower = part.to_lowercase();
+        let part = match lower.as_str() {
+            "escape" => "esc",
+            "space" => "space",
+            "return" => "enter",
+            value if value.starts_with("ctrl+") => {
+                result.push(format!("ctrl+{}", &value[5..]));
+                continue;
+            }
+            value if value.starts_with("alt+") => {
+                result.push(format!("alt+{}", &value[4..]));
+                continue;
+            }
+            _ => part,
+        };
+        result.push(part.to_string());
+    }
+    result
+}
+
+fn parse_panel_lines(value: &Value) -> Vec<PanelLine> {
+    json::as_array(value)
+        .iter()
+        .map(|item| {
+            if let Value::String(text) = item {
+                return PanelLine {
+                    segments: vec![PanelSegment {
+                        text: text.clone(),
+                        style: "text".into(),
+                    }],
+                    selectable: true,
+                };
+            }
+            let Value::Object(_) = item else {
+                return PanelLine {
+                    segments: vec![PanelSegment {
+                        text: String::new(),
+                        style: "text".into(),
+                    }],
+                    selectable: true,
+                };
+            };
+            let selectable = item
+                .get("selectable")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let segments = if let Some(segments) = item.get("segments") {
+                json::as_array(segments)
+                    .iter()
+                    .filter_map(parse_segment)
+                    .collect()
+            } else if item.get("text").is_some() {
+                parse_segment(item).into_iter().collect()
+            } else {
+                json::as_object(item)
+                    .iter()
+                    .filter_map(|(_, value)| parse_segment(value))
+                    .collect()
+            };
+            PanelLine {
+                segments,
+                selectable,
+            }
+        })
+        .collect()
+}
+
+fn parse_segment(value: &Value) -> Option<PanelSegment> {
+    match value {
+        Value::String(text) => Some(PanelSegment {
+            text: text.clone(),
+            style: "text".into(),
+        }),
+        Value::Object(_) => {
+            let text = value
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if text.is_empty() {
+                return None;
+            }
+            Some(PanelSegment {
+                text,
+                style: value
+                    .get("style")
+                    .and_then(Value::as_str)
+                    .unwrap_or("text")
+                    .to_string(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn panel_table(
+    lua: &Lua,
+    host: &Rc<RefCell<HostState>>,
+    coordinator: &Rc<RefCell<Coordinator>>,
+    id: i64,
+) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("id", id)?;
+    {
+        let host = host.clone();
+        let coordinator = coordinator.clone();
+        set_fn(
+            lua,
+            &table,
+            "set_lines",
+            move |_, lines: Option<LuaValue>| {
+                let lines = lines
+                    .as_ref()
+                    .map(|value| parse_panel_lines(&from_lua(&coordinator, value)))
+                    .unwrap_or_default();
+                if let Some(panel) = host
+                    .borrow_mut()
+                    .panels
+                    .iter_mut()
+                    .find(|panel| panel.id == id)
+                {
+                    panel.lines = lines;
+                }
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &table, "set_title", move |_, title: Option<String>| {
+            if let Some(panel) = host
+                .borrow_mut()
+                .panels
+                .iter_mut()
+                .find(|panel| panel.id == id)
+            {
+                panel.title = title.unwrap_or_default();
+            }
+            Ok(())
+        })?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &table,
+            "set_footer",
+            move |_, footer: Option<String>| {
+                if let Some(panel) = host
+                    .borrow_mut()
+                    .panels
+                    .iter_mut()
+                    .find(|panel| panel.id == id)
+                {
+                    panel.footer = footer.unwrap_or_default();
+                }
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &table,
+            "set_selected",
+            move |_, selected: Option<i64>| {
+                if let Some(panel) = host
+                    .borrow_mut()
+                    .panels
+                    .iter_mut()
+                    .find(|panel| panel.id == id)
+                {
+                    panel.selected = selected.unwrap_or(1).max(1) as usize - 1;
+                }
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &table,
+            "set_selectable",
+            move |_, selectable: Option<bool>| {
+                if let Some(panel) = host
+                    .borrow_mut()
+                    .panels
+                    .iter_mut()
+                    .find(|panel| panel.id == id)
+                {
+                    panel.selectable = selectable.unwrap_or(true);
+                }
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        set_fn(lua, &table, "close", move |_, ()| {
+            host.borrow_mut().panels.retain(|panel| panel.id != id);
+            Ok(())
+        })?;
+    }
+    if let Ok(wrap) = lua.globals().get::<Function>("__hexal_wrap_methods") {
+        let _ = wrap.call::<()>(table.clone());
+    }
+    Ok(table)
+}
+
+fn run_process(
+    host: &Rc<RefCell<HostState>>,
+    coordinator: &Rc<RefCell<Coordinator>>,
+    command: &str,
+    args: Option<&LuaValue>,
+    options: Option<&LuaValue>,
+) -> Value {
+    let mut result = Value::Object(Vec::new());
+    result.set("ok", Value::Bool(false));
+    result.set("code", Value::Number(0.0));
+    result.set("stdout", Value::String(String::new()));
+    result.set("stderr", Value::String(String::new()));
+    result.set("error", Value::String(String::new()));
+    if command.trim().is_empty() {
+        result.set("error", Value::String("empty command".into()));
+        return result;
+    }
+    let args = args
+        .map(|value| from_lua(coordinator, value))
+        .unwrap_or(Value::Array(Vec::new()));
+    let options = options
+        .map(|value| from_lua(coordinator, value))
+        .unwrap_or(Value::Object(Vec::new()));
+    let mut process = Command::new(command);
+    process.args(json::as_array(&args).iter().filter_map(Value::as_str));
+    let directory = options
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| host.borrow().workspace_root.clone());
+    if let Some(directory) = directory.filter(|directory| !directory.is_empty()) {
+        if !Path::new(&directory).is_dir() {
+            result.set(
+                "error",
+                Value::String(format!("working directory not found: {directory}")),
+            );
+            return result;
+        }
+        process.current_dir(directory);
+    }
+    let timeout = options
+        .get("timeout")
+        .and_then(Value::as_i64)
+        .unwrap_or(15_000)
+        .clamp(100, 120_000);
+    process.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let Ok(mut child) = process.spawn() else {
+        result.set("error", Value::String(format!("cannot start '{command}'")));
+        return result;
+    };
+    let deadline = Instant::now() + Duration::from_millis(timeout as u64);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stdout = String::new();
+                let mut stderr = String::new();
+                if let Some(mut stream) = child.stdout.take() {
+                    let _ = stream.read_to_string(&mut stdout);
+                }
+                if let Some(mut stream) = child.stderr.take() {
+                    let _ = stream.read_to_string(&mut stderr);
+                }
+                result.set("ok", Value::Bool(status.success()));
+                result.set("code", Value::Number(status.code().unwrap_or(-1) as f64));
+                result.set("stdout", Value::String(stdout));
+                if !status.success() {
+                    result.set(
+                        "error",
+                        Value::String(if stderr.trim().is_empty() {
+                            format!("process exited with code {}", status.code().unwrap_or(-1))
+                        } else {
+                            stderr.trim().to_string()
+                        }),
+                    );
+                }
+                result.set("stderr", Value::String(stderr));
+                return result;
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    result.set(
+                        "error",
+                        Value::String(format!("process timed out after {timeout} ms")),
+                    );
+                    return result;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => {
+                result.set("error", Value::String(error.to_string()));
+                return result;
+            }
         }
     }
 }
@@ -716,24 +2422,12 @@ unsafe extern "C" fn lua_alloc(
             if !pointer.is_null() {
                 allocator.dealloc(pointer as *mut u8, old_size);
             }
-            return ptr::null_mut();
+            return std::ptr::null_mut();
         }
         if pointer.is_null() {
             allocator.alloc(new_size) as *mut c_void
         } else {
             allocator.realloc(pointer as *mut u8, old_size, new_size) as *mut c_void
         }
-    }
-}
-
-fn capture_error(state: *mut ffi::lua_State) -> String {
-    unsafe {
-        let mut length = 0usize;
-        let pointer = ffi::lua_tolstring(state, -1, &mut length);
-        if pointer.is_null() {
-            return "Lua error".to_string();
-        }
-        let bytes = slice::from_raw_parts(pointer as *const u8, length);
-        String::from_utf8_lossy(bytes).into_owned()
     }
 }

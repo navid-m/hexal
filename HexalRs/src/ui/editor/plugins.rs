@@ -7,70 +7,59 @@ use super::*;
 
 impl Editor {
     pub(super) fn load_plugins(&mut self) {
-        let Ok(entries) = std::fs::read_dir(Path::new("plugins")) else {
-            return;
-        };
-        let mut files: Vec<std::path::PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("lua"))
-            .collect();
-        files.sort();
-        if files.is_empty() {
-            return;
-        }
-
-        let mut runtime = match LuaRuntime::new() {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                self.set_error(&format!("lua init failed: {error}"));
-                return;
+        let directory = util::plugin_install::plugin_directory();
+        let _ = std::fs::create_dir_all(&directory);
+        let mut manager = PluginManager::new(directory, None);
+        self.sync_plugin_context(&mut manager);
+        manager.load_all(&mut self.doc, &mut self.cursor);
+        self.plugins = Some(manager);
+        self.fire_plugin_event("editor_started", serde_json_object(&[("api_version", 1.0)]));
+        self.fire_plugin_buffer_event("buffer_opened");
+        self.apply_plugin_effects();
+        let manager = self.plugins.as_ref().unwrap();
+        if let Some(error) = manager.errors().first() {
+            self.set_error(&format!("plugin: {error}"));
+        } else {
+            let count = manager.plugin_count();
+            let deferred = manager.deferred_count();
+            if count > 0 || deferred > 0 {
+                let total = count + deferred;
+                let suffix = if deferred > 0 {
+                    format!(" ({deferred} deferred)")
+                } else {
+                    String::new()
+                };
+                self.set_message(&format!("{total} plugin(s) loaded{suffix}"));
             }
-        };
-        let mut loaded = 0usize;
-        let mut first_error: Option<String> = None;
-        for file in &files {
-            let path = file.to_string_lossy().into_owned();
-            match runtime.load_file(&path) {
-                Ok(()) => loaded += 1,
-                Err(error) => {
-                    if first_error.is_none() {
-                        first_error = Some(format!("{}: {error}", file.display()));
-                    }
-                }
-            }
-        }
-        if loaded > 0 {
-            self.lua = Some(runtime);
-            self.set_message(&format!("Loaded {loaded} Lua plugin(s)"));
-        } else if let Some(error) = first_error {
-            self.set_error(&format!("lua: {error}"));
         }
     }
 
     pub(super) fn load_lua_plugin(&mut self, path: &str) {
-        if self.lua.is_none() {
-            match LuaRuntime::new() {
-                Ok(runtime) => self.lua = Some(runtime),
-                Err(error) => {
-                    self.set_error(&format!("lua init failed: {error}"));
-                    return;
-                }
-            }
+        if self.plugins.is_none() {
+            self.plugins = Some(PluginManager::new(
+                util::plugin_install::plugin_directory(),
+                None,
+            ));
         }
-        let result = self.lua.as_mut().unwrap().load_file(path);
+        let Some(mut manager) = self.plugins.take() else {
+            return;
+        };
+        self.sync_plugin_context(&mut manager);
+        let result = manager.load_file_plugin(path, &mut self.doc, &mut self.cursor);
+        self.plugins = Some(manager);
         match result {
             Ok(()) => self.set_message(&format!("Loaded Lua plugin {path}")),
             Err(error) => self.set_error(&format!("lua: {error}")),
         }
+        self.apply_plugin_effects();
     }
 
     pub(super) fn list_lua_commands(&mut self) {
-        let Some(runtime) = self.lua.as_ref() else {
+        let Some(manager) = self.plugins.as_ref() else {
             self.set_message("No Lua plugins loaded.");
             return;
         };
-        let names = runtime.command_names();
+        let names = manager.command_names();
         if names.is_empty() {
             self.set_message("No Lua commands registered.");
         } else {
@@ -79,35 +68,230 @@ impl Editor {
     }
 
     pub(super) fn try_lua_command(&mut self, name: &str) -> bool {
-        let (result, message) = {
-            let Some(runtime) = self.lua.as_mut() else {
-                return false;
-            };
-            if !runtime.has_command(name) {
-                return false;
-            }
-            let result = runtime.invoke(name, &mut self.doc, &mut self.cursor);
-            let message = runtime.take_message();
-            (result, message)
+        let Some(mut manager) = self.plugins.take() else {
+            return false;
         };
-
+        if !manager.has_command(name) {
+            self.plugins = Some(manager);
+            return false;
+        }
+        self.sync_plugin_context(&mut manager);
+        let result = manager.execute_command(name, &[], &mut self.doc, &mut self.cursor);
+        self.plugins = Some(manager);
         match result {
-            Ok(_) => {
+            Ok(true) => {
                 self.anchor = self.cursor;
                 self.selection_linewise = false;
                 self.preferred_column = None;
                 self.mode = Mode::Normal;
                 self.snap_cursor();
                 self.doc.break_undo_group();
-                if let Some(message) = message {
-                    self.set_message(&message);
-                }
+                self.apply_plugin_effects();
             }
-            Err(error) => self.set_error(&format!("lua: {error}")),
+            Ok(false) => return false,
+            Err(error) => {
+                self.set_error(&format!("lua: {error}"));
+                self.apply_plugin_effects();
+            }
         }
         true
     }
 
+    pub(super) fn sync_plugin_context(&self, manager: &mut PluginManager) {
+        let buffer_id = self.doc.path.clone().unwrap_or_else(|| "[No Name]".into());
+        let language = self
+            .active_language()
+            .map(|language| language.id.clone())
+            .unwrap_or_default();
+        let workspace_root = self
+            .doc
+            .path
+            .as_ref()
+            .and_then(|path| Path::new(path).parent())
+            .map(|parent| parent.to_string_lossy().into_owned());
+        let selection = if self.anchor == self.cursor {
+            None
+        } else {
+            let (start, end) = if self.anchor < self.cursor {
+                (self.anchor, self.cursor)
+            } else {
+                (self.cursor, self.anchor)
+            };
+            let start_line = self.doc.line_of_offset(start);
+            let end_line = self.doc.line_of_offset(end);
+            let start_column = String::from_utf8_lossy(&self.doc.range(
+                self.doc.line_start(start_line),
+                start.saturating_sub(self.doc.line_start(start_line)),
+            ))
+            .chars()
+            .count();
+            let end_column = String::from_utf8_lossy(&self.doc.range(
+                self.doc.line_start(end_line),
+                end.saturating_sub(self.doc.line_start(end_line)),
+            ))
+            .chars()
+            .count();
+            Some(crate::scripting::lua::PluginSelection {
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                text: String::from_utf8_lossy(&self.doc.range(start, end - start)).into_owned(),
+                linewise: self.selection_linewise,
+            })
+        };
+        manager.set_context(
+            buffer_id,
+            language,
+            workspace_root,
+            self.cols,
+            self.rows,
+            selection,
+        );
+    }
+
+    pub(super) fn apply_plugin_effects(&mut self) {
+        let Some(mut manager) = self.plugins.take() else {
+            return;
+        };
+        let effects = manager.take_effects();
+        let pending_commands = manager.take_pending_commands();
+        for (message, warning) in effects.messages {
+            if warning {
+                self.set_error(&message);
+            } else {
+                self.set_message(&message);
+            }
+        }
+        for (key, value) in effects.statuses {
+            match value {
+                Some(value) => {
+                    if let Some(existing) =
+                        self.plugin_status.iter_mut().find(|(name, _)| *name == key)
+                    {
+                        existing.1 = value;
+                    } else {
+                        self.plugin_status.push((key, value));
+                    }
+                }
+                None => self.plugin_status.retain(|(name, _)| *name != key),
+            }
+        }
+        if let Some(clipboard) = effects.clipboard {
+            self.clipboard = clipboard;
+        }
+        for (plugin_id, message) in effects.errors {
+            self.set_error(&format!("error: {plugin_id}: {message}"));
+        }
+        for stop in effects.lsp_stops {
+            if stop.is_empty() || self.lsp.server_name() == stop {
+                self.lsp.stop();
+                self.lsp_dirty = false;
+                self.lsp_synced_revision = 0;
+            }
+        }
+        for request in effects.lsp_requests {
+            if let Some(path) = self.doc.path.clone() {
+                let root = Path::new(&path)
+                    .parent()
+                    .map(|parent| parent.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if self
+                    .lsp
+                    .try_start(
+                        lsp::ServerConfig {
+                            name: request.name,
+                            command: request.command,
+                            arguments: request.args,
+                            language_id: request.language_id,
+                        },
+                        &path,
+                        &String::from_utf8_lossy(&self.doc.all_text()),
+                        &root,
+                    )
+                    .is_ok()
+                {
+                    self.lsp_dirty = false;
+                    self.lsp_synced_revision = self.doc.revision();
+                }
+            }
+        }
+        self.plugins = Some(manager);
+        for (name, args) in pending_commands {
+            let mut line = name;
+            if !args.is_empty() {
+                line.push(' ');
+                line.push_str(&args.join(" "));
+            }
+            self.command_line = line;
+            self.command_cursor = self.command_line.len();
+            self.submit_command();
+        }
+    }
+
+    pub(super) fn fire_plugin_event(&mut self, event: &str, data: crate::util::json::Value) {
+        let Some(mut manager) = self.plugins.take() else {
+            return;
+        };
+        self.sync_plugin_context(&mut manager);
+        manager.fire_event(event, &data, &mut self.doc, &mut self.cursor);
+        self.plugins = Some(manager);
+        self.apply_plugin_effects();
+    }
+
+    pub(super) fn fire_plugin_buffer_event(&mut self, event: &str) {
+        let mut data = serde_json_object(&[]);
+        data.set(
+            "id",
+            crate::util::json::Value::String(
+                self.doc.path.clone().unwrap_or_else(|| "[No Name]".into()),
+            ),
+        );
+        data.set(
+            "path",
+            self.doc
+                .path
+                .clone()
+                .map(crate::util::json::Value::String)
+                .unwrap_or(crate::util::json::Value::Null),
+        );
+        data.set(
+            "modified",
+            crate::util::json::Value::Bool(self.doc.is_dirty()),
+        );
+        data.set(
+            "language",
+            crate::util::json::Value::String(
+                self.active_language()
+                    .map(|language| language.id.clone())
+                    .unwrap_or_default(),
+            ),
+        );
+        data.set(
+            "lsp_running",
+            crate::util::json::Value::Bool(self.lsp.is_running()),
+        );
+        self.fire_plugin_event(event, data);
+    }
+
+    pub(super) fn try_plugin_key(&mut self, event: &Event, mode: &str) -> Option<bool> {
+        let token = key_token(event)?;
+        let mut manager = self.plugins.take()?;
+        self.sync_plugin_context(&mut manager);
+        let result = manager.handle_key_token(&token, mode, &mut self.doc, &mut self.cursor);
+        self.plugins = Some(manager);
+        if result.is_some() {
+            self.apply_plugin_effects();
+        }
+        result
+    }
+
+    pub(super) fn plugin_command_names(&self) -> Vec<String> {
+        self.plugins
+            .as_ref()
+            .map(|manager| manager.command_names())
+            .unwrap_or_default()
+    }
     pub(super) fn save_document(&mut self, path: Option<&str>) -> bool {
         self.save_document_inner(path, false)
     }
@@ -150,6 +334,7 @@ impl Editor {
                 let path_changed = previous_path != self.doc.path;
                 self.set_message(&format!("Saved {}", self.doc.display_name()));
                 self.notify_lsp_saved();
+                self.fire_plugin_buffer_event("buffer_saved");
                 if path_changed {
                     self.refresh_language();
                     self.auto_detect_indentation_on_open();
@@ -208,4 +393,53 @@ fn shift_after_removal(position: usize, remove_at: usize, removed: usize) -> usi
     } else {
         position
     }
+}
+
+fn serde_json_object(values: &[(&str, f64)]) -> crate::util::json::Value {
+    let mut object = crate::util::json::Value::Object(Vec::new());
+    for (key, value) in values {
+        object.set(key, crate::util::json::Value::Number(*value));
+    }
+    object
+}
+
+fn key_token(event: &Event) -> Option<String> {
+    if event.key == Key::Char {
+        if event.ch == '\0' {
+            return None;
+        }
+        let character = if event.ch == ' ' {
+            "space".to_string()
+        } else {
+            event.ch.to_lowercase().to_string()
+        };
+        if event.ctrl {
+            return Some(format!("ctrl+{character}"));
+        }
+        if event.alt {
+            return Some(format!("alt+{character}"));
+        }
+        return Some(character);
+    }
+    Some(
+        match event.key {
+            Key::Escape => "esc",
+            Key::Enter => "enter",
+            Key::Backspace => "backspace",
+            Key::Delete => "delete",
+            Key::Tab => "tab",
+            Key::BackTab => "shift+tab",
+            Key::Up => "up",
+            Key::Down => "down",
+            Key::Left => "left",
+            Key::Right => "right",
+            Key::Home => "home",
+            Key::End => "end",
+            Key::PageUp => "pageup",
+            Key::PageDown => "pagedown",
+            Key::Insert => "insert",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }

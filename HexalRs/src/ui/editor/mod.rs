@@ -27,7 +27,7 @@ use crate::core::format;
 use crate::languages::{FormatterConfig, Highlighter, Language, Registry, Token};
 use crate::lsp::{self, Manager as LspManager};
 use crate::platform::terminal::{Event, Key, Terminal};
-use crate::scripting::lua::LuaRuntime;
+use crate::scripting::plugin::PluginManager;
 use crate::ui::help::{HELP_LINES, HelpLineKind, HelpState};
 use crate::ui::renderer::Renderer;
 use crate::ui::screen::Screen;
@@ -397,7 +397,8 @@ pub struct Editor {
     palette_commands: Vec<PaletteCommand>,
     find: FindState,
     search_match_case: bool,
-    lua: Option<LuaRuntime>,
+    plugins: Option<PluginManager>,
+    plugin_status: Vec<(String, String)>,
     line_buffer: Vec<u8>,
     themes: ThemeRegistry,
     theme_before_picker: Option<String>,
@@ -484,7 +485,8 @@ impl Editor {
             palette_commands: Vec::new(),
             find: FindState::new(),
             search_match_case: false,
-            lua: None,
+            plugins: None,
+            plugin_status: Vec::new(),
             line_buffer: Vec::new(),
             themes,
             theme_before_picker: None,
@@ -553,11 +555,39 @@ impl Editor {
 
             match terminal.read_event(30) {
                 Ok(Some(event)) => {
+                    let cursor_before = self.cursor;
                     self.handle_event(event);
                     if self.doc.revision() != self.last_revision {
                         self.last_revision = self.doc.revision();
                         self.lsp_dirty = self.lsp.is_running();
                         self.lsp_dirty_since = std::time::Instant::now();
+                        if self
+                            .plugins
+                            .as_ref()
+                            .map(|plugins| plugins.has_subscribers("buffer_changed"))
+                            .unwrap_or(false)
+                        {
+                            self.fire_plugin_buffer_event("buffer_changed");
+                        }
+                    }
+                    if self.cursor != cursor_before
+                        && self
+                            .plugins
+                            .as_ref()
+                            .map(|plugins| plugins.has_subscribers("cursor_moved"))
+                            .unwrap_or(false)
+                    {
+                        let line = self.doc.line_of_offset(self.cursor);
+                        let start = self.doc.line_start(line);
+                        let column = String::from_utf8_lossy(
+                            &self.doc.range(start, self.cursor.saturating_sub(start)),
+                        )
+                        .chars()
+                        .count();
+                        let mut data = crate::util::json::Value::Object(Vec::new());
+                        data.set("line", crate::util::json::Value::Number(line as f64));
+                        data.set("column", crate::util::json::Value::Number(column as f64));
+                        self.fire_plugin_event("cursor_moved", data);
                     }
                     if let Some(sequence) = self.pending_osc.take() {
                         let _ = terminal.write(&sequence);
@@ -581,6 +611,10 @@ impl Editor {
 
             self.render(terminal)?;
         }
+        self.fire_plugin_event(
+            "editor_shutdown",
+            crate::util::json::Value::Object(Vec::new()),
+        );
         Ok(())
     }
 
@@ -634,6 +668,18 @@ impl Editor {
         {
             self.open_palette();
             return;
+        }
+        if matches!(self.mode, Mode::Normal | Mode::Insert | Mode::Select) {
+            let mode = match self.mode {
+                Mode::Insert => "insert",
+                Mode::Select => "select",
+                _ => "normal",
+            };
+            if let Some(handled) = self.try_plugin_key(&event, mode) {
+                if handled {
+                    return;
+                }
+            }
         }
         if self.sidebar.visible && self.sidebar.focused {
             self.handle_sidebar(event);
