@@ -30,7 +30,11 @@ impl Editor {
     pub(super) fn gutter_width_for(&self, width: usize) -> usize {
         let marker = usize::from(self.sidebar.show_modified);
         let gutter = util::digit_count(self.doc.line_count()) + 1 + marker;
-        if width < gutter + 10 { 0 } else { gutter }
+        if width < gutter + 10 {
+            0
+        } else {
+            gutter
+        }
     }
 
     pub(super) fn clamp_viewport(&mut self) {

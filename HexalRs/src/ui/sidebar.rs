@@ -320,7 +320,13 @@ impl Sidebar {
         self.selected = self.selected.min(self.nodes.len().saturating_sub(1));
         self.anchor = self.anchor.min(self.nodes.len().saturating_sub(1));
         self.ensure_visible();
+        self.refresh_git_status();
+    }
 
+    /// Refresh only the Git marker sets. Formatting changes file contents but
+    /// not the tree, so this avoids rescanning the whole workspace when a bulk
+    /// format operation completes.
+    pub fn refresh_git_status(&mut self) {
         if self.show_modified {
             let status = git::load_git_status(&self.root);
             self.git_modified_files = status.modified_files;

@@ -5,6 +5,97 @@
 
 use super::*;
 
+/// A `Send` snapshot of the language rules needed by a batch format worker.
+/// The live registry contains `Rc<Language>` values and cannot cross threads,
+/// so the worker gets an immutable, plain-data copy instead.
+struct BulkFormatLanguage {
+    name: String,
+    formatter: Option<FormatterConfig>,
+    fallback_formatter: Option<FormatterConfig>,
+}
+
+struct BulkFormatResolver {
+    by_filename: HashMap<String, usize>,
+    ordered_extensions: Vec<(String, usize)>,
+    languages: Vec<BulkFormatLanguage>,
+}
+
+impl BulkFormatResolver {
+    fn new(registry: &Registry) -> BulkFormatResolver {
+        let mut by_filename = HashMap::new();
+        let mut by_extension = HashMap::new();
+        let mut ordered_extensions = Vec::new();
+        let mut languages = Vec::new();
+
+        for (index, language) in registry.languages().iter().enumerate() {
+            for file_name in &language.file_names {
+                by_filename
+                    .entry(file_name.to_ascii_lowercase())
+                    .or_insert(index);
+            }
+            for extension in &language.extensions {
+                let key = extension.to_ascii_lowercase();
+                if by_extension.insert(key.clone(), index).is_none() {
+                    ordered_extensions.push((key, index));
+                }
+            }
+            languages.push(BulkFormatLanguage {
+                name: language.name.clone(),
+                formatter: language.formatter.clone(),
+                fallback_formatter: language.fallback_formatter.clone(),
+            });
+        }
+
+        // Compound extensions such as `.blade.php` must win over `.php`.
+        ordered_extensions.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
+        BulkFormatResolver {
+            by_filename,
+            ordered_extensions,
+            languages,
+        }
+    }
+
+    fn detect(&self, path: &Path) -> Option<usize> {
+        let file_name = path.file_name()?.to_string_lossy();
+        if file_name.is_empty() {
+            return None;
+        }
+        let lower_name = file_name.to_ascii_lowercase();
+        if let Some(index) = self.by_filename.get(&lower_name) {
+            return Some(*index);
+        }
+        self.ordered_extensions
+            .iter()
+            .find(|(extension, _)| lower_name.ends_with(extension))
+            .map(|(_, index)| *index)
+    }
+}
+
+fn command_available(cache: &mut HashMap<String, bool>, command: &str) -> bool {
+    if let Some(available) = cache.get(command) {
+        return *available;
+    }
+    let available = crate::util::git::command_exists(command);
+    cache.insert(command.to_string(), available);
+    available
+}
+
+/// The reference editor formats with `Parallel.ForEach` at 2..8 workers.
+fn batch_format_parallelism() -> usize {
+    std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .clamp(2, 8)
+}
+
+fn lock_format_result(
+    result: &std::sync::Mutex<SidebarFormatResult>,
+) -> std::sync::MutexGuard<'_, SidebarFormatResult> {
+    result
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl Editor {
     // ---------------------------------------------------------------------
     // Sidebar
@@ -572,123 +663,171 @@ impl Editor {
             }
         }
 
-        let mut files = Vec::new();
-        for (path, is_directory) in nodes {
-            if *is_directory {
-                collect_files(
-                    path,
-                    &self.sidebar.root,
-                    self.sidebar.show_git_ignored,
-                    &mut files,
-                );
-            } else if path.is_file() {
-                files.push(path.clone());
-            }
-        }
-        files.sort();
-        files.dedup();
-
+        let resolver = BulkFormatResolver::new(&self.languages);
+        let root = self.sidebar.root.clone();
+        let show_git_ignored = self.sidebar.show_git_ignored;
+        let targets = nodes.to_vec();
         let open_path = self
             .doc
             .path
             .as_ref()
             .map(|path| git::absolute(Path::new(path)));
-        let mut jobs = Vec::new();
-        let mut skipped = 0usize;
-        for file in files {
-            let name = file.to_string_lossy();
-            let Some(language) = self.languages.detect(&name) else {
-                crate::util::log::write(&format!("format: no language for {name}"));
-                skipped += 1;
-                continue;
-            };
-            let Some(formatter) = language.resolve_formatter().cloned() else {
-                crate::util::log::write(&format!(
-                    "format: no formatter configured for {name} ({})",
-                    language.name
-                ));
-                skipped += 1;
-                continue;
-            };
-            if !crate::util::git::command_exists(&formatter.command) {
-                crate::util::log::write(&format!(
-                    "format: formatter '{}' not found for {name}",
-                    formatter.command
-                ));
-                skipped += 1;
-                continue;
-            }
-            jobs.push((file, formatter));
-        }
-
-        let total = jobs.len();
         let progress = Arc::new(SidebarFormatProgress {
-            total: AtomicUsize::new(total),
+            total: AtomicUsize::new(0),
             completed: AtomicUsize::new(0),
         });
         let thread_progress = progress.clone();
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut result = SidebarFormatResult {
+            // Discovery, language lookup and formatter resolution all happen
+            // off the UI thread. Command availability is cached so a large
+            // tree does not perform one PATH scan per file.
+            let mut files = Vec::new();
+            for (path, is_directory) in &targets {
+                if *is_directory {
+                    collect_files(path, &root, show_git_ignored, &mut files);
+                } else if path.is_file() {
+                    files.push(path.clone());
+                }
+            }
+            files.sort();
+            files.dedup();
+
+            let mut command_cache = HashMap::new();
+            let mut jobs = Vec::new();
+            let mut skipped = 0usize;
+            for file in files {
+                let name = file.to_string_lossy();
+                let Some(language_index) = resolver.detect(&file) else {
+                    crate::util::log::write(&format!("format: no language for {name}"));
+                    skipped += 1;
+                    continue;
+                };
+                let language = &resolver.languages[language_index];
+                let Some(primary) = &language.formatter else {
+                    crate::util::log::write(&format!(
+                        "format: no formatter configured for {name} ({})",
+                        language.name
+                    ));
+                    skipped += 1;
+                    continue;
+                };
+                let formatter = if command_available(&mut command_cache, &primary.command) {
+                    primary.clone()
+                } else if let Some(fallback) = &language.fallback_formatter {
+                    if command_available(&mut command_cache, &fallback.command) {
+                        fallback.clone()
+                    } else {
+                        crate::util::log::write(&format!(
+                            "format: formatter '{}' not found for {name}",
+                            primary.command
+                        ));
+                        skipped += 1;
+                        continue;
+                    }
+                } else {
+                    crate::util::log::write(&format!(
+                        "format: formatter '{}' not found for {name}",
+                        primary.command
+                    ));
+                    skipped += 1;
+                    continue;
+                };
+                jobs.push((file, formatter));
+            }
+
+            let total = jobs.len();
+            thread_progress.total.store(total, Ordering::Relaxed);
+            let result = std::sync::Mutex::new(SidebarFormatResult {
                 formatted: 0,
                 changed: 0,
                 failed: 0,
                 skipped,
                 skipped_open: 0,
                 first_error: None,
-            };
-            for (file, formatter) in jobs {
-                if let Some(open) = &open_path {
-                    if git::same_path(open, &file) {
-                        result.skipped_open += 1;
-                        thread_progress.completed.fetch_add(1, Ordering::Relaxed);
-                        continue;
-                    }
-                }
-                match std::fs::read(&file) {
-                    Ok(input) => match format::run(&formatter, &input, Some(&file)) {
-                        Ok(output) => {
-                            result.formatted += 1;
-                            let output = if git::has_utf8_bom(&input) && !git::has_utf8_bom(&output)
-                            {
-                                let mut with_bom = Vec::with_capacity(output.len() + 3);
-                                with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
-                                with_bom.extend_from_slice(&output);
-                                with_bom
-                            } else {
-                                output
+            });
+            let next = AtomicUsize::new(0);
+            let worker_count = batch_format_parallelism().min(total);
+            if worker_count > 0 {
+                std::thread::scope(|scope| {
+                    for _ in 0..worker_count {
+                        scope.spawn(|| loop {
+                            let index = next.fetch_add(1, Ordering::Relaxed);
+                            let Some((file, formatter)) = jobs.get(index) else {
+                                break;
                             };
-                            if output != input {
-                                match git::atomic_write(&file, &output) {
-                                    Ok(()) => result.changed += 1,
-                                    Err(error) => {
-                                        result.failed += 1;
-                                        if result.first_error.is_none() {
-                                            result.first_error =
-                                                Some(format!("{}: {error}", git::file_name(&file)));
+                            if let Some(open) = &open_path {
+                                if git::same_path(open, file) {
+                                    lock_format_result(&result).skipped_open += 1;
+                                    thread_progress.completed.fetch_add(1, Ordering::Relaxed);
+                                    continue;
+                                }
+                            }
+
+                            let mut formatted = false;
+                            let mut changed = false;
+                            let mut failure = None;
+                            match std::fs::read(file) {
+                                Ok(input) => {
+                                    match format::run(formatter, &input, Some(file.as_path())) {
+                                        Ok(output) => {
+                                            formatted = true;
+                                            let output = if git::has_utf8_bom(&input)
+                                                && !git::has_utf8_bom(&output)
+                                            {
+                                                let mut with_bom =
+                                                    Vec::with_capacity(output.len() + 3);
+                                                with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+                                                with_bom.extend_from_slice(&output);
+                                                with_bom
+                                            } else {
+                                                output
+                                            };
+                                            if output != input {
+                                                match git::atomic_write(file, &output) {
+                                                    Ok(()) => changed = true,
+                                                    Err(error) => {
+                                                        failure = Some(format!(
+                                                            "{}: {error}",
+                                                            git::file_name(file)
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(error) => {
+                                            failure =
+                                                Some(format!("{}: {error}", git::file_name(file)));
                                         }
                                     }
                                 }
+                                Err(error) => {
+                                    failure = Some(format!("{}: {error}", git::file_name(file)));
+                                }
                             }
-                        }
-                        Err(error) => {
-                            result.failed += 1;
-                            if result.first_error.is_none() {
-                                result.first_error =
-                                    Some(format!("{}: {error}", git::file_name(&file)));
+
+                            let mut metrics = lock_format_result(&result);
+                            if formatted {
+                                metrics.formatted += 1;
                             }
-                        }
-                    },
-                    Err(error) => {
-                        result.failed += 1;
-                        if result.first_error.is_none() {
-                            result.first_error =
-                                Some(format!("{}: {error}", git::file_name(&file)));
-                        }
+                            if changed {
+                                metrics.changed += 1;
+                            }
+                            if let Some(error) = failure {
+                                metrics.failed += 1;
+                                if metrics.first_error.is_none() {
+                                    metrics.first_error = Some(error);
+                                }
+                            }
+                            drop(metrics);
+                            thread_progress.completed.fetch_add(1, Ordering::Relaxed);
+                        });
                     }
-                }
-                thread_progress.completed.fetch_add(1, Ordering::Relaxed);
+                });
             }
+            let result = result
+                .into_inner()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let _ = sender.send(result);
         });
 
@@ -721,7 +860,9 @@ impl Editor {
 
         match operation.receiver.try_recv() {
             Ok(result) => {
-                self.sidebar.refresh(None);
+                if result.changed > 0 {
+                    self.sidebar.refresh_git_status();
+                }
                 if result.failed > 0 {
                     let detail = result
                         .first_error
@@ -756,7 +897,7 @@ impl Editor {
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {
-                self.sidebar.refresh(None);
+                self.sidebar.refresh_git_status();
                 self.set_error("Format failed: formatting task stopped unexpectedly");
                 self.force_full_redraw = true;
                 return;
@@ -1646,9 +1787,11 @@ fn reindent_selection(text: &[u8], prefix: &str) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_eol, reindent_selection, remove_common_indent};
+    use super::{normalize_eol, reindent_selection, remove_common_indent, BulkFormatResolver};
     use crate::core::document::Document;
+    use crate::languages::Registry;
     use crate::ui::editor::Editor;
+    use std::path::Path;
     use std::sync::atomic::AtomicUsize;
     use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};
@@ -1710,6 +1853,59 @@ mod tests {
         assert_eq!(normalize_eol(b"a\r\nb\rc\nd", b"\r\n"), b"a\r\nb\r\nc\r\nd");
         assert_eq!(normalize_eol(b"\r", b"\n"), b"\n");
         assert_eq!(normalize_eol(b"\r\n", b"\n"), b"\n");
+    }
+
+    #[test]
+    fn bulk_format_resolver_matches_registry_detection() {
+        let registry = Registry::load();
+        let resolver = BulkFormatResolver::new(&registry);
+        for path in [
+            "src/main.rs",
+            "Cargo.toml",
+            "view.blade.php",
+            "script.py",
+            "file.unknown-extension",
+        ] {
+            let expected = registry.detect(path).map(|language| language.name.clone());
+            let actual = resolver
+                .detect(Path::new(path))
+                .map(|index| resolver.languages[index].name.clone());
+            assert_eq!(actual, expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn bulk_format_formats_multiple_files_with_parallel_workers() {
+        if !crate::util::git::command_exists("rustfmt") {
+            return;
+        }
+        let root =
+            std::env::temp_dir().join(format!("hexal-format-parallel-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let files: Vec<_> = (0..4)
+            .map(|index| root.join(format!("file{index}.rs")))
+            .collect();
+        for file in &files {
+            std::fs::write(file, b"fn main(){let x=1;}\n").unwrap();
+        }
+
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.format_sidebar_nodes(&[(root.clone(), true)]);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while editor.sidebar_format.is_some() && Instant::now() < deadline {
+            editor.poll_sidebar_format();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(editor.sidebar_format.is_none());
+        assert!(!editor.message_is_error, "{}", editor.message);
+        assert_eq!(editor.message, "Formatted 4 file(s), 4 changed");
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap();
+            assert!(text.contains("fn main() {"), "{text:?}");
+            assert!(text.contains("let x = 1;"), "{text:?}");
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
