@@ -22,6 +22,8 @@ mod status;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 
 use crate::core::config::Config;
 use crate::core::diff;
@@ -403,6 +405,37 @@ impl LspDebugState {
     }
 }
 
+struct SidebarFormatProgress {
+    total: AtomicUsize,
+    completed: AtomicUsize,
+}
+
+impl SidebarFormatProgress {
+    fn total(&self) -> usize {
+        self.total.load(Ordering::Relaxed)
+    }
+
+    fn completed(&self) -> usize {
+        self.completed.load(Ordering::Relaxed)
+    }
+}
+
+struct SidebarFormatResult {
+    formatted: usize,
+    changed: usize,
+    failed: usize,
+    skipped: usize,
+    skipped_open: usize,
+    first_error: Option<String>,
+}
+
+struct SidebarFormatOperation {
+    receiver: mpsc::Receiver<SidebarFormatResult>,
+    progress: Arc<SidebarFormatProgress>,
+    last_total: usize,
+    last_completed: usize,
+}
+
 struct DapDebugState {
     visible: bool,
     top: usize,
@@ -522,6 +555,7 @@ pub struct Editor {
 
     dap_debug: DapDebugState,
     dap_debug_lines: Vec<String>,
+    sidebar_format: Option<SidebarFormatOperation>,
 }
 
 impl Editor {
@@ -628,6 +662,7 @@ impl Editor {
             debug_watch_values: HashMap::new(),
             dap_debug: DapDebugState::new(),
             dap_debug_lines: Vec::new(),
+            sidebar_format: None,
         };
         editor.last_revision = editor.doc.revision();
         editor.sidebar.show_modified = editor.config.show_diff_lines;

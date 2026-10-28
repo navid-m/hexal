@@ -558,6 +558,10 @@ impl Editor {
         if nodes.is_empty() {
             return;
         }
+        if self.sidebar_format.is_some() {
+            self.set_message("Batch formatting is already in progress.");
+            return;
+        }
         if nodes.len() == 1 {
             if let Some(path) = &self.doc.path {
                 if git::same_path(Path::new(path), &nodes[0].0) && !nodes[0].1 {
@@ -578,90 +582,198 @@ impl Editor {
         files.sort();
         files.dedup();
 
-        let mut formatted = 0usize;
-        let mut changed = 0usize;
-        let mut failed = 0usize;
-        let mut skipped = 0usize;
-        let mut first_error = None;
         let open_path = self
             .doc
             .path
             .as_ref()
             .map(|path| git::absolute(Path::new(path)));
+        let mut jobs = Vec::new();
+        let mut skipped = 0usize;
         for file in files {
-            if let Some(open) = &open_path {
-                if git::same_path(open, &file) {
-                    skipped += 1;
-                    continue;
-                }
+            let name = file.to_string_lossy();
+            let Some(language) = self.languages.detect(&name) else {
+                crate::util::log::write(&format!("format: no language for {name}"));
+                skipped += 1;
+                continue;
+            };
+            let Some(formatter) = language.resolve_formatter().cloned() else {
+                crate::util::log::write(&format!(
+                    "format: no formatter configured for {name} ({})",
+                    language.name
+                ));
+                skipped += 1;
+                continue;
+            };
+            if !crate::util::git::command_exists(&formatter.command) {
+                crate::util::log::write(&format!(
+                    "format: formatter '{}' not found for {name}",
+                    formatter.command
+                ));
+                skipped += 1;
+                continue;
             }
-            let language = self.languages.detect(&file.to_string_lossy());
-            let Some(language) = language else {
-                skipped += 1;
-                continue;
+            jobs.push((file, formatter));
+        }
+
+        let total = jobs.len();
+        let progress = Arc::new(SidebarFormatProgress {
+            total: AtomicUsize::new(total),
+            completed: AtomicUsize::new(0),
+        });
+        let thread_progress = progress.clone();
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut result = SidebarFormatResult {
+                formatted: 0,
+                changed: 0,
+                failed: 0,
+                skipped,
+                skipped_open: 0,
+                first_error: None,
             };
-            let Some(formatter) = language.resolve_formatter() else {
-                skipped += 1;
-                continue;
-            };
-            let input = match std::fs::read(&file) {
-                Ok(input) => input,
-                Err(error) => {
-                    failed += 1;
-                    if first_error.is_none() {
-                        first_error = Some(format!("{}: {error}", git::file_name(&file)));
+            for (file, formatter) in jobs {
+                if let Some(open) = &open_path {
+                    if git::same_path(open, &file) {
+                        result.skipped_open += 1;
+                        thread_progress.completed.fetch_add(1, Ordering::Relaxed);
+                        continue;
                     }
-                    continue;
                 }
-            };
-            match format::run(&formatter, &input, Some(&file)) {
-                Ok(output) => {
-                    formatted += 1;
-                    let output = if git::has_utf8_bom(&input) && !git::has_utf8_bom(&output) {
-                        let mut with_bom = Vec::with_capacity(output.len() + 3);
-                        with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
-                        with_bom.extend_from_slice(&output);
-                        with_bom
-                    } else {
-                        output
-                    };
-                    if output != input {
-                        if let Err(error) = git::atomic_write(&file, &output) {
-                            failed += 1;
-                            if first_error.is_none() {
-                                first_error = Some(format!("{}: {error}", git::file_name(&file)));
+                match std::fs::read(&file) {
+                    Ok(input) => match format::run(&formatter, &input, Some(&file)) {
+                        Ok(output) => {
+                            result.formatted += 1;
+                            let output = if git::has_utf8_bom(&input)
+                                && !git::has_utf8_bom(&output)
+                            {
+                                let mut with_bom = Vec::with_capacity(output.len() + 3);
+                                with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+                                with_bom.extend_from_slice(&output);
+                                with_bom
+                            } else {
+                                output
+                            };
+                            if output != input {
+                                match git::atomic_write(&file, &output) {
+                                    Ok(()) => result.changed += 1,
+                                    Err(error) => {
+                                        result.failed += 1;
+                                        if result.first_error.is_none() {
+                                            result.first_error = Some(format!(
+                                                "{}: {error}",
+                                                git::file_name(&file)
+                                            ));
+                                        }
+                                    }
+                                }
                             }
-                            continue;
                         }
-                        changed += 1;
+                        Err(error) => {
+                            result.failed += 1;
+                            if result.first_error.is_none() {
+                                result.first_error =
+                                    Some(format!("{}: {error}", git::file_name(&file)));
+                            }
+                        }
+                    },
+                    Err(error) => {
+                        result.failed += 1;
+                        if result.first_error.is_none() {
+                            result.first_error =
+                                Some(format!("{}: {error}", git::file_name(&file)));
+                        }
                     }
                 }
-                Err(error) => {
-                    failed += 1;
-                    if first_error.is_none() {
-                        first_error = Some(format!("{}: {error}", git::file_name(&file)));
+                thread_progress.completed.fetch_add(1, Ordering::Relaxed);
+            }
+            let _ = sender.send(result);
+        });
+
+        self.sidebar_format = Some(SidebarFormatOperation {
+            receiver,
+            progress,
+            last_total: usize::MAX,
+            last_completed: usize::MAX,
+        });
+        let message = if nodes.len() == 1 {
+            format!(
+                "Formatting {}...",
+                nodes[0]
+                    .0
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| nodes[0].0.to_string_lossy().into_owned())
+            )
+        } else {
+            format!("Formatting {} selected items...", nodes.len())
+        };
+        self.set_message(&message);
+        self.force_full_redraw = true;
+    }
+
+    pub(super) fn poll_sidebar_format(&mut self) {
+        let Some(mut operation) = self.sidebar_format.take() else {
+            return;
+        };
+
+        match operation.receiver.try_recv() {
+            Ok(result) => {
+                self.sidebar.refresh(None);
+                if result.failed > 0 {
+                    let detail = result
+                        .first_error
+                        .as_deref()
+                        .map(|error| format!(": {error}"))
+                        .unwrap_or_default();
+                    self.set_error(&format!(
+                        "Formatted {} file(s), {} failed{detail}",
+                        result.formatted, result.failed
+                    ));
+                } else if result.formatted == 0 {
+                    if result.skipped_open > 0 {
+                        self.set_message("Skipped the open buffer.");
+                    } else {
+                        self.set_message("No files were formatted.");
                     }
+                } else {
+                    let mut summary = format!("Formatted {} file(s)", result.formatted);
+                    if result.changed > 0 {
+                        summary.push_str(&format!(", {} changed", result.changed));
+                    }
+                    if result.skipped > 0 {
+                        summary.push_str(&format!(", {} skipped", result.skipped));
+                    }
+                    if result.skipped_open > 0 {
+                        summary.push_str(", open buffer skipped");
+                    }
+                    self.set_message(&summary);
                 }
+                self.force_full_redraw = true;
+                return;
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.sidebar.refresh(None);
+                self.set_error("Format failed: formatting task stopped unexpectedly");
+                self.force_full_redraw = true;
+                return;
             }
         }
 
-        self.sidebar.refresh(None);
-        if let Some(error) = first_error {
-            self.set_error(&format!(
-                "Formatted {formatted} file(s), {failed} failed: {error}"
-            ));
-        } else if formatted == 0 {
-            self.set_error("No formatter configured for the selected files.");
-        } else {
-            let mut summary = format!("Formatted {formatted} file(s)");
-            if changed > 0 {
-                summary.push_str(&format!(", {changed} changed"));
-            }
-            if skipped > 0 {
-                summary.push_str(&format!(", {skipped} skipped"));
-            }
-            self.set_message(&summary);
+        let total = operation.progress.total();
+        let completed = operation.progress.completed().min(total);
+        if total != operation.last_total || completed != operation.last_completed {
+            operation.last_total = total;
+            operation.last_completed = completed;
+            let message = if total > 0 {
+                format!("Formatting ({completed}/{total})...")
+            } else {
+                "Formatting...".to_string()
+            };
+            self.set_message(&message);
+            self.force_full_redraw = true;
         }
+        self.sidebar_format = Some(operation);
     }
 
     pub(super) fn format_current_document(&mut self, save_after: bool) {
@@ -1012,6 +1124,71 @@ impl Editor {
                         .put(marker_x as i64, row as i64, 'N', marker_style, 1);
                 }
             }
+        }
+
+        self.render_sidebar_format_progress(width);
+    }
+
+    fn render_sidebar_format_progress(&mut self, width: usize) {
+        if width <= 2 {
+            return;
+        }
+        let Some((total, completed)) = self
+            .sidebar_format
+            .as_ref()
+            .map(|operation| (operation.progress.total(), operation.progress.completed()))
+        else {
+            return;
+        };
+        let completed = if total > 0 {
+            completed.min(total)
+        } else {
+            0
+        };
+
+        let label = "Formatting";
+        let label_style = self.theme.muted_style();
+        self.screen.put_str(1, 0, label, label_style, width - 2);
+
+        let count = if total > 0 {
+            format!("{completed}/{total}")
+        } else {
+            "…".to_string()
+        };
+        let count_width = count.chars().count() as isize;
+        let count_x = width as isize - 1 - count_width - 1;
+        if count_x > (1 + label.len() + 1) as isize {
+            self.screen
+                .put_str(count_x as i64, 0, &count, label_style, count.chars().count());
+        }
+
+        let bar_x = 1 + label.len() + 1;
+        let bar_width = count_x - bar_x as isize - 1;
+        if bar_width < 4 {
+            return;
+        }
+        let bar_width = bar_width as usize;
+        let filled = if total > 0 {
+            ((bar_width as f64 * (completed as f64 / total as f64)).round() as usize)
+                .min(bar_width)
+        } else {
+            0
+        };
+        let mut filled_style = self.theme.syntax_style(SyntaxKind::Default);
+        filled_style.fg = self.theme.accent;
+        let empty_style = self.theme.border_style();
+        for index in 0..bar_width {
+            self.screen.put(
+                (bar_x + index) as i64,
+                0,
+                if index < filled { '━' } else { '─' },
+                if index < filled {
+                    filled_style
+                } else {
+                    empty_style
+                },
+                1,
+            );
         }
     }
 
@@ -1464,6 +1641,12 @@ fn reindent_selection(text: &[u8], prefix: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{normalize_eol, reindent_selection, remove_common_indent};
+    use crate::core::document::Document;
+    use crate::ui::editor::Editor;
+    use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, mpsc};
+    use std::time::{Duration, Instant};
 
     fn random_bytes(seed: &mut u64, length: usize) -> Vec<u8> {
         const ALPHABET: &[u8] = b" \t\r\nabcXYZ0123{}();:/\\";
@@ -1522,5 +1705,52 @@ mod tests {
         assert_eq!(normalize_eol(b"a\r\nb\rc\nd", b"\r\n"), b"a\r\nb\r\nc\r\nd");
         assert_eq!(normalize_eol(b"\r", b"\n"), b"\n");
         assert_eq!(normalize_eol(b"\r\n", b"\n"), b"\n");
+    }
+
+    #[test]
+    fn bulk_format_survives_missing_formatters_without_erroring() {
+        let root = std::env::temp_dir().join(format!("hexal-format-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let python = root.join("missing_formatter.py");
+        std::fs::write(&python, b"x = 1\n").unwrap();
+
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.format_sidebar_nodes(&[(python.clone(), false)]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while editor.sidebar_format.is_some() && Instant::now() < deadline {
+            editor.poll_sidebar_format();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(editor.sidebar_format.is_none());
+        assert!(!editor.message_is_error, "{}", editor.message);
+        assert_eq!(editor.message, "No files were formatted.");
+        assert_eq!(std::fs::read(&python).unwrap(), b"x = 1\n");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sidebar_format_progress_bar_matches_the_expected_layout() {
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.screen.resize(60, 20);
+        let (_sender, receiver) = mpsc::channel();
+        editor.sidebar_format = Some(crate::ui::editor::SidebarFormatOperation {
+            receiver,
+            progress: Arc::new(crate::ui::editor::SidebarFormatProgress {
+                total: AtomicUsize::new(4),
+                completed: AtomicUsize::new(2),
+            }),
+            last_total: 0,
+            last_completed: 0,
+        });
+
+        editor.render_sidebar_format_progress(40);
+        let row: String = (0..40)
+            .map(|x| editor.screen.at(x, 0).ch)
+            .collect();
+        assert!(row.starts_with(" Formatting "), "{row:?}");
+        assert!(row.contains("2/4"), "{row:?}");
+        assert!(row.contains('━'), "{row:?}");
+        assert!(row.contains('─'), "{row:?}");
     }
 }
