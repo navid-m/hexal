@@ -802,7 +802,7 @@ impl Editor {
                 self.mode = Mode::Normal;
                 self.top_line = line.saturating_sub(self.active_pane_rows() / 2);
                 self.snap_cursor();
-                self.set_message(&format!("Line {line}"));
+                self.set_message(&format!("Line {}", line + 1));
             }
             Key::Char => {
                 if event.ctrl || event.alt {
