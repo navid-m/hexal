@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 
 use crate::core::config::Config;
 use crate::core::diff;
@@ -221,7 +221,7 @@ const SPACE_ITEMS: &[SpaceItem] = &[
     },
     SpaceItem {
         key: 'A',
-        label: "Code actions",
+        label: "LSP code actions",
     },
     SpaceItem {
         key: 'S',
