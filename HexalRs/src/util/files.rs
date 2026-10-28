@@ -6,25 +6,7 @@
 use std::fs;
 use std::path::Path;
 
-const IGNORED: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    "node_modules",
-    "target",
-    "build",
-    "dist",
-    "zig-cache",
-    ".zig-cache",
-    "zig-out",
-    "vendor",
-    ".cache",
-    ".idea",
-    ".vscode",
-    "out",
-    "cmake-build-debug",
-    "cmake-build-release",
-];
+use crate::util::git::{self, GitIgnore};
 
 pub struct SearchHit {
     pub file_index: usize,
@@ -33,53 +15,117 @@ pub struct SearchHit {
     pub preview: String,
 }
 
+/// Enumerates project files with the default policy of hiding ignored paths.
+#[allow(dead_code)]
 pub fn scan(max_files: usize) -> Vec<String> {
+    scan_with_ignored(max_files, false)
+}
+
+/// Enumerates project files, matching the C# editor's `FileSearch`: ignored
+/// files and build/VCS directories are skipped unless `show_ignored` is set.
+/// The flag is the state of `:gi` / `showGitIgnored` from `.hexcfg`.
+pub fn scan_with_ignored(max_files: usize, show_ignored: bool) -> Vec<String> {
+    scan_root_with_ignored(Path::new("."), max_files, show_ignored)
+}
+
+/// Enumerates files below an explicit root and returns paths relative to it.
+pub fn scan_root_with_ignored(root: &Path, max_files: usize, show_ignored: bool) -> Vec<String> {
+    let root = git::absolute(root);
     let mut files = Vec::new();
-    walk(Path::new("."), "", &mut files, max_files, 0);
+    let ignore = if show_ignored {
+        None
+    } else {
+        Some(GitIgnore::new(&root))
+    };
+    walk(
+        &root,
+        &root,
+        "",
+        &mut files,
+        max_files,
+        show_ignored,
+        0,
+        ignore.as_ref(),
+    );
     files.sort();
     files
 }
 
-fn walk(_root: &Path, relative: &str, files: &mut Vec<String>, max_files: usize, depth: usize) {
+fn walk(
+    root: &Path,
+    directory: &Path,
+    relative: &str,
+    files: &mut Vec<String>,
+    max_files: usize,
+    show_ignored: bool,
+    depth: usize,
+    parent_ignore: Option<&GitIgnore>,
+) {
     if files.len() >= max_files || depth > 24 {
         return;
     }
-    let directory = if relative.is_empty() { "." } else { relative };
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(_) => return,
     };
+
+    // Nested .gitignore files apply to the directory that contains them and
+    // everything below it, so each directory gets its own accumulated rules.
+    let ignore = if show_ignored || relative.is_empty() {
+        None
+    } else {
+        Some(match parent_ignore {
+            Some(parent) => parent.with_directory(directory),
+            None => GitIgnore::new(directory),
+        })
+    };
+    let ignore = ignore.as_ref().or(parent_ignore);
+
     for entry in entries.flatten() {
         if files.len() >= max_files {
             return;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if IGNORED.contains(&name.as_str()) || name.starts_with(".zig-cache") {
-            continue;
-        }
-        let child = if relative.is_empty() {
+        let child_relative = if relative.is_empty() {
             name.clone()
         } else {
             format!("{relative}/{name}")
         };
+        let child_path = directory.join(&name);
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(_) => continue,
         };
+
         if file_type.is_dir() {
-            walk(Path::new(&child), &child, files, max_files, depth + 1);
+            if !show_ignored {
+                if git::is_built_in_ignored_directory(&name) {
+                    continue;
+                }
+                if ignore.is_some_and(|ignore| ignore.is_ignored(&child_path, true)) {
+                    continue;
+                }
+            }
+            walk(
+                root,
+                &child_path,
+                &child_relative,
+                files,
+                max_files,
+                show_ignored,
+                depth + 1,
+                ignore,
+            );
         } else if file_type.is_file() {
-            files.push(child);
+            if !show_ignored && ignore.is_some_and(|ignore| ignore.is_ignored(&child_path, false)) {
+                continue;
+            }
+            files.push(child_relative);
         }
     }
 }
 
-pub fn search(
-    files: &[String],
-    query: &str,
-    max_hits: usize,
-    match_case: bool,
-) -> Vec<SearchHit> {
+pub fn search(files: &[String], query: &str, max_hits: usize, match_case: bool) -> Vec<SearchHit> {
     let mut hits = Vec::new();
     if query.is_empty() {
         return hits;
@@ -133,4 +179,37 @@ pub fn search(
         }
     }
     hits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scan_root_with_ignored;
+    use std::fs;
+
+    #[test]
+    fn ignores_gitignored_and_builtin_files_unless_requested() {
+        let root = std::env::temp_dir().join(format!("hexal-files-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("target/debug")).unwrap();
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join(".gitignore"), b"secret.txt\nnested/*.log\n").unwrap();
+        fs::write(root.join("visible.txt"), b"visible\n").unwrap();
+        fs::write(root.join("secret.txt"), b"secret\n").unwrap();
+        fs::write(root.join("nested/hidden.log"), b"hidden\n").unwrap();
+        fs::write(root.join("target/debug/app"), b"binary\n").unwrap();
+
+        let hidden = scan_root_with_ignored(&root, 100, false);
+        assert!(hidden.contains(&"visible.txt".to_string()));
+        assert!(!hidden.contains(&"secret.txt".to_string()));
+        assert!(!hidden.contains(&"nested/hidden.log".to_string()));
+        assert!(!hidden.contains(&"target/debug/app".to_string()));
+
+        let shown = scan_root_with_ignored(&root, 100, true);
+        assert!(shown.contains(&"visible.txt".to_string()));
+        assert!(shown.contains(&"secret.txt".to_string()));
+        assert!(shown.contains(&"nested/hidden.log".to_string()));
+        assert!(shown.contains(&"target/debug/app".to_string()));
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

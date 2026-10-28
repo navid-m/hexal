@@ -444,6 +444,7 @@ pub struct Editor {
     command_cursor: usize,
     command_completion: CommandCompletion,
     command_files: Option<Vec<String>>,
+    command_files_show_ignored: bool,
     clipboard: String,
     pending_osc: Option<Vec<u8>>,
 
@@ -557,6 +558,7 @@ impl Editor {
             command_cursor: 0,
             command_completion: CommandCompletion::new(),
             command_files: None,
+            command_files_show_ignored: false,
             clipboard: String::new(),
             pending_osc: None,
             pending_g: false,

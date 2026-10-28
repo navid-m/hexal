@@ -254,10 +254,13 @@ impl Editor {
     }
 
     fn filter_file_completion_items(&mut self, filter: &str) -> Vec<String> {
-        let files = self
-            .command_files
-            .get_or_insert_with(|| files::scan(20_000));
-        Self::filter_candidates(files.clone(), filter, self.search_match_case)
+        let show_ignored = self.sidebar.show_git_ignored;
+        if self.command_files.is_none() || self.command_files_show_ignored != show_ignored {
+            self.command_files = Some(files::scan_with_ignored(20_000, show_ignored));
+            self.command_files_show_ignored = show_ignored;
+        }
+        let files = self.command_files.as_ref().cloned().unwrap_or_default();
+        Self::filter_candidates(files, filter, self.search_match_case)
     }
 
     fn filter_candidates(candidates: Vec<String>, filter: &str, match_case: bool) -> Vec<String> {
@@ -416,6 +419,7 @@ mod tests {
             "src/lib.rs".to_string(),
             "src/main.rs".to_string(),
         ]);
+        editor.command_files_show_ignored = editor.sidebar.show_git_ignored;
         editor
     }
 

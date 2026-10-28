@@ -146,7 +146,8 @@ impl PendingRequest {
 }
 
 enum Incoming {
-    Message(Value),
+    Message(Value, String),
+    Invalid(String),
     Stderr(String),
     Closed,
 }
@@ -227,7 +228,7 @@ impl Default for Manager {
 
 impl Drop for Manager {
     fn drop(&mut self) {
-        self.stop();
+        self.stop_internal();
     }
 }
 
@@ -508,7 +509,14 @@ impl Manager {
             };
             redraw = true;
             match message {
-                Incoming::Message(value) => self.handle_message(value),
+                Incoming::Message(value, raw) => {
+                    self.log("<--", &raw);
+                    self.handle_message(value);
+                }
+                Incoming::Invalid(raw) => {
+                    self.log("<--", &raw);
+                    self.log("info", "invalid DAP message");
+                }
                 Incoming::Stderr(line) => {
                     self.log("stderr", &line);
                     file_log(&format!("DAP stderr [{}]: {line}", self.adapter_name));
@@ -1192,13 +1200,18 @@ fn read_loop(mut stdout: impl Read, sender: Sender<Incoming>) {
                 break;
             };
             pending.drain(..consumed);
-            match json::parse(&String::from_utf8_lossy(&body)) {
+            let raw = String::from_utf8_lossy(&body).into_owned();
+            match json::parse(&raw) {
                 Ok(value) => {
-                    if sender.send(Incoming::Message(value)).is_err() {
+                    if sender.send(Incoming::Message(value, raw)).is_err() {
                         return;
                     }
                 }
-                Err(_) => {}
+                Err(_) => {
+                    if sender.send(Incoming::Invalid(raw)).is_err() {
+                        return;
+                    }
+                }
             }
         }
     }
@@ -1647,6 +1660,7 @@ while True:
         let report = manager.build_debug_report();
         assert!(report.contains("Hexal DAP diagnostics"));
         assert!(report.contains("Breakpoints: 1"));
+        assert!(report.contains("<--"));
         assert!(report.contains(&format!("{}: 1", normalize_path(&source_text))));
 
         assert!(manager.continue_debuggee());

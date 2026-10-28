@@ -1228,7 +1228,7 @@ impl Editor {
 
         let suffix = format!(".{extension}");
         let open_path = self.doc.path.clone().map(PathBuf::from);
-        let files = files::scan(50_000);
+        let files = files::scan_with_ignored(50_000, self.sidebar.show_git_ignored);
         let mut matched = 0usize;
         let mut formatted = 0usize;
         let mut changed = 0usize;

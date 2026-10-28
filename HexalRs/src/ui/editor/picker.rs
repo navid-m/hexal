@@ -80,7 +80,8 @@ impl Editor {
         self.picker.items.clear();
 
         if kind != PickerKind::Palette && !self.picker.files_loaded {
-            self.picker.files = files::scan(20_000);
+            self.picker.files =
+                files::scan_with_ignored(20_000, self.sidebar.show_git_ignored);
             self.picker.files_loaded = true;
         }
         self.rebuild_picker();

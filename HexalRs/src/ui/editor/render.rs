@@ -99,9 +99,9 @@ impl Editor {
         self.render_picker();
         self.render_find();
         self.render_hover();
-        self.render_debug_variables();
         self.render_completion();
         command_completion::render_command_completion(self);
+        self.render_debug_variables();
         self.render_lsp_debug();
         self.render_dap_debug();
         self.render_about();
