@@ -22,14 +22,8 @@ impl Editor {
         } else {
             let count = manager.plugin_count();
             let deferred = manager.deferred_count();
-            if count > 0 || deferred > 0 {
-                let total = count + deferred;
-                let suffix = if deferred > 0 {
-                    format!(" ({deferred} deferred)")
-                } else {
-                    String::new()
-                };
-                self.set_message(&format!("{total} plugin(s) loaded{suffix}"));
+            if let Some(message) = plugin_loaded_message(count, deferred) {
+                self.set_message(&message);
             }
         }
     }
@@ -332,6 +326,7 @@ impl Editor {
         match result {
             Ok(()) => {
                 let path_changed = previous_path != self.doc.path;
+                self.command_files = None;
                 self.set_message(&format!("Saved {}", self.doc.display_name()));
                 self.notify_lsp_saved();
                 self.fire_plugin_buffer_event("buffer_saved");
@@ -395,6 +390,20 @@ fn shift_after_removal(position: usize, remove_at: usize, removed: usize) -> usi
     }
 }
 
+fn plugin_loaded_message(count: usize, deferred: usize) -> Option<String> {
+    let total = count + deferred;
+    if total == 0 {
+        return None;
+    }
+    let plural = if total == 1 { "" } else { "s" };
+    let suffix = if deferred > 0 {
+        format!(" ({deferred} deferred)")
+    } else {
+        String::new()
+    };
+    Some(format!("{total} plugin{plural} loaded{suffix}"))
+}
+
 fn serde_json_object(values: &[(&str, f64)]) -> crate::util::json::Value {
     let mut object = crate::util::json::Value::Object(Vec::new());
     for (key, value) in values {
@@ -442,4 +451,22 @@ fn key_token(event: &Event) -> Option<String> {
         }
         .to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plugin_loaded_message;
+
+    #[test]
+    fn reports_loaded_and_deferred_plugins() {
+        assert_eq!(
+            plugin_loaded_message(2, 88).as_deref(),
+            Some("90 plugins loaded (88 deferred)")
+        );
+        assert_eq!(
+            plugin_loaded_message(1, 0).as_deref(),
+            Some("1 plugin loaded")
+        );
+        assert_eq!(plugin_loaded_message(0, 0), None);
+    }
 }

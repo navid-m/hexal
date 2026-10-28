@@ -4,6 +4,7 @@
 //! (C) Navid Momtahen - 2026
 
 mod about;
+mod command_completion;
 mod comments;
 mod editing;
 mod find;
@@ -301,6 +302,52 @@ impl CompletionState {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CommandCompletionKind {
+    Files,
+    Commands,
+}
+
+struct CommandCompletion {
+    visible: bool,
+    kind: CommandCompletionKind,
+    items: Vec<String>,
+    selected: usize,
+    top: usize,
+    prefix: String,
+    suffix: String,
+    filter: String,
+}
+
+impl CommandCompletion {
+    fn new() -> CommandCompletion {
+        CommandCompletion {
+            visible: false,
+            kind: CommandCompletionKind::Commands,
+            items: Vec::new(),
+            selected: 0,
+            top: 0,
+            prefix: String::new(),
+            suffix: String::new(),
+            filter: String::new(),
+        }
+    }
+
+    fn close(&mut self) {
+        self.visible = false;
+        self.items.clear();
+        self.selected = 0;
+        self.top = 0;
+        self.prefix.clear();
+        self.suffix.clear();
+        self.filter.clear();
+    }
+
+    fn rows(&self) -> usize {
+        self.items.len().clamp(1, 10)
+    }
+}
+
 #[derive(Clone)]
 struct HoverSegment {
     text: String,
@@ -375,6 +422,8 @@ pub struct Editor {
     message_is_error: bool,
     command_line: String,
     command_cursor: usize,
+    command_completion: CommandCompletion,
+    command_files: Option<Vec<String>>,
     clipboard: String,
     pending_osc: Option<Vec<u8>>,
 
@@ -466,6 +515,8 @@ impl Editor {
             message_is_error: false,
             command_line: String::new(),
             command_cursor: 0,
+            command_completion: CommandCompletion::new(),
+            command_files: None,
             clipboard: String::new(),
             pending_osc: None,
             pending_g: false,

@@ -92,10 +92,6 @@ impl Editor {
                 self.delete_at_cursor();
                 return;
             }
-            Key::Backspace => {
-                self.backspace();
-                return;
-            }
             _ => {}
         }
 
@@ -109,6 +105,7 @@ impl Editor {
                 self.mode = Mode::Command;
                 self.command_line.clear();
                 self.command_cursor = 0;
+                self.command_completion.close();
                 self.doc.break_undo_group();
                 self.clear_message();
             }
@@ -307,6 +304,7 @@ impl Editor {
                 self.mode = Mode::Command;
                 self.command_line.clear();
                 self.command_cursor = 0;
+                self.command_completion.close();
                 self.doc.break_undo_group();
                 self.clear_message();
             }
@@ -384,12 +382,36 @@ impl Editor {
         }
         match event.key {
             Key::Escape => {
+                if self.command_completion.visible {
+                    self.command_completion.close();
+                    return;
+                }
                 self.mode = Mode::Normal;
                 self.command_line.clear();
                 self.command_cursor = 0;
             }
-            Key::Enter => self.submit_command(),
+            Key::Enter => {
+                if self.command_completion.visible && self.accept_command_completion() {
+                    return;
+                }
+                self.submit_command();
+            }
+            Key::Tab => {
+                if self.command_completion.visible {
+                    self.move_command_completion(1, true);
+                } else {
+                    self.try_open_command_completion();
+                }
+            }
+            Key::BackTab => {
+                if self.command_completion.visible {
+                    self.move_command_completion(-1, true);
+                } else {
+                    self.try_open_command_completion();
+                }
+            }
             Key::Backspace => {
+                self.command_completion.close();
                 if self.command_cursor > 0 {
                     let previous =
                         util::previous_boundary(self.command_line.as_bytes(), self.command_cursor);
@@ -399,6 +421,7 @@ impl Editor {
                 }
             }
             Key::Delete => {
+                self.command_completion.close();
                 if self.command_cursor < self.command_line.len() {
                     let next =
                         util::next_boundary(self.command_line.as_bytes(), self.command_cursor);
@@ -407,15 +430,33 @@ impl Editor {
                 }
             }
             Key::Left => {
+                self.command_completion.close();
                 self.command_cursor =
                     util::previous_boundary(self.command_line.as_bytes(), self.command_cursor);
             }
             Key::Right => {
+                self.command_completion.close();
                 self.command_cursor =
                     util::next_boundary(self.command_line.as_bytes(), self.command_cursor);
             }
-            Key::Home => self.command_cursor = 0,
-            Key::End => self.command_cursor = self.command_line.len(),
+            Key::Home => {
+                self.command_completion.close();
+                self.command_cursor = 0;
+            }
+            Key::End => {
+                self.command_completion.close();
+                self.command_cursor = self.command_line.len();
+            }
+            Key::Up => {
+                if self.command_completion.visible {
+                    self.move_command_completion(-1, false);
+                }
+            }
+            Key::Down => {
+                if self.command_completion.visible {
+                    self.move_command_completion(1, false);
+                }
+            }
             Key::Char => {
                 if event.alt {
                     return;
@@ -425,12 +466,14 @@ impl Editor {
                 }
                 self.command_line.insert(self.command_cursor, event.ch);
                 self.command_cursor += event.ch.len_utf8();
+                self.refresh_command_completion();
             }
             _ => {}
         }
     }
 
     pub(super) fn submit_command(&mut self) {
+        self.command_completion.close();
         let line = self.command_line.trim().to_string();
         self.mode = Mode::Normal;
         self.command_line.clear();
@@ -449,9 +492,10 @@ impl Editor {
             name.pop();
         }
         let args = strip_quotes(rest);
+        let command_name = name.to_lowercase();
         self.doc.break_undo_group();
 
-        match name.as_str() {
+        match command_name.as_str() {
             "w" | "write" => {
                 let path = if args.is_empty() {
                     None
@@ -564,6 +608,13 @@ impl Editor {
                 }
             }
             "sidebar" => self.toggle_sidebar(),
+            "adi" => {
+                if args.is_empty() {
+                    self.auto_detect_indentation(true);
+                } else {
+                    self.set_error("usage: :adi");
+                }
+            }
             _ => {
                 if self.try_lua_command(&name) {
                     return;

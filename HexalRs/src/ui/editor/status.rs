@@ -46,11 +46,25 @@ impl Editor {
         if !self.config.auto_detect_indentation_on_startup || self.doc.size() == 0 {
             return;
         }
+        self.auto_detect_indentation(false);
+    }
+
+    pub(super) fn auto_detect_indentation(&mut self, announce: bool) {
         let (use_tabs, width) = detect_document_indentation(&self.doc);
         if use_tabs {
             self.doc.set_indent_tabs(width);
+            if announce {
+                self.set_message(&format!(
+                    "Detected tabs; document indentation set to tabs (width {width})."
+                ));
+            }
         } else {
             self.doc.set_indent_spaces(width);
+            if announce {
+                self.set_message(&format!(
+                    "Detected spaces; document indentation set to {width} spaces."
+                ));
+            }
         }
     }
 
@@ -60,9 +74,6 @@ impl Editor {
         }
         if self.find.active {
             return "FIND";
-        }
-        if self.picker.kind != PickerKind::None {
-            return "MODAL";
         }
         if self.goto_prompt.is_some() {
             return "GOTO";

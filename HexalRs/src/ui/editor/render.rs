@@ -100,6 +100,7 @@ impl Editor {
         self.render_find();
         self.render_hover();
         self.render_completion();
+        command_completion::render_command_completion(self);
         self.render_lsp_debug();
         self.render_about();
         self.render_help();
