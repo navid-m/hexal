@@ -1598,7 +1598,7 @@ fn resolve_workspace_path(root: &str, uri: &str) -> PathBuf {
     }
 }
 
-fn collect_workspace_files(root: &str, limit: usize) -> Vec<String> {
+pub(crate) fn collect_workspace_files(root: &str, limit: usize) -> Vec<String> {
     let mut files = Vec::new();
     collect_files(Path::new(root), limit, &mut files);
     let mut relative: Vec<String> = files

@@ -808,6 +808,33 @@ impl PluginManager {
         false
     }
 
+    pub fn has_due_deferred_tasks(&self) -> bool {
+        self.entries.iter().any(|entry| {
+            entry
+                .runtime
+                .as_ref()
+                .map(|runtime| runtime.has_due_deferred_tasks())
+                .unwrap_or(false)
+        })
+    }
+
+    /// Runs plugin work scheduled with `hexal.ui.defer` and delivers completed
+    /// asynchronous filesystem scans. Returns true when any callback ran.
+    pub fn run_deferred(&mut self, document: &mut Document, cursor: &mut usize) -> bool {
+        self.sync_host(document, cursor);
+        let mut ran = false;
+        for index in 0..self.entries.len() {
+            let Some(mut runtime) = self.entries[index].runtime.take() else {
+                continue;
+            };
+            let (did_run, effects) = runtime.run_deferred(document, cursor);
+            ran |= did_run;
+            self.merge_effects(&runtime, effects);
+            self.entries[index].runtime = Some(runtime);
+        }
+        ran
+    }
+
     pub fn tick(&mut self) {
         let _ = &self.host;
     }

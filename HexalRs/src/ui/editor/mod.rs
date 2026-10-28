@@ -713,7 +713,16 @@ impl Editor {
                 self.clamp_viewport();
             }
 
-            match terminal.read_event(30) {
+            match terminal.read_event(if self
+                .plugins
+                .as_ref()
+                .map(|plugins| plugins.has_due_deferred_tasks())
+                .unwrap_or(false)
+            {
+                1
+            } else {
+                30
+            }) {
                 Ok(Some(event)) => {
                     let cursor_before = self.cursor;
                     self.handle_event(event);
@@ -770,6 +779,7 @@ impl Editor {
             }
 
             self.render(terminal)?;
+            self.poll_plugin_tasks();
         }
         self.fire_plugin_event(
             "editor_shutdown",

@@ -143,6 +143,18 @@ impl Editor {
         );
     }
 
+    pub(super) fn poll_plugin_tasks(&mut self) {
+        let Some(mut manager) = self.plugins.take() else {
+            return;
+        };
+        self.sync_plugin_context(&mut manager);
+        let ran = manager.run_deferred(&mut self.doc, &mut self.cursor);
+        self.plugins = Some(manager);
+        if ran {
+            self.apply_plugin_effects();
+        }
+    }
+
     pub(super) fn apply_plugin_effects(&mut self) {
         let Some(mut manager) = self.plugins.take() else {
             return;

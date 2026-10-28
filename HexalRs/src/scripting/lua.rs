@@ -117,6 +117,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::slice;
+use std::sync::Arc;
+use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
 
 use mlua::{Function, Lua, Result as LuaResult, Table, Value as LuaValue};
@@ -146,7 +148,10 @@ pub struct PanelSegment {
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct PanelLine {
-    pub segments: Vec<PanelSegment>,
+    /// Shared so cloning a panel (or its line list) never duplicates segment
+    /// text. This is what keeps plugin-panel synchronization cheap while a
+    /// large tree is open.
+    pub segments: Arc<[PanelSegment]>,
     pub selectable: bool,
 }
 
@@ -159,7 +164,9 @@ pub struct PluginPanel {
     pub footer: String,
     pub selectable: bool,
     pub selected: usize,
-    pub lines: Vec<PanelLine>,
+    /// Cloning is O(1); mutations go through `Arc::make_mut` when the editor
+    /// also holds a snapshot.
+    pub lines: Arc<Vec<PanelLine>>,
 }
 
 #[allow(dead_code)]
@@ -600,6 +607,16 @@ pub struct Subscription {
     pub callback: Function,
 }
 
+pub struct DeferredTask {
+    pub due: Instant,
+    pub callback: Function,
+}
+
+pub struct AsyncJob {
+    pub receiver: mpsc::Receiver<Vec<String>>,
+    pub callback: Function,
+}
+
 #[allow(dead_code)]
 pub enum PromptCallback {
     Prompt(Function),
@@ -616,6 +633,8 @@ pub struct RuntimeShared {
     pub next_request: i64,
     pub prompts: HashMap<i64, PromptCallback>,
     pub panel_handlers: HashMap<i64, Function>,
+    pub deferred: Vec<DeferredTask>,
+    pub async_jobs: Vec<AsyncJob>,
     pub config: PluginConfigStore,
     pub lsp: Rc<RefCell<Coordinator>>,
 }
@@ -693,6 +712,8 @@ impl LuaRuntime {
             next_request: 1,
             prompts: HashMap::new(),
             panel_handlers: HashMap::new(),
+            deferred: Vec::new(),
+            async_jobs: Vec::new(),
             config,
             lsp: coordinator.clone(),
         }));
@@ -704,6 +725,8 @@ impl LuaRuntime {
         register_host_api(lua, &root, &host, &shared, &coordinator, &*raw)
             .map_err(|error| error.to_string())?;
         crate::scripting::lsp::register(lua, &root, coordinator.clone())
+            .map_err(|error| error.to_string())?;
+        register_async_fs(lua, &root, coordinator.clone(), &shared)
             .map_err(|error| error.to_string())?;
         augment_lsp_modules(lua, &root, &shared, &coordinator)
             .map_err(|error| error.to_string())?;
@@ -980,6 +1003,101 @@ impl LuaRuntime {
         }
     }
 
+    pub fn has_due_deferred_tasks(&self) -> bool {
+        let now = Instant::now();
+        self.shared
+            .borrow()
+            .deferred
+            .iter()
+            .any(|task| task.due <= now)
+    }
+
+    /// Runs callbacks that plugins scheduled with `hexal.ui.defer`, plus any
+    /// completed asynchronous filesystem scans. Callers are expected to do
+    /// this from the UI loop (after a frame has been painted) so long-running
+    /// work is split across frames instead of blocking the first one.
+    pub fn run_deferred(
+        &mut self,
+        document: &mut Document,
+        cursor: &mut usize,
+    ) -> (bool, HostEffects) {
+        let completed_jobs: Vec<(Function, Vec<String>)> = {
+            let mut shared = self.shared.borrow_mut();
+            if shared.async_jobs.is_empty() {
+                Vec::new()
+            } else {
+                let mut completed = Vec::new();
+                let mut remaining = Vec::with_capacity(shared.async_jobs.len());
+                for job in shared.async_jobs.drain(..) {
+                    match job.receiver.try_recv() {
+                        Ok(files) => completed.push((job.callback, files)),
+                        Err(TryRecvError::Empty) => remaining.push(job),
+                        Err(TryRecvError::Disconnected) => {
+                            completed.push((job.callback, Vec::new()));
+                        }
+                    }
+                }
+                shared.async_jobs = remaining;
+                completed
+            }
+        };
+
+        let due_tasks: Vec<Function> = {
+            let mut shared = self.shared.borrow_mut();
+            if shared.deferred.is_empty() {
+                Vec::new()
+            } else {
+                let now = Instant::now();
+                let mut due = Vec::new();
+                let mut remaining = Vec::with_capacity(shared.deferred.len());
+                for task in shared.deferred.drain(..) {
+                    if task.due <= now {
+                        due.push(task.callback);
+                    } else {
+                        remaining.push(task);
+                    }
+                }
+                shared.deferred = remaining;
+                due
+            }
+        };
+
+        if completed_jobs.is_empty() && due_tasks.is_empty() {
+            return (false, HostEffects::default());
+        }
+
+        self.sync_from_document(document, *cursor);
+        let coordinator = self.shared.borrow().lsp.clone();
+        for (callback, files) in completed_jobs {
+            let value = Value::Array(files.into_iter().map(Value::String).collect());
+            let result = match to_lua(self.lua, &coordinator, &value) {
+                Ok(value) => callback.call::<()>(value),
+                Err(error) => {
+                    self.host.borrow_mut().errors.push((
+                        self.plugin_id.clone(),
+                        format!("async callback failed: {error}"),
+                    ));
+                    continue;
+                }
+            };
+            if let Err(error) = result {
+                self.host.borrow_mut().errors.push((
+                    self.plugin_id.clone(),
+                    format!("async callback failed: {error}"),
+                ));
+            }
+        }
+        for callback in due_tasks {
+            if let Err(error) = callback.call::<()>(()) {
+                self.host.borrow_mut().errors.push((
+                    self.plugin_id.clone(),
+                    format!("deferred callback failed: {error}"),
+                ));
+            }
+        }
+        (true, self.apply_to_document(document, cursor))
+    }
+
     pub fn apply_to_document(
         &mut self,
         document: &mut Document,
@@ -1186,6 +1304,46 @@ fn arguments(values: &[LuaValue]) -> Vec<String> {
             _ => String::new(),
         })
         .collect()
+}
+
+fn register_async_fs(
+    lua: &Lua,
+    root: &Table,
+    coordinator: Rc<RefCell<Coordinator>>,
+    shared: &Rc<RefCell<RuntimeShared>>,
+) -> LuaResult<()> {
+    let fs = match root.get::<LuaValue>("fs")? {
+        LuaValue::Table(fs) => fs,
+        _ => return Ok(()),
+    };
+    let shared = shared.clone();
+    set_fn(
+        lua,
+        &fs,
+        "workspace_files_async",
+        move |_, (options, callback): (Option<LuaValue>, Function)| {
+            let root = coordinator.borrow().workspace.root_path.clone();
+            let mut max_results = 20_000usize;
+            if let Some(LuaValue::Table(table)) = options {
+                if let Ok(Some(limit)) = table.get::<Option<usize>>("max_results") {
+                    max_results = limit.max(1);
+                } else if let Ok(Some(limit)) = table.get::<Option<usize>>("maxResults") {
+                    max_results = limit.max(1);
+                }
+            }
+            let (sender, receiver) = mpsc::channel();
+            std::thread::spawn(move || {
+                let files = crate::scripting::lsp::collect_workspace_files(&root, max_results);
+                let _ = sender.send(files);
+            });
+            shared
+                .borrow_mut()
+                .async_jobs
+                .push(AsyncJob { receiver, callback });
+            Ok(true)
+        },
+    )?;
+    Ok(())
 }
 
 fn register_host_api(
@@ -1529,6 +1687,22 @@ fn register_host_api(
         })?;
     }
     {
+        let shared = shared.clone();
+        set_fn(
+            lua,
+            &ui,
+            "defer",
+            move |_, (callback, delay_ms): (Function, Option<i64>)| {
+                let delay = delay_ms.unwrap_or(0).max(0) as u64;
+                shared.borrow_mut().deferred.push(DeferredTask {
+                    due: Instant::now() + Duration::from_millis(delay),
+                    callback,
+                });
+                Ok(true)
+            },
+        )?;
+    }
+    {
         let host = host.clone();
         let shared = shared.clone();
         set_fn(
@@ -1599,7 +1773,6 @@ fn register_host_api(
     {
         let host = host.clone();
         let shared = shared.clone();
-        let coordinator = coordinator.clone();
         set_fn(
             lua,
             &ui,
@@ -1609,31 +1782,33 @@ fn register_host_api(
                     Some(options) => options,
                     None => lua.create_table()?,
                 };
-                let value = from_table(&coordinator, &options);
-                let title = value
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Plugin")
-                    .to_string();
-                let footer = value
-                    .get("footer")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let selectable = value
-                    .get("selectable")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true);
-                let selected = value
-                    .get("selected")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(1)
-                    .max(1) as usize
+                let title = match options.raw_get::<LuaValue>("title") {
+                    Ok(LuaValue::String(title)) => title.to_string_lossy(),
+                    _ => "Plugin".into(),
+                };
+                let footer = match options.raw_get::<LuaValue>("footer") {
+                    Ok(LuaValue::String(footer)) => footer.to_string_lossy(),
+                    _ => String::new(),
+                };
+                let selectable = match options.raw_get::<LuaValue>("selectable") {
+                    Ok(LuaValue::Boolean(selectable)) => selectable,
+                    _ => true,
+                };
+                let selected = match options.raw_get::<LuaValue>("selected") {
+                    Ok(LuaValue::Integer(selected)) => selected,
+                    Ok(LuaValue::Number(selected)) => selected as i64,
+                    _ => 1,
+                }
+                .max(1) as usize
                     - 1;
-                let lines = value
-                    .get("lines")
-                    .map(parse_panel_lines)
-                    .unwrap_or_default();
+                // Parse the line table directly instead of round-tripping
+                // through the generic JSON value model. Large panels (the
+                // project tree can hold tens of thousands of rows) dominate
+                // the open cost otherwise.
+                let lines = match options.raw_get::<LuaValue>("lines") {
+                    Ok(lines) => parse_panel_lines(&lines),
+                    Err(_) => Vec::new(),
+                };
                 let id = {
                     let mut host = host.borrow_mut();
                     let id = host.next_panel_id;
@@ -1645,14 +1820,14 @@ fn register_host_api(
                         footer,
                         selectable,
                         selected,
-                        lines,
+                        lines: Arc::new(lines),
                     });
                     id
                 };
                 if let Some(on_key) = on_key {
                     shared.borrow_mut().panel_handlers.insert(id, on_key);
                 }
-                let panel = panel_table(lua, &host, &coordinator, id)?;
+                let panel = panel_table(lua, &host, id)?;
                 Ok(LuaValue::Table(panel))
             },
         )?;
@@ -2180,76 +2355,100 @@ pub fn normalize_keys(keys: &str) -> Vec<String> {
     result
 }
 
-fn parse_panel_lines(value: &Value) -> Vec<PanelLine> {
-    json::as_array(value)
-        .iter()
-        .map(|item| {
-            if let Value::String(text) = item {
-                return PanelLine {
-                    segments: vec![PanelSegment {
-                        text: text.clone(),
-                        style: "text".into(),
-                    }],
-                    selectable: true,
-                };
-            }
-            let Value::Object(_) = item else {
-                return PanelLine {
-                    segments: vec![PanelSegment {
-                        text: String::new(),
-                        style: "text".into(),
-                    }],
-                    selectable: true,
-                };
-            };
-            let selectable = item
-                .get("selectable")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-            let segments = if let Some(segments) = item.get("segments") {
-                json::as_array(segments)
-                    .iter()
-                    .filter_map(parse_segment)
-                    .collect()
-            } else if item.get("text").is_some() {
-                parse_segment(item).into_iter().collect()
-            } else {
-                json::as_object(item)
-                    .iter()
-                    .filter_map(|(_, value)| parse_segment(value))
-                    .collect()
-            };
-            PanelLine {
-                segments,
-                selectable,
-            }
-        })
-        .collect()
+fn parse_panel_lines(value: &LuaValue) -> Vec<PanelLine> {
+    let LuaValue::Table(table) = value else {
+        return Vec::new();
+    };
+    let count = table.raw_len();
+    let mut lines = Vec::with_capacity(count);
+    for index in 1..=count {
+        let Ok(item) = table.raw_get::<LuaValue>(index) else {
+            continue;
+        };
+        lines.push(parse_panel_line(&item));
+    }
+    lines
 }
 
-fn parse_segment(value: &Value) -> Option<PanelSegment> {
+fn parse_panel_line(item: &LuaValue) -> PanelLine {
+    let LuaValue::Table(table) = item else {
+        return PanelLine {
+            segments: Arc::from([PanelSegment {
+                text: if let LuaValue::String(text) = item {
+                    text.to_string_lossy()
+                } else {
+                    String::new()
+                },
+                style: "text".into(),
+            }]),
+            selectable: true,
+        };
+    };
+
+    let selectable = match table.raw_get::<LuaValue>("selectable") {
+        Ok(LuaValue::Boolean(selectable)) => selectable,
+        _ => true,
+    };
+
+    let segments = match table.raw_get::<LuaValue>("segments") {
+        Ok(LuaValue::Table(segments)) => parse_panel_segments(&segments),
+        Ok(LuaValue::Nil) | Err(_) => {
+            let text = table.raw_get::<LuaValue>("text").unwrap_or(LuaValue::Nil);
+            if matches!(text, LuaValue::Nil) {
+                let mut segments = Vec::new();
+                for pair in table.clone().pairs::<LuaValue, LuaValue>() {
+                    if let Ok((_, value)) = pair
+                        && let Some(segment) = parse_segment(&value)
+                    {
+                        segments.push(segment);
+                    }
+                }
+                segments
+            } else {
+                parse_segment(&text).into_iter().collect()
+            }
+        }
+        Ok(_) => Vec::new(),
+    };
+
+    PanelLine {
+        segments: segments.into(),
+        selectable,
+    }
+}
+
+fn parse_panel_segments(table: &Table) -> Vec<PanelSegment> {
+    let count = table.raw_len();
+    let mut segments = Vec::with_capacity(count);
+    for index in 1..=count {
+        if let Ok(value) = table.raw_get::<LuaValue>(index)
+            && let Some(segment) = parse_segment(&value)
+        {
+            segments.push(segment);
+        }
+    }
+    segments
+}
+
+fn parse_segment(value: &LuaValue) -> Option<PanelSegment> {
     match value {
-        Value::String(text) => Some(PanelSegment {
-            text: text.clone(),
+        LuaValue::String(text) => Some(PanelSegment {
+            text: text.to_string_lossy(),
             style: "text".into(),
         }),
-        Value::Object(_) => {
-            let text = value
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+        LuaValue::Table(table) => {
+            let text = match table.raw_get::<LuaValue>("text") {
+                Ok(LuaValue::String(text)) => text.to_string_lossy(),
+                _ => String::new(),
+            };
             if text.is_empty() {
                 return None;
             }
-            Some(PanelSegment {
-                text,
-                style: value
-                    .get("style")
-                    .and_then(Value::as_str)
-                    .unwrap_or("text")
-                    .to_string(),
-            })
+            let style = match table.raw_get::<LuaValue>("style") {
+                Ok(LuaValue::String(style)) => style.to_string_lossy(),
+                _ => "text".into(),
+            };
+            Some(PanelSegment { text, style })
         }
         _ => None,
     }
@@ -2258,14 +2457,12 @@ fn parse_segment(value: &Value) -> Option<PanelSegment> {
 fn panel_table(
     lua: &Lua,
     host: &Rc<RefCell<HostState>>,
-    coordinator: &Rc<RefCell<Coordinator>>,
     id: i64,
 ) -> LuaResult<Table> {
     let table = lua.create_table()?;
     table.set("id", id)?;
     {
         let host = host.clone();
-        let coordinator = coordinator.clone();
         set_fn(
             lua,
             &table,
@@ -2273,7 +2470,7 @@ fn panel_table(
             move |_, lines: Option<LuaValue>| {
                 let lines = lines
                     .as_ref()
-                    .map(|value| parse_panel_lines(&from_lua(&coordinator, value)))
+                    .map(parse_panel_lines)
                     .unwrap_or_default();
                 if let Some(panel) = host
                     .borrow_mut()
@@ -2281,7 +2478,38 @@ fn panel_table(
                     .iter_mut()
                     .find(|panel| panel.id == id)
                 {
-                    panel.lines = lines;
+                    panel.lines = Arc::new(lines);
+                }
+                Ok(())
+            },
+        )?;
+    }
+    {
+        let host = host.clone();
+        set_fn(
+            lua,
+            &table,
+            "splice_lines",
+            move |_, (start, delete_count, lines): (Option<i64>, Option<i64>, Option<LuaValue>)| {
+                let start = start.unwrap_or(1).max(1) as usize - 1;
+                let delete_count = delete_count.unwrap_or(0).max(0) as usize;
+                let replacement = lines
+                    .as_ref()
+                    .map(parse_panel_lines)
+                    .unwrap_or_default();
+                if delete_count == 0 && replacement.is_empty() {
+                    return Ok(());
+                }
+                if let Some(panel) = host
+                    .borrow_mut()
+                    .panels
+                    .iter_mut()
+                    .find(|panel| panel.id == id)
+                {
+                    let lines = Arc::make_mut(&mut panel.lines);
+                    let start = start.min(lines.len());
+                    let end = start.saturating_add(delete_count).min(lines.len());
+                    lines.splice(start..end, replacement);
                 }
                 Ok(())
             },

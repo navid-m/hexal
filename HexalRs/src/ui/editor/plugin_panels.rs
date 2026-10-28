@@ -6,6 +6,7 @@
 use super::*;
 use crate::scripting::lua::{PanelLine, PluginPanel};
 use crate::ui::theme::Style;
+use std::sync::Arc;
 
 const MOUSE_SCROLL_LINES: usize = 3;
 
@@ -13,7 +14,7 @@ pub(super) struct PluginPanelState {
     id: i64,
     title: String,
     footer: String,
-    lines: Vec<PanelLine>,
+    lines: Arc<Vec<PanelLine>>,
     selected: usize,
     top: usize,
     selectable: bool,
@@ -404,7 +405,7 @@ impl Editor {
             };
             let line_selected = selectable && line.selectable && index == selected;
             let mut column = 0usize;
-            for segment in &line.segments {
+            for segment in line.segments.iter() {
                 if column >= content_width {
                     break;
                 }
@@ -516,13 +517,13 @@ mod tests {
             id: 1,
             title: " Demo ".into(),
             footer: "q close".into(),
-            lines: vec![PanelLine {
-                segments: vec![crate::scripting::lua::PanelSegment {
+            lines: Arc::new(vec![PanelLine {
+                segments: Arc::from([crate::scripting::lua::PanelSegment {
                     text: "hello panel".into(),
                     style: "accent".into(),
-                }],
+                }]),
                 selectable: true,
-            }],
+            }]),
             selected: 0,
             top: 0,
             selectable: true,
