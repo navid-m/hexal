@@ -1156,4 +1156,46 @@ mod tests {
             .any(|(message, _)| message == "OPENED:rust"));
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn language_server_associations_live_in_language_plugins() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("plugins");
+        assert!(root.is_dir());
+        assert!(
+            !root
+                .parent()
+                .expect("data directory")
+                .join("lsp_servers.json")
+                .exists()
+        );
+
+        let mut count = 0usize;
+        for directory in fs::read_dir(&root).unwrap().flatten() {
+            if !directory.file_type().unwrap().is_dir() {
+                continue;
+            }
+            count += 1;
+            let directory = directory.path();
+            let language = directory.file_name().unwrap().to_string_lossy();
+            let init = fs::read_to_string(directory.join("init.lua")).unwrap();
+            assert!(
+                init.contains("hexal.lsp.start"),
+                "{language} init.lua does not start an LSP server"
+            );
+            let mut manifest = Vec::new();
+            parse_manifest(&directory.join("plugin.toml"), &mut manifest).unwrap();
+            let value = |key: &str| -> Option<&str> {
+                manifest
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                    .map(|(_, value)| value.as_str())
+            };
+            assert_eq!(value("lazy"), Some("true"));
+            assert_eq!(value("language"), Some(language.as_ref()));
+            assert!(directory.join(value("entry").unwrap_or("init.lua")).is_file());
+        }
+        assert!(count >= 70, "only found {count} language plugins");
+    }
 }

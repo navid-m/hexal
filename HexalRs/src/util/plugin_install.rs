@@ -216,6 +216,16 @@ pub fn plugin_directory() -> PathBuf {
     if portable.is_dir() {
         return portable;
     }
+    // Development builds run from `target/<profile>`, so also look for the
+    // editable source-tree defaults. Tests intentionally skip this fallback
+    // to avoid spawning real language servers as a side effect.
+    #[cfg(not(test))]
+    {
+        let local = Path::new("data").join("plugins");
+        if local.is_dir() {
+            return local;
+        }
+    }
     crate::core::config::hexal_home_directory()
         .join("data")
         .join("plugins")

@@ -185,30 +185,12 @@ impl Editor {
             }
         }
         for request in effects.lsp_requests {
-            if let Some(path) = self.doc.path.clone() {
-                let root = Path::new(&path)
-                    .parent()
-                    .map(|parent| parent.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                if self
-                    .lsp
-                    .try_start(
-                        lsp::ServerConfig {
-                            name: request.name,
-                            command: request.command,
-                            arguments: request.args,
-                            language_id: request.language_id,
-                        },
-                        &path,
-                        &String::from_utf8_lossy(&self.doc.all_text()),
-                        &root,
-                    )
-                    .is_ok()
-                {
-                    self.lsp_dirty = false;
-                    self.lsp_synced_revision = self.doc.revision();
-                }
-            }
+            self.start_lsp_from_plugin(lsp::ServerConfig {
+                name: request.name,
+                command: request.command,
+                arguments: request.args,
+                language_id: request.language_id,
+            });
         }
         self.plugins = Some(manager);
         for (name, args) in pending_commands {
@@ -334,8 +316,7 @@ impl Editor {
                     self.refresh_language();
                     self.auto_detect_indentation_on_open();
                     self.restart_lsp_for_buffer();
-                } else if !self.lsp.is_running() {
-                    self.start_lsp_for_buffer();
+                    self.fire_plugin_buffer_event("buffer_opened");
                 }
                 true
             }

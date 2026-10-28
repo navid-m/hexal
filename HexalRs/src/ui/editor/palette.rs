@@ -261,9 +261,8 @@ impl Editor {
         self.languages = Registry::load();
         self.refresh_language();
         self.reload_themes();
-        self.lsp.stop();
-        self.lsp_fallback_blocked = false;
         self.restart_lsp_for_buffer();
+        self.fire_plugin_buffer_event("buffer_opened");
         self.apply_debug_adapter_configuration();
         self.sidebar.refresh(None);
         self.force_full_redraw = true;

@@ -1,0 +1,6 @@
+name = "XML Schema"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for XML Schema"
+lazy = true
+language = "xsd"

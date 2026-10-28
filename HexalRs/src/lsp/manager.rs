@@ -225,6 +225,7 @@ impl Manager {
         self.document_uri.clone()
     }
 
+    #[allow(dead_code)]
     pub fn is_serving(&self, path: &str) -> bool {
         if self.child.is_none() {
             return false;
@@ -1828,83 +1829,11 @@ fn display_path(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-// ---------------------------------------------------------------------------
-// Bundled language-server associations
-// ---------------------------------------------------------------------------
-
-pub fn configs_for_language(language: &str) -> Vec<ServerConfig> {
-    static ASSOCIATIONS: std::sync::OnceLock<HashMap<String, (String, Vec<ServerConfig>)>> =
-        std::sync::OnceLock::new();
-    let associations = ASSOCIATIONS.get_or_init(|| {
-        let mut result = HashMap::new();
-        let text = include_str!("../../data/lsp_servers.json");
-        let Ok(root) = json::parse(text) else {
-            return result;
-        };
-        let Value::Object(entries) = root else {
-            return result;
-        };
-        for (language, entry) in entries {
-            let language_id = entry
-                .get("language_id")
-                .and_then(Value::as_str)
-                .unwrap_or(&language)
-                .to_string();
-            let Some(servers) = entry.get("servers").and_then(Value::as_array) else {
-                continue;
-            };
-            let configs = servers
-                .iter()
-                .filter_map(|server| {
-                    let name = server.get("name")?.as_str()?.to_string();
-                    let command = server.get("command")?.as_str()?.to_string();
-                    let arguments = server
-                        .get("args")
-                        .and_then(Value::as_array)
-                        .map(|args| {
-                            args.iter()
-                                .filter_map(|arg| arg.as_str().map(str::to_string))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    Some(ServerConfig {
-                        name,
-                        command,
-                        arguments,
-                        language_id: language_id.clone(),
-                    })
-                })
-                .collect();
-            result.insert(language, (language_id, configs));
-        }
-        result
-    });
-    associations
-        .get(language)
-        .map(|(_, configs)| configs.clone())
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{path_to_uri, Event, Manager, ServerConfig};
     use std::fs;
     use std::time::{Duration, Instant};
-
-    #[test]
-    fn bundled_server_associations_are_available() {
-        let rust = super::configs_for_language("rust");
-        assert_eq!(
-            rust.first().map(|config| config.command.as_str()),
-            Some("rust-analyzer")
-        );
-        let tsx = super::configs_for_language("tsx");
-        assert_eq!(
-            tsx.first().map(|config| config.language_id.as_str()),
-            Some("typescriptreact")
-        );
-        assert!(super::configs_for_language("csharp").is_empty());
-    }
 
     #[test]
     fn client_talks_to_stdio_server() {

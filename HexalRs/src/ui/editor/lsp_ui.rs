@@ -8,111 +8,73 @@ use super::*;
 use crate::languages::highlight;
 
 impl Editor {
-    pub(super) fn start_lsp_for_buffer(&mut self) {
-        let Some(path) = self.doc.path.clone() else {
-            return;
-        };
-        let Some(language) = self.active_language() else {
-            return;
-        };
-        if self.lsp.is_running() && self.lsp.is_serving(&path) {
-            return;
-        }
-
-        let language_id = language.id.clone();
-        let fallback = language.fallback_lsp.clone();
-        self.lsp_fallback_blocked = false;
-        let candidates = lsp::configs_for_language(&language_id);
-        let workspace = std::env::current_dir()
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let text = String::from_utf8_lossy(&self.doc.all_text()).into_owned();
-        let mut present_failed = false;
-
-        for candidate in &candidates {
-            if crate::util::git::command_exists(&candidate.command) {
-                match self
-                    .lsp
-                    .try_start(candidate.clone(), &path, &text, &workspace)
-                {
-                    Ok(()) => {
-                        self.lsp_fallback_blocked = false;
-                        self.lsp_synced_revision = self.doc.revision();
-                        self.lsp_dirty = false;
-                        return;
-                    }
-                    Err(_) => {
-                        present_failed = true;
-                        self.lsp_fallback_blocked = true;
-                    }
-                }
-                continue;
-            }
-
-            if !self.lsp_fallback_blocked {
-                if let Some(fallback) = &fallback {
-                    if crate::util::git::command_exists(&fallback.command) {
-                        let config = lsp::ServerConfig {
-                            name: fallback.name.clone(),
-                            command: fallback.command.clone(),
-                            arguments: fallback.arguments.clone(),
-                            language_id: if candidate.language_id.is_empty() {
-                                fallback.language_id.clone()
-                            } else {
-                                candidate.language_id.clone()
-                            },
-                        };
-                        match self.lsp.try_start(config.clone(), &path, &text, &workspace) {
-                            Ok(()) => {
-                                self.lsp_synced_revision = self.doc.revision();
-                                self.lsp_dirty = false;
-                                return;
-                            }
-                            Err(_) => {
-                                present_failed = true;
-                                self.lsp_fallback_blocked = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if !present_failed && !self.lsp_fallback_blocked {
-            if let Some(fallback) = &fallback {
-                if crate::util::git::command_exists(&fallback.command) {
-                    let config = lsp::ServerConfig {
-                        name: fallback.name.clone(),
-                        command: fallback.command.clone(),
-                        arguments: fallback.arguments.clone(),
-                        language_id: fallback.language_id.clone(),
-                    };
-                    if self
-                        .lsp
-                        .try_start(config, &path, &text, &workspace)
-                        .is_err()
-                    {
-                        self.lsp_fallback_blocked = true;
-                    } else {
-                        self.lsp_synced_revision = self.doc.revision();
-                        self.lsp_dirty = false;
-                    }
-                }
-            }
-        }
-
-        if self.lsp.is_running() && !self.lsp.is_serving(&path) {
-            self.lsp.stop();
-        }
-    }
-
+    /// Stops the current server and clears request state. Language plugins
+    /// start the replacement server from their `buffer_opened` handler.
     pub(super) fn restart_lsp_for_buffer(&mut self) {
         self.reset_lsp_interaction();
-        if self.doc.path.is_none() {
-            self.lsp.stop();
-            return;
+        self.lsp_fallback_blocked = false;
+        self.lsp.stop();
+    }
+
+    /// Starts an LSP server requested by a language plugin's `init.lua`.
+    /// This mirrors the C# host: when the requested executable is missing and
+    /// the language defines a `.hexdef` fallback, the fallback is selected
+    /// instead. A configured-but-failing executable blocks the fallback.
+    pub(super) fn start_lsp_from_plugin(&mut self, config: lsp::ServerConfig) -> bool {
+        let Some(path) = self.doc.path.clone() else {
+            return false;
+        };
+        let language_fallback = if config.language_id.is_empty() {
+            None
+        } else {
+            self.languages
+                .find(&config.language_id)
+                .and_then(|language| language.fallback_lsp.clone())
         }
-        self.start_lsp_for_buffer();
+        .or_else(|| {
+            self.active_language()
+                .and_then(|language| language.fallback_lsp.clone())
+        });
+
+        let primary_present = crate::util::git::command_exists(&config.command);
+        let mut selected = config.clone();
+        let mut using_fallback = false;
+        if !primary_present && !self.lsp_fallback_blocked {
+            if let Some(fallback) = language_fallback {
+                if crate::util::git::command_exists(&fallback.command) {
+                    selected = lsp::ServerConfig {
+                        name: fallback.name,
+                        command: fallback.command,
+                        arguments: fallback.arguments,
+                        language_id: if config.language_id.is_empty() {
+                            fallback.language_id
+                        } else {
+                            config.language_id.clone()
+                        },
+                    };
+                    using_fallback = true;
+                }
+            }
+        }
+
+        self.lsp_dirty = false;
+        let text = String::from_utf8_lossy(&self.doc.all_text()).into_owned();
+        let root = Path::new(&path)
+            .parent()
+            .map(|parent| parent.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match self.lsp.try_start(selected, &path, &text, &root) {
+            Ok(()) => {
+                self.lsp_synced_revision = self.doc.revision();
+                true
+            }
+            Err(_) => {
+                if primary_present || using_fallback {
+                    self.lsp_fallback_blocked = true;
+                }
+                false
+            }
+        }
     }
 
     fn reset_lsp_interaction(&mut self) {
@@ -133,10 +95,6 @@ impl Editor {
         if self.startup_work_pending {
             self.startup_work_pending = false;
             self.auto_detect_indentation_on_open();
-        }
-        if self.lsp_start_pending {
-            self.lsp_start_pending = false;
-            self.start_lsp_for_buffer();
         }
         self.lsp.poll(std::time::Duration::ZERO);
         let events = self.lsp.take_events();
@@ -314,9 +272,6 @@ impl Editor {
     }
 
     fn ensure_lsp_ready(&mut self, feature: &str) -> bool {
-        if !self.lsp.is_running() {
-            self.start_lsp_for_buffer();
-        }
         if !self.lsp.is_running() {
             self.set_error("No LSP configured");
             return false;

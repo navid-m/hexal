@@ -1,0 +1,6 @@
+name = "Handlebars"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Handlebars templates"
+lazy = true
+language = "handlebars"

@@ -25,6 +25,9 @@ fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let grammar_dir = Path::new(&manifest).join("data").join("grammars");
     println!("cargo:rerun-if-changed={}", grammar_dir.display());
+    let plugin_dir = Path::new(&manifest).join("data").join("plugins");
+    println!("cargo:rerun-if-changed={}", plugin_dir.display());
+    copy_plugins(&plugin_dir);
 
     println!(
         "cargo:rustc-env=HEXAL_COMMIT_HASH={}",
@@ -75,4 +78,39 @@ fn main() {
 
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     fs::write(Path::new(&out_dir).join("grammars.rs"), output).expect("write grammars.rs");
+}
+
+/// Copies the editable plugin defaults next to the built binary, mirroring the
+/// C# project's `data/plugins` publish layout. Plugin contents are never
+/// embedded in the executable.
+fn copy_plugins(source: &Path) {
+    if !source.is_dir() {
+        return;
+    }
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+    let Some(profile_dir) = Path::new(&out_dir).ancestors().nth(3) else {
+        return;
+    };
+    let destination = profile_dir.join("data").join("plugins");
+    let _ = fs::remove_dir_all(&destination);
+    if let Err(error) = copy_tree(source, &destination) {
+        println!("cargo:warning=cannot copy plugin data: {error}");
+    }
+}
+
+fn copy_tree(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }

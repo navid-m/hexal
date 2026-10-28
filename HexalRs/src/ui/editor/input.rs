@@ -588,9 +588,8 @@ impl Editor {
                     let name = language.name.clone();
                     self.language_override = Some(args.clone());
                     self.refresh_language();
-                    self.lsp.stop();
-                    self.lsp_fallback_blocked = false;
                     self.restart_lsp_for_buffer();
+                    self.fire_plugin_buffer_event("buffer_opened");
                     self.set_message(&format!("Language: {name}"));
                 } else {
                     self.set_error(&format!("unknown language: {args}"));
