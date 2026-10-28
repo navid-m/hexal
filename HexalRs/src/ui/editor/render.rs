@@ -821,8 +821,20 @@ impl Editor {
             );
         }
 
-        let status = if self.picker.kind == PickerKind::Search && self.picker.query.is_empty() {
-            "Type to search".to_string()
+        let status = if let Some(status) = &self.picker.status {
+            status.clone()
+        } else if self.picker.kind == PickerKind::Search {
+            if self.picker.query.is_empty() {
+                "Type to search".to_string()
+            } else if self.picker.total == 0 {
+                "No matches".to_string()
+            } else {
+                format!(
+                    "{} match{}",
+                    self.picker.total,
+                    if self.picker.total == 1 { "" } else { "es" }
+                )
+            }
         } else if self.picker.kind == PickerKind::Palette {
             if self.picker.total == 0 {
                 "No matching commands".to_string()

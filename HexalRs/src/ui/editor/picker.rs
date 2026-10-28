@@ -65,6 +65,7 @@ impl Editor {
     }
 
     pub(super) fn open_picker(&mut self, kind: PickerKind) {
+        self.cancel_picker_work();
         if kind != PickerKind::DiffWith {
             self.diff_with_source = None;
         }
@@ -82,18 +83,153 @@ impl Editor {
         self.picker.top = 0;
         self.picker.total = 0;
         self.picker.items.clear();
+        self.picker.status = None;
 
-        if kind != PickerKind::Palette && !self.picker.files_loaded {
-            self.picker.files = files::scan_root_with_ignored(
-                &self.sidebar.root,
-                20_000,
-                self.sidebar.show_git_ignored,
-            );
-            self.picker.files_loaded = true;
+        if Self::picker_needs_files(kind) && !self.picker.files_loaded {
+            self.start_picker_scan();
+        } else {
+            self.rebuild_picker();
         }
-        self.rebuild_picker();
         self.doc.break_undo_group();
         self.clear_message();
+    }
+
+    fn picker_needs_files(kind: PickerKind) -> bool {
+        matches!(
+            kind,
+            PickerKind::Files | PickerKind::Search | PickerKind::DiffWith
+        )
+    }
+
+    fn next_picker_generation(&mut self) -> u64 {
+        self.picker_generation = self.picker_generation.wrapping_add(1);
+        self.picker_generation
+    }
+
+    pub(super) fn cancel_picker_work(&mut self) {
+        if let Some(task) = self.picker_scan.take() {
+            task.cancel.store(true, Ordering::Relaxed);
+        }
+        if let Some(task) = self.picker_search.take() {
+            task.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn start_picker_scan(&mut self) {
+        self.cancel_picker_work();
+        let generation = self.next_picker_generation();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let thread_cancel = cancel.clone();
+        let root = self.sidebar.root.clone();
+        let show_ignored = self.sidebar.show_git_ignored;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let files =
+                files::scan_root_with_cancel(&root, 20_000, show_ignored, Some(&thread_cancel));
+            if !thread_cancel.load(Ordering::Relaxed) {
+                let _ = sender.send(PickerScanResult { generation, files });
+            }
+        });
+        self.picker_scan = Some(PickerScanTask { receiver, cancel });
+        self.picker.status = Some("Loading files...".into());
+        self.force_full_redraw = true;
+    }
+
+    fn start_picker_search(&mut self) {
+        if let Some(task) = self.picker_search.take() {
+            task.cancel.store(true, Ordering::Relaxed);
+        }
+        let generation = self.next_picker_generation();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let thread_cancel = cancel.clone();
+        let files = self.picker.files.clone();
+        let root = self.sidebar.root.clone();
+        let query = self.picker.query.clone();
+        let match_case = self.search_match_case;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let hits = files::search(
+                &root,
+                files.as_slice(),
+                &query,
+                500,
+                match_case,
+                &thread_cancel,
+            );
+            if !thread_cancel.load(Ordering::Relaxed) {
+                let _ = sender.send(PickerSearchResult { generation, hits });
+            }
+        });
+        self.picker_search = Some(PickerSearchTask { receiver, cancel });
+        self.picker.status = Some("Searching...".into());
+        self.force_full_redraw = true;
+    }
+
+    pub(super) fn poll_picker_work(&mut self) {
+        let mut scan_applied = false;
+        if let Some(task) = self.picker_scan.take() {
+            match task.receiver.try_recv() {
+                Ok(result) => {
+                    if result.generation == self.picker_generation {
+                        self.picker.files = Arc::new(result.files);
+                        self.picker.files_loaded = true;
+                        self.picker.status = None;
+                        scan_applied = true;
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => self.picker_scan = Some(task),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.picker.files_loaded = false;
+                    self.picker.status = Some("E: file scan stopped unexpectedly".into());
+                    self.force_full_redraw = true;
+                }
+            }
+        }
+        if scan_applied {
+            if self.picker.kind != PickerKind::None {
+                self.rebuild_picker();
+                self.force_full_redraw = true;
+            }
+        }
+
+        let Some(task) = self.picker_search.take() else {
+            return;
+        };
+        match task.receiver.try_recv() {
+            Ok(result) => {
+                if result.generation != self.picker_generation
+                    || self.picker.kind != PickerKind::Search
+                {
+                    return;
+                }
+                self.picker.items.clear();
+                self.picker.total = result.hits.len();
+                for hit in result.hits {
+                    let path = &self.picker.files[hit.file_index];
+                    self.picker.items.push(PickerItem {
+                        display: format!("{}:{}: {}", path, hit.line + 1, hit.preview),
+                        file_index: hit.file_index,
+                        line: hit.line,
+                        column: hit.column,
+                        theme_id: None,
+                        target: None,
+                        palette_index: None,
+                        action_index: None,
+                        symbol_index: None,
+                        problem: None,
+                    });
+                }
+                self.picker.selected = 0;
+                self.picker.top = 0;
+                self.picker.status = None;
+                self.force_full_redraw = true;
+            }
+            Err(mpsc::TryRecvError::Empty) => self.picker_search = Some(task),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.picker.status = Some("E: search stopped unexpectedly".into());
+                self.force_full_redraw = true;
+            }
+        }
     }
 
     pub(super) fn cancel_picker(&mut self) {
@@ -116,12 +252,14 @@ impl Editor {
         if self.picker.kind == PickerKind::DiffWith {
             self.diff_with_source = None;
         }
+        self.cancel_picker_work();
         self.picker.kind = PickerKind::None;
         self.picker.query.clear();
         self.picker.selected = 0;
         self.picker.top = 0;
         self.picker.total = 0;
         self.picker.items.clear();
+        self.picker.status = None;
     }
 
     pub(super) fn rebuild_picker(&mut self) {
@@ -166,30 +304,15 @@ impl Editor {
                 }
             }
             PickerKind::Search => {
-                if !self.picker.query.is_empty() {
-                    let hits = files::search(
-                        &self.sidebar.root,
-                        &self.picker.files,
-                        &self.picker.query,
-                        500,
-                        self.search_match_case,
-                    );
-                    self.picker.total = hits.len();
-                    for hit in hits {
-                        let path = &self.picker.files[hit.file_index];
-                        self.picker.items.push(PickerItem {
-                            display: format!("{}:{}: {}", path, hit.line + 1, hit.preview),
-                            file_index: hit.file_index,
-                            line: hit.line,
-                            column: hit.column,
-                            theme_id: None,
-                            target: None,
-                            palette_index: None,
-                            action_index: None,
-                            symbol_index: None,
-                            problem: None,
-                        });
+                if self.picker.query.is_empty() {
+                    self.picker.status = None;
+                    if let Some(task) = self.picker_search.take() {
+                        task.cancel.store(true, Ordering::Relaxed);
                     }
+                } else if self.picker.files_loaded {
+                    self.start_picker_search();
+                } else if self.picker_scan.is_none() {
+                    self.start_picker_scan();
                 }
             }
             PickerKind::Folders => {
@@ -566,11 +689,7 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 {
-            height - 3
-        } else {
-            1
-        }
+        if height >= 3 { height - 3 } else { 1 }
     }
 }
 
@@ -610,6 +729,25 @@ fn symbol_kind_name(kind: i64) -> &'static str {
 mod tests {
     use super::*;
     use crate::core::document::Document;
+    use std::time::{Duration, Instant};
+
+    fn wait_for_picker_scan(editor: &mut Editor) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !editor.picker.files_loaded && Instant::now() < deadline {
+            editor.poll_picker_work();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(editor.picker.files_loaded);
+    }
+
+    fn wait_for_picker_search(editor: &mut Editor) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while editor.picker.status.is_some() && Instant::now() < deadline {
+            editor.poll_picker_work();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(editor.picker.status.is_none(), "{:?}", editor.picker.status);
+    }
 
     fn problem_item(path: String, line: usize, column: usize) -> PickerItem {
         PickerItem {
@@ -637,6 +775,7 @@ mod tests {
 
         let mut editor = Editor::with_options(Document::new(), 80, 24, Some(root.clone()), true);
         editor.open_picker(PickerKind::Files);
+        wait_for_picker_scan(&mut editor);
         assert_eq!(editor.sidebar.root, root);
         assert!(editor.picker.files.contains(&"alpha.txt".to_string()));
         assert!(editor.picker.files.contains(&"sub/beta.txt".to_string()));
@@ -652,6 +791,44 @@ mod tests {
         assert_eq!(
             editor.doc.path.as_deref(),
             Some(root.join("sub/beta.txt").to_string_lossy().as_ref())
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cross_file_search_runs_without_blocking_input() {
+        let root =
+            std::env::temp_dir().join(format!("hexal-picker-search-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for index in 0..3 {
+            std::fs::write(
+                root.join(format!("file{index}.txt")),
+                b"first\nneedle here\nlast\n",
+            )
+            .unwrap();
+        }
+
+        let mut editor = Editor::with_options(Document::new(), 80, 24, Some(root.clone()), false);
+        editor.open_picker(PickerKind::Search);
+        wait_for_picker_scan(&mut editor);
+
+        editor.picker.query.push_str("needle");
+        editor.rebuild_picker();
+        // The search is dispatched to a worker instead of scanning every file
+        // on the input thread.
+        assert_eq!(editor.picker.status.as_deref(), Some("Searching..."));
+
+        wait_for_picker_search(&mut editor);
+        assert_eq!(editor.picker.total, 3);
+        assert_eq!(editor.picker.items.len(), 3);
+        assert!(
+            editor
+                .picker
+                .items
+                .iter()
+                .all(|item| item.display.contains("needle here"))
         );
 
         let _ = std::fs::remove_dir_all(root);

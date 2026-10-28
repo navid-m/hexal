@@ -26,7 +26,7 @@ mod status;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 
 use crate::core::config::Config;
@@ -157,12 +157,13 @@ struct PickerItem {
 struct Picker {
     kind: PickerKind,
     query: String,
-    files: Vec<String>,
+    files: Arc<Vec<String>>,
     files_loaded: bool,
     items: Vec<PickerItem>,
     selected: usize,
     top: usize,
     total: usize,
+    status: Option<String>,
 }
 
 impl Picker {
@@ -170,14 +171,35 @@ impl Picker {
         Picker {
             kind: PickerKind::None,
             query: String::new(),
-            files: Vec::new(),
+            files: Arc::new(Vec::new()),
             files_loaded: false,
             items: Vec::new(),
             selected: 0,
             top: 0,
             total: 0,
+            status: None,
         }
     }
+}
+
+struct PickerSearchResult {
+    generation: u64,
+    hits: Vec<files::SearchHit>,
+}
+
+struct PickerSearchTask {
+    receiver: mpsc::Receiver<PickerSearchResult>,
+    cancel: Arc<AtomicBool>,
+}
+
+struct PickerScanResult {
+    generation: u64,
+    files: Vec<String>,
+}
+
+struct PickerScanTask {
+    receiver: mpsc::Receiver<PickerScanResult>,
+    cancel: Arc<AtomicBool>,
 }
 
 #[derive(Clone)]
@@ -600,6 +622,9 @@ pub struct Editor {
     jump_index: isize,
 
     picker: Picker,
+    picker_generation: u64,
+    picker_scan: Option<PickerScanTask>,
+    picker_search: Option<PickerSearchTask>,
     diff_with_source: Option<PathBuf>,
     palette_commands: Vec<PaletteCommand>,
     find: FindState,
@@ -738,6 +763,9 @@ impl Editor {
             jumps: Vec::new(),
             jump_index: -1,
             picker: Picker::new(),
+            picker_generation: 0,
+            picker_scan: None,
+            picker_search: None,
             diff_with_source: None,
             palette_commands: Vec::new(),
             find: FindState::new(),

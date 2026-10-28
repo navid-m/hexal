@@ -758,76 +758,81 @@ impl Editor {
             if worker_count > 0 {
                 std::thread::scope(|scope| {
                     for _ in 0..worker_count {
-                        scope.spawn(|| loop {
-                            let index = next.fetch_add(1, Ordering::Relaxed);
-                            let Some((file, formatter)) = jobs.get(index) else {
-                                break;
-                            };
-                            if let Some(open) = &open_path {
-                                if git::same_path(open, file) {
-                                    lock_format_result(&result).skipped_open += 1;
-                                    thread_progress.completed.fetch_add(1, Ordering::Relaxed);
-                                    continue;
+                        scope.spawn(|| {
+                            loop {
+                                let index = next.fetch_add(1, Ordering::Relaxed);
+                                let Some((file, formatter)) = jobs.get(index) else {
+                                    break;
+                                };
+                                if let Some(open) = &open_path {
+                                    if git::same_path(open, file) {
+                                        lock_format_result(&result).skipped_open += 1;
+                                        thread_progress.completed.fetch_add(1, Ordering::Relaxed);
+                                        continue;
+                                    }
                                 }
-                            }
 
-                            let mut formatted = false;
-                            let mut changed = false;
-                            let mut failure = None;
-                            match std::fs::read(file) {
-                                Ok(input) => {
-                                    match format::run(formatter, &input, Some(file.as_path())) {
-                                        Ok(output) => {
-                                            formatted = true;
-                                            let output = if git::has_utf8_bom(&input)
-                                                && !git::has_utf8_bom(&output)
-                                            {
-                                                let mut with_bom =
-                                                    Vec::with_capacity(output.len() + 3);
-                                                with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
-                                                with_bom.extend_from_slice(&output);
-                                                with_bom
-                                            } else {
-                                                output
-                                            };
-                                            if output != input {
-                                                match git::atomic_write(file, &output) {
-                                                    Ok(()) => changed = true,
-                                                    Err(error) => {
-                                                        failure = Some(format!(
-                                                            "{}: {error}",
-                                                            git::file_name(file)
-                                                        ));
+                                let mut formatted = false;
+                                let mut changed = false;
+                                let mut failure = None;
+                                match std::fs::read(file) {
+                                    Ok(input) => {
+                                        match format::run(formatter, &input, Some(file.as_path())) {
+                                            Ok(output) => {
+                                                formatted = true;
+                                                let output = if git::has_utf8_bom(&input)
+                                                    && !git::has_utf8_bom(&output)
+                                                {
+                                                    let mut with_bom =
+                                                        Vec::with_capacity(output.len() + 3);
+                                                    with_bom.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+                                                    with_bom.extend_from_slice(&output);
+                                                    with_bom
+                                                } else {
+                                                    output
+                                                };
+                                                if output != input {
+                                                    match git::atomic_write(file, &output) {
+                                                        Ok(()) => changed = true,
+                                                        Err(error) => {
+                                                            failure = Some(format!(
+                                                                "{}: {error}",
+                                                                git::file_name(file)
+                                                            ));
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
-                                        Err(error) => {
-                                            failure =
-                                                Some(format!("{}: {error}", git::file_name(file)));
+                                            Err(error) => {
+                                                failure = Some(format!(
+                                                    "{}: {error}",
+                                                    git::file_name(file)
+                                                ));
+                                            }
                                         }
                                     }
+                                    Err(error) => {
+                                        failure =
+                                            Some(format!("{}: {error}", git::file_name(file)));
+                                    }
                                 }
-                                Err(error) => {
-                                    failure = Some(format!("{}: {error}", git::file_name(file)));
-                                }
-                            }
 
-                            let mut metrics = lock_format_result(&result);
-                            if formatted {
-                                metrics.formatted += 1;
-                            }
-                            if changed {
-                                metrics.changed += 1;
-                            }
-                            if let Some(error) = failure {
-                                metrics.failed += 1;
-                                if metrics.first_error.is_none() {
-                                    metrics.first_error = Some(error);
+                                let mut metrics = lock_format_result(&result);
+                                if formatted {
+                                    metrics.formatted += 1;
                                 }
+                                if changed {
+                                    metrics.changed += 1;
+                                }
+                                if let Some(error) = failure {
+                                    metrics.failed += 1;
+                                    if metrics.first_error.is_none() {
+                                        metrics.first_error = Some(error);
+                                    }
+                                }
+                                drop(metrics);
+                                thread_progress.completed.fetch_add(1, Ordering::Relaxed);
                             }
-                            drop(metrics);
-                            thread_progress.completed.fetch_add(1, Ordering::Relaxed);
                         });
                     }
                 });
@@ -1088,12 +1093,14 @@ impl Editor {
             &self.sidebar.root,
         );
         self.sidebar_transfer = Some((references, move_items));
+        self.cancel_picker_work();
         self.picker.kind = PickerKind::Folders;
         self.picker.query.clear();
         self.picker.selected = 0;
         self.picker.top = 0;
         self.picker.total = 0;
         self.picker.items.clear();
+        self.picker.status = None;
         self.rebuild_picker();
         self.clear_message();
         self.set_message(if move_items {
@@ -1237,11 +1244,7 @@ impl Editor {
             let marker_count = modified as usize + untracked as usize;
             let indent = 1 + node.depth * 2;
             let marker = if node.is_directory {
-                if node.expanded {
-                    "▾"
-                } else {
-                    "▸"
-                }
+                if node.expanded { "▾" } else { "▸" }
             } else {
                 " "
             };
@@ -1794,14 +1797,14 @@ fn reindent_selection(text: &[u8], prefix: &str) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_eol, reindent_selection, remove_common_indent, BulkFormatResolver};
+    use super::{BulkFormatResolver, normalize_eol, reindent_selection, remove_common_indent};
     use crate::core::document::Document;
     use crate::languages::Registry;
     use crate::ui::editor::{Editor, PickerKind};
     use crate::ui::sidebar::{Action as SidebarAction, Node};
     use std::path::Path;
     use std::sync::atomic::AtomicUsize;
-    use std::sync::{mpsc, Arc};
+    use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
 
     fn random_bytes(seed: &mut u64, length: usize) -> Vec<u8> {
@@ -1871,9 +1874,11 @@ mod tests {
             .expect("Diff with entry");
         assert_eq!(item.label, "Diff with...");
         assert_eq!(item.hotkey, 'C');
-        assert!(!crate::ui::sidebar::FOLDER_MENU
-            .iter()
-            .any(|item| item.action == SidebarAction::DiffWith));
+        assert!(
+            !crate::ui::sidebar::FOLDER_MENU
+                .iter()
+                .any(|item| item.action == SidebarAction::DiffWith)
+        );
     }
 
     #[test]
@@ -1899,13 +1904,21 @@ mod tests {
         editor.sidebar.anchor = 0;
         editor.run_sidebar_action(SidebarAction::DiffWith, vec![(source.clone(), false)]);
 
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !editor.picker.files_loaded && Instant::now() < deadline {
+            editor.poll_picker_work();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(editor.picker.files_loaded);
         assert!(matches!(editor.picker.kind, PickerKind::DiffWith));
         assert_eq!(editor.diff_with_source.as_deref(), Some(source.as_path()));
-        assert!(!editor
-            .picker
-            .items
-            .iter()
-            .any(|item| editor.picker.files[item.file_index] == "source.rs"));
+        assert!(
+            !editor
+                .picker
+                .items
+                .iter()
+                .any(|item| editor.picker.files[item.file_index] == "source.rs")
+        );
         let target_index = editor
             .picker
             .items

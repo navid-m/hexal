@@ -97,6 +97,7 @@ impl Editor {
             self.auto_detect_indentation_on_open();
         }
         self.poll_sidebar_format();
+        self.poll_picker_work();
         self.lsp.poll(std::time::Duration::ZERO);
         let events = self.lsp.take_events();
         for event in events {

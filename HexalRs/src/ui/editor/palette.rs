@@ -249,8 +249,14 @@ impl Editor {
     pub(super) fn toggle_git_ignored(&mut self) {
         self.sidebar.show_git_ignored = !self.sidebar.show_git_ignored;
         self.command_files = None;
+        self.cancel_picker_work();
         self.picker.files_loaded = false;
-        self.picker.files.clear();
+        self.picker.files = Arc::new(Vec::new());
+        self.picker.items.clear();
+        self.picker.total = 0;
+        self.picker.selected = 0;
+        self.picker.top = 0;
+        self.picker.status = None;
         self.sidebar.refresh(None);
         self.force_full_redraw = true;
         self.persist_display_settings();
@@ -281,8 +287,14 @@ impl Editor {
         self.sidebar.show_git_ignored = self.config.show_git_ignored;
         self.refresh_git_diff();
         self.command_files = None;
+        self.cancel_picker_work();
         self.picker.files_loaded = false;
-        self.picker.files.clear();
+        self.picker.files = Arc::new(Vec::new());
+        self.picker.items.clear();
+        self.picker.total = 0;
+        self.picker.selected = 0;
+        self.picker.top = 0;
+        self.picker.status = None;
         self.search_match_case = self.config.search_match_case_enabled;
         self.languages = Registry::load();
         self.refresh_language();
