@@ -65,6 +65,9 @@ impl Editor {
     }
 
     pub(super) fn open_picker(&mut self, kind: PickerKind) {
+        if kind != PickerKind::DiffWith {
+            self.diff_with_source = None;
+        }
         if kind == PickerKind::Themes {
             let active = self.theme.id.clone();
             self.themes = ThemeRegistry::load_all();
@@ -110,6 +113,9 @@ impl Editor {
     }
 
     pub(super) fn close_picker(&mut self) {
+        if self.picker.kind == PickerKind::DiffWith {
+            self.diff_with_source = None;
+        }
         self.picker.kind = PickerKind::None;
         self.picker.query.clear();
         self.picker.selected = 0;
@@ -121,10 +127,20 @@ impl Editor {
     pub(super) fn rebuild_picker(&mut self) {
         self.picker.items.clear();
         self.picker.total = 0;
+        let diff_with_source = if self.picker.kind == PickerKind::DiffWith {
+            self.diff_with_source.clone()
+        } else {
+            None
+        };
 
         match self.picker.kind {
-            PickerKind::Files => {
+            PickerKind::Files | PickerKind::DiffWith => {
                 for (index, path) in self.picker.files.iter().enumerate() {
+                    if let Some(source) = &diff_with_source {
+                        if git::same_path(source, &self.sidebar.root.join(path)) {
+                            continue;
+                        }
+                    }
                     if !self.picker.query.is_empty()
                         && util::index_of_ignore_case(path.as_bytes(), self.picker.query.as_bytes())
                             .is_none()
@@ -479,6 +495,18 @@ impl Editor {
                     self.record_jump();
                     self.request_open(&path, line, byte, false);
                 }
+            }
+            return;
+        }
+        if self.picker.kind == PickerKind::DiffWith {
+            let target = self
+                .sidebar
+                .root
+                .join(&self.picker.files[self.picker.items[self.picker.selected].file_index]);
+            let source = self.diff_with_source.take();
+            self.close_picker();
+            if let Some(source) = source {
+                self.begin_sidebar_diff(&[(source, false), (target, false)]);
             }
             return;
         }

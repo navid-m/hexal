@@ -28,6 +28,7 @@ pub enum Action {
     Duplicate,
     Format,
     Diff,
+    DiffWith,
     Copy,
     Move,
     Delete,
@@ -70,6 +71,11 @@ pub const FILE_MENU: &[MenuItem] = &[
         label: "Format",
         hotkey: 'F',
         action: Action::Format,
+    },
+    MenuItem {
+        label: "Diff with...",
+        hotkey: 'C',
+        action: Action::DiffWith,
     },
     MenuItem {
         label: "Copy to...",

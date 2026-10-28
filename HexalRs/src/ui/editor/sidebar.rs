@@ -250,7 +250,6 @@ impl Editor {
             return;
         }
         match event.ch {
-            'c' | 'C' => self.sidebar.menu_visible = false,
             ' ' => {
                 self.sidebar.menu_visible = false;
                 self.sidebar.focused = false;
@@ -260,6 +259,8 @@ impl Editor {
                 if let Some(index) = self.sidebar.menu_hotkey(character) {
                     self.sidebar.menu_selected = index;
                     self.activate_sidebar_menu_item();
+                } else if matches!(character, 'c' | 'C') {
+                    self.sidebar.menu_visible = false;
                 }
             }
         }
@@ -338,6 +339,12 @@ impl Editor {
             SidebarAction::Duplicate => self.duplicate_sidebar_nodes(&nodes),
             SidebarAction::Format => self.format_sidebar_nodes(&nodes),
             SidebarAction::Diff => self.begin_sidebar_diff(&nodes),
+            SidebarAction::DiffWith => {
+                if !node.is_directory && nodes.len() == 1 {
+                    self.diff_with_source = Some(node.path.clone());
+                    self.open_picker(PickerKind::DiffWith);
+                }
+            }
             SidebarAction::Copy => {
                 if nodes.len() == 1 {
                     let (source, is_directory) = nodes[0].clone();
@@ -1790,7 +1797,8 @@ mod tests {
     use super::{normalize_eol, reindent_selection, remove_common_indent, BulkFormatResolver};
     use crate::core::document::Document;
     use crate::languages::Registry;
-    use crate::ui::editor::Editor;
+    use crate::ui::editor::{Editor, PickerKind};
+    use crate::ui::sidebar::{Action as SidebarAction, Node};
     use std::path::Path;
     use std::sync::atomic::AtomicUsize;
     use std::sync::{mpsc, Arc};
@@ -1853,6 +1861,68 @@ mod tests {
         assert_eq!(normalize_eol(b"a\r\nb\rc\nd", b"\r\n"), b"a\r\nb\r\nc\r\nd");
         assert_eq!(normalize_eol(b"\r", b"\n"), b"\n");
         assert_eq!(normalize_eol(b"\r\n", b"\n"), b"\n");
+    }
+
+    #[test]
+    fn file_menu_offers_diff_with() {
+        let item = crate::ui::sidebar::FILE_MENU
+            .iter()
+            .find(|item| item.action == SidebarAction::DiffWith)
+            .expect("Diff with entry");
+        assert_eq!(item.label, "Diff with...");
+        assert_eq!(item.hotkey, 'C');
+        assert!(!crate::ui::sidebar::FOLDER_MENU
+            .iter()
+            .any(|item| item.action == SidebarAction::DiffWith));
+    }
+
+    #[test]
+    fn diff_with_picker_excludes_the_source_and_renders_the_diff() {
+        let root =
+            std::env::temp_dir().join(format!("hexal-diff-with-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.rs");
+        let target = root.join("target.rs");
+        std::fs::write(&source, b"fn main() {}\n").unwrap();
+        std::fs::write(&target, b"fn main() { let x = 1; }\n").unwrap();
+
+        let mut editor = Editor::with_options(Document::new(), 100, 30, Some(root.clone()), false);
+        editor.sidebar.nodes = vec![Node {
+            path: source.clone(),
+            name: "source.rs".into(),
+            depth: 0,
+            is_directory: false,
+            expanded: false,
+        }];
+        editor.sidebar.selected = 0;
+        editor.sidebar.anchor = 0;
+        editor.run_sidebar_action(SidebarAction::DiffWith, vec![(source.clone(), false)]);
+
+        assert!(matches!(editor.picker.kind, PickerKind::DiffWith));
+        assert_eq!(editor.diff_with_source.as_deref(), Some(source.as_path()));
+        assert!(!editor
+            .picker
+            .items
+            .iter()
+            .any(|item| editor.picker.files[item.file_index] == "source.rs"));
+        let target_index = editor
+            .picker
+            .items
+            .iter()
+            .position(|item| editor.picker.files[item.file_index] == "target.rs")
+            .expect("target item");
+        editor.picker.selected = target_index;
+        editor.open_picker_selection();
+
+        assert!(matches!(editor.picker.kind, PickerKind::None));
+        assert_eq!(editor.language_override.as_deref(), Some("diff"));
+        let diff = String::from_utf8(editor.doc.all_text()).unwrap();
+        assert!(diff.contains("--- "), "{diff}");
+        assert!(diff.contains("+++ "), "{diff}");
+        assert!(diff.contains("@@"), "{diff}");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -96,6 +96,7 @@ enum PickerKind {
     CodeActions,
     Symbols,
     Problems,
+    DiffWith,
 }
 
 #[derive(Clone)]
@@ -599,6 +600,7 @@ pub struct Editor {
     jump_index: isize,
 
     picker: Picker,
+    diff_with_source: Option<PathBuf>,
     palette_commands: Vec<PaletteCommand>,
     find: FindState,
     search_match_case: bool,
@@ -736,6 +738,7 @@ impl Editor {
             jumps: Vec::new(),
             jump_index: -1,
             picker: Picker::new(),
+            diff_with_source: None,
             palette_commands: Vec::new(),
             find: FindState::new(),
             search_match_case: false,

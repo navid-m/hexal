@@ -731,6 +731,7 @@ impl Editor {
         };
         let title = match self.picker.kind {
             PickerKind::Files => "Open file",
+            PickerKind::DiffWith => "Diff with",
             PickerKind::Search => "Search across files",
             PickerKind::Themes => "Select theme",
             PickerKind::Palette => "Command palette",
