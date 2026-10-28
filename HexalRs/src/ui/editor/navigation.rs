@@ -103,14 +103,11 @@ impl Editor {
 
     pub(super) fn move_vertical(&mut self, delta: isize) {
         let line = self.cursor_line();
-        let target = line as isize + delta;
-        if target < 0 || target as usize >= self.doc.line_count() {
-            return;
-        }
+        let last_line = self.doc.line_count().saturating_sub(1) as isize;
+        let target = (line as isize + delta).clamp(0, last_line) as usize;
         if self.preferred_column.is_none() {
             self.preferred_column = Some(self.cursor_visual_column());
         }
-        let target = target as usize;
         let target_start = self.doc.line_start(target);
         let text = self.doc.line_text(target);
         let local = util::byte_offset_for_visual_column(
@@ -304,5 +301,48 @@ impl Editor {
         self.mode = Mode::Normal;
         self.snap_cursor();
         self.doc.break_undo_group();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn editor_with_lines(lines: usize) -> Editor {
+        let text = (0..lines)
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Editor::new(Document::from_bytes(None, text.into_bytes()), 80, 24)
+    }
+
+    #[test]
+    fn page_movement_clamps_to_the_document_edges() {
+        let mut editor = editor_with_lines(40);
+
+        editor.cursor = editor.doc.line_start(30);
+        editor.move_page(1);
+        assert_eq!(editor.cursor_line(), 39);
+
+        editor.cursor = editor.doc.line_start(5);
+        editor.move_page(-1);
+        assert_eq!(editor.cursor_line(), 0);
+
+        editor.cursor = editor.doc.line_start(20);
+        editor.move_page(1);
+        assert_eq!(editor.cursor_line(), 39);
+
+        editor.move_page(1);
+        assert_eq!(editor.cursor_line(), 39);
+    }
+
+    #[test]
+    fn vertical_movement_at_the_last_line_stays_on_the_last_line() {
+        let mut editor = editor_with_lines(3);
+        editor.cursor = editor.doc.line_start(2);
+        editor.move_vertical(1);
+        assert_eq!(editor.cursor_line(), 2);
+        editor.move_vertical(-1);
+        assert_eq!(editor.cursor_line(), 1);
     }
 }
