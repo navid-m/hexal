@@ -1,6 +1,0 @@
-name = "Fish Shell"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Fish Shell"
-lazy = true
-language = "fish"

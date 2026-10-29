@@ -1,6 +1,0 @@
-name = "AWK"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for AWK"
-lazy = true
-language = "awk"

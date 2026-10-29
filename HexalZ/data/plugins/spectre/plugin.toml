@@ -1,6 +1,0 @@
-name = "Spectre"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Spectre"
-lazy = true
-language = "spectre"

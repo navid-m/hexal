@@ -1,4 +1,0 @@
-name = "Project Tree"
-version = "1.0"
-entry = "init.lua"
-description = "Show a Unicode tree of non-ignored workspace files (:pt)"

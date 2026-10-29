@@ -1,6 +1,0 @@
-name = "Mermaid"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Mermaid diagrams"
-lazy = true
-language = "mermaid"

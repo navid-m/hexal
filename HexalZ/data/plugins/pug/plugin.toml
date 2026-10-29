@@ -1,6 +1,0 @@
-name = "Pug"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Pug and Jade templates"
-lazy = true
-language = "pug"

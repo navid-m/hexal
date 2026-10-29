@@ -1,6 +1,0 @@
-name = "Perl"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Perl"
-lazy = true
-language = "perl"

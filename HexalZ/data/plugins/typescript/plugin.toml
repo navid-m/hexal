@@ -1,6 +1,0 @@
-name = "TypeScript"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for TypeScript"
-lazy = true
-language = "typescript"

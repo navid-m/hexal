@@ -1,6 +1,0 @@
-name = "QML"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for QML"
-lazy = true
-language = "qml"

@@ -1,6 +1,0 @@
-name = "Crystal"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Crystal"
-lazy = true
-language = "crystal"
