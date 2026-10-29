@@ -130,5 +130,46 @@
     "input": "stdin",
     "output": "stdout",
     "timeout": 15000
+  },
+  "debugger": {
+    "adapter": "jdtls",
+    "start": {
+      "type": "lsp",
+      "timeout": 60000,
+      "steps": [
+        {
+          "command": "vscode.java.resolveMainClass",
+          "save": "main",
+          "select": {
+            "field": "mainClass",
+            "suffix": "${fileStem}"
+          }
+        },
+        {
+          "command": "vscode.java.resolveClasspath",
+          "arguments": [
+            "${main.mainClass}",
+            "${main.projectName}"
+          ],
+          "save": "classpath"
+        },
+        {
+          "command": "vscode.java.startDebugSession",
+          "endpoint": "port"
+        }
+      ],
+      "configuration": {
+        "mainClass": "${main.mainClass}",
+        "projectName": "${main.projectName}",
+        "modulePaths": "${classpath.0}",
+        "classPaths": "${classpath.1}"
+      }
+    },
+    "configuration": {
+      "type": "java",
+      "request": "launch",
+      "cwd": "${workspace}",
+      "console": "internalConsole"
+    }
   }
 }

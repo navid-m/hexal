@@ -10,14 +10,59 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::time::Duration;
 
 use crate::util::json::{self, Value};
 
 const MAX_LOG_ENTRIES: usize = 2000;
 const MAX_LOG_ENTRY_LENGTH: usize = 16 * 1024;
+const ADAPTER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How a debug adapter is obtained for a language.
+#[derive(Clone, Debug)]
+pub enum DebuggerStart {
+    /// The adapter is an executable that speaks DAP over stdin/stdout.
+    Stdio,
+    /// The language server starts the adapter. The editor runs the configured
+    /// request/response steps, then connects to the returned endpoint.
+    Lsp(LspDebuggerStart),
+}
+
+/// A declarative sequence of LSP commands used to obtain a debug endpoint.
+#[derive(Clone, Debug)]
+pub struct LspDebuggerStart {
+    pub steps: Vec<LspDebuggerStep>,
+    /// Values merged into the launch configuration after the steps run.
+    pub configuration: Value,
+    /// Maximum time to wait for the language server to start the adapter.
+    pub timeout_ms: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct LspDebuggerStep {
+    pub command: String,
+    pub arguments: Option<Value>,
+    pub save: String,
+    pub select: Option<LspDebuggerSelect>,
+    pub endpoint: Option<LspDebuggerEndpoint>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LspDebuggerSelect {
+    pub field: String,
+    pub equals: Option<String>,
+    pub suffix: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LspDebuggerEndpoint {
+    Port,
+    Uri,
+}
 
 /// Optional debug-adapter metadata from a `.hexdef` language definition.
 #[derive(Clone, Debug)]
@@ -25,6 +70,7 @@ pub struct DebuggerConfig {
     pub adapter: String,
     pub arguments: Vec<String>,
     pub configuration: Value,
+    pub start: DebuggerStart,
 }
 
 #[derive(Clone, Debug)]
@@ -153,7 +199,7 @@ enum Incoming {
 
 pub struct Manager {
     child: Option<Child>,
-    input: Option<ChildStdin>,
+    input: Option<Box<dyn Write + Send>>,
     incoming: Option<Receiver<Incoming>>,
     reader: Option<std::thread::JoinHandle<()>>,
     stderr_reader: Option<std::thread::JoinHandle<()>>,
@@ -237,7 +283,7 @@ impl Manager {
     }
 
     pub fn is_running(&self) -> bool {
-        self.child.is_some()
+        self.child.is_some() || self.input.is_some()
     }
 
     pub fn is_initialized(&self) -> bool {
@@ -262,6 +308,9 @@ impl Manager {
         launch_configuration: Value,
         breakpoints: &BTreeMap<String, BTreeSet<usize>>,
     ) -> Result<(), String> {
+        if !matches!(config.start, DebuggerStart::Stdio) {
+            return Err("this debug adapter is started by the language server".into());
+        }
         if config.adapter.trim().is_empty() {
             return Err("debug adapter is empty".into());
         }
@@ -348,7 +397,7 @@ impl Manager {
         let stderr = child.stderr.take();
         let input = child.stdin.take();
         self.child = Some(child);
-        self.input = input;
+        self.input = input.map(|input| Box::new(input) as Box<dyn Write + Send>);
         self.config = Some(config);
 
         let (sender, receiver) = mpsc::channel();
@@ -391,6 +440,97 @@ impl Manager {
         Ok(())
     }
 
+    /// Connects to a debug adapter that a language server has already started
+    /// on a TCP endpoint.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_start_server(
+        &mut self,
+        config: DebuggerConfig,
+        host: &str,
+        port: u16,
+        source_path: &str,
+        workspace_root: &str,
+        launch_configuration: Value,
+        breakpoints: &BTreeMap<String, BTreeSet<usize>>,
+    ) -> Result<(), String> {
+        if host.trim().is_empty() || port == 0 {
+            return Err("debug adapter endpoint is invalid".into());
+        }
+
+        let source_full = normalize_path(source_path);
+        let workspace_full =
+            if !workspace_root.trim().is_empty() && Path::new(workspace_root).is_dir() {
+                normalize_path(workspace_root)
+            } else {
+                Path::new(&source_full)
+                    .parent()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .filter(|path| !path.is_empty())
+                    .unwrap_or_else(|| ".".into())
+            };
+
+        let address = (host, port)
+            .to_socket_addrs()
+            .map_err(|error| {
+                format!("cannot resolve debug adapter endpoint {host}:{port}: {error}")
+            })?
+            .next()
+            .ok_or_else(|| format!("cannot resolve debug adapter endpoint {host}:{port}"))?;
+        let stream = TcpStream::connect_timeout(&address, ADAPTER_CONNECT_TIMEOUT)
+            .map_err(|error| format!("cannot connect to debug adapter {host}:{port}: {error}"))?;
+        let reader = stream
+            .try_clone()
+            .map_err(|error| format!("cannot connect to debug adapter {host}:{port}: {error}"))?;
+        let _ = stream.set_nodelay(true);
+
+        self.stop_internal();
+
+        self.child = None;
+        self.adapter_name = config.adapter.clone();
+        self.adapter_path = format!("{host}:{port}");
+        self.source_path = source_full.clone();
+        self.workspace_root = workspace_full.clone();
+        self.launch_configuration = Some(launch_configuration);
+        self.breakpoints = breakpoints.clone();
+        self.pending_requests.clear();
+        self.next_sequence = 0;
+        self.initialized = false;
+        self.adapter_initialized = false;
+        self.launch_sent = false;
+        self.configuration_done = false;
+        self.stopped = false;
+        self.stopped_thread_id = 0;
+        self.stopped_path.clear();
+        self.stopped_line = -1;
+        self.stop_reason.clear();
+        self.clear_debug_state();
+        self.config = Some(config);
+
+        let (sender, receiver) = mpsc::channel();
+        self.incoming = Some(receiver);
+        self.input = Some(Box::new(stream));
+        self.reader = Some(std::thread::spawn(move || {
+            read_loop(reader, sender);
+        }));
+
+        self.log(
+            "info",
+            &format!(
+                "connecting to {} at {host}:{port} (cwd {workspace_full})",
+                self.adapter_name
+            ),
+        );
+        self.send_initialize();
+        self.events.push(Event::Started {
+            adapter: self.adapter_name.clone(),
+        });
+        file_log(&format!(
+            "DAP started: {} ({host}:{port}) for {source_full}",
+            self.adapter_name
+        ));
+        Ok(())
+    }
+
     pub fn set_breakpoints(&mut self, path: &str, lines: &BTreeSet<usize>) {
         let full_path = normalize_path(path);
         let mut set = BTreeSet::new();
@@ -403,7 +543,7 @@ impl Manager {
             self.breakpoints.insert(full_path.clone(), set);
         }
 
-        if self.child.is_some() && self.initialized && self.configuration_done {
+        if self.is_running() && self.initialized && self.configuration_done {
             self.send_breakpoints(&full_path);
         }
     }
@@ -432,8 +572,7 @@ impl Manager {
     /// variables request is sent per scope; a combined Variables event is
     /// emitted when every response has arrived.
     pub fn request_debug_variables(&mut self) -> bool {
-        if self.child.is_none() || !self.initialized || !self.stopped || self.stopped_frame_id <= 0
-        {
+        if !self.is_running() || !self.initialized || !self.stopped || self.stopped_frame_id <= 0 {
             return false;
         }
 
@@ -458,8 +597,7 @@ impl Manager {
         if expression.trim().is_empty() {
             return false;
         }
-        if self.child.is_none() || !self.initialized || !self.stopped || self.stopped_frame_id <= 0
-        {
+        if !self.is_running() || !self.initialized || !self.stopped || self.stopped_frame_id <= 0 {
             return false;
         }
 
@@ -481,7 +619,7 @@ impl Manager {
     }
 
     pub fn stop(&mut self) {
-        if self.child.is_some() && self.initialized {
+        if self.is_running() && self.initialized {
             self.send_request(
                 PendingRequest::command("disconnect"),
                 object(vec![("terminateDebuggee", bool_value(true))]),
@@ -756,7 +894,7 @@ impl Manager {
     }
 
     fn send_thread_request(&mut self, command: &str, clear_stopped: bool) -> bool {
-        if self.child.is_none() || !self.initialized {
+        if !self.is_running() || !self.initialized {
             self.enqueue_error("debugger is not running");
             return false;
         }
@@ -1547,6 +1685,7 @@ while True:
             adapter: "python3".into(),
             arguments: vec![adapter.to_string_lossy().into_owned()],
             configuration: json::parse(r#"{"request":"launch","program":"sample"}"#).unwrap(),
+            start: DebuggerStart::Stdio,
         };
         let mut breakpoints = BTreeMap::new();
         breakpoints.insert(normalize_path(&source_text), BTreeSet::from([0usize]));
@@ -1637,5 +1776,120 @@ while True:
         assert!(continued, "no continued event");
         manager.stop();
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn connects_to_a_tcp_debug_adapter() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut pending = Vec::new();
+            let mut buffer = [0u8; 8192];
+            loop {
+                let read = std::io::Read::read(&mut stream, &mut buffer).unwrap();
+                if read == 0 {
+                    break;
+                }
+                pending.extend_from_slice(&buffer[..read]);
+                while let Some((body, consumed)) = take_message(&pending) {
+                    pending.drain(..consumed);
+                    let message = json::parse(&String::from_utf8_lossy(&body)).unwrap();
+                    if message.get("type").and_then(Value::as_str) != Some("request") {
+                        continue;
+                    }
+                    let sequence = message.get("seq").and_then(Value::as_i64).unwrap_or(0);
+                    let command = message
+                        .get("command")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let mut response = object(vec![
+                        ("seq", number(1)),
+                        ("type", string("response")),
+                        ("request_seq", number(sequence)),
+                        ("success", bool_value(true)),
+                        ("command", string(&command)),
+                    ]);
+                    if command == "initialize" {
+                        response.set("body", object(vec![("capabilities", object(Vec::new()))]));
+                    } else if command == "setBreakpoints" {
+                        response.set(
+                            "body",
+                            object(vec![(
+                                "breakpoints",
+                                Value::Array(vec![object(vec![
+                                    ("verified", bool_value(true)),
+                                    ("line", number(1)),
+                                ])]),
+                            )]),
+                        );
+                    }
+                    let text = json::to_string(&response, false);
+                    write!(stream, "Content-Length: {}\r\n\r\n{}", text.len(), text).unwrap();
+                    let _ = stream.flush();
+                    if command == "launch" {
+                        let event = object(vec![
+                            ("seq", number(2)),
+                            ("type", string("event")),
+                            ("event", string("initialized")),
+                            ("body", object(Vec::new())),
+                        ]);
+                        let text = json::to_string(&event, false);
+                        write!(stream, "Content-Length: {}\r\n\r\n{}", text.len(), text).unwrap();
+                        let _ = stream.flush();
+                    }
+                    if command == "disconnect" {
+                        return;
+                    }
+                }
+            }
+        });
+
+        let directory =
+            std::env::temp_dir().join(format!("hexal-dap-tcp-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&directory);
+        let source = directory.join("Main.java");
+        fs::write(&source, b"class Main {}\n").unwrap();
+        let source = source.to_string_lossy().into_owned();
+        let workspace = directory.to_string_lossy().into_owned();
+        let config = DebuggerConfig {
+            adapter: "tcp-test".into(),
+            arguments: Vec::new(),
+            configuration: json::parse(r#"{"request":"launch"}"#).unwrap(),
+            start: DebuggerStart::Stdio,
+        };
+        let mut breakpoints = BTreeMap::new();
+        breakpoints.insert(normalize_path(&source), BTreeSet::from([0usize]));
+
+        let mut manager = Manager::new();
+        manager
+            .try_start_server(
+                config,
+                "127.0.0.1",
+                port,
+                &source,
+                &workspace,
+                json::parse(r#"{"request":"launch"}"#).unwrap(),
+                &breakpoints,
+            )
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut verified = false;
+        while Instant::now() < deadline && !verified {
+            manager.poll();
+            for event in manager.take_events() {
+                if let Event::Breakpoints { breakpoints, .. } = event {
+                    verified = breakpoints.iter().any(|point| point.verified);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(verified, "no verified breakpoint over TCP");
+        assert!(manager.is_running());
+        manager.stop();
+        let _ = server.join();
+        let _ = fs::remove_dir_all(&directory);
     }
 }

@@ -51,6 +51,7 @@ impl Editor {
                         } else {
                             config.language_id.clone()
                         },
+                        initialization_options: config.initialization_options.clone(),
                     };
                     using_fallback = true;
                 }
@@ -234,6 +235,13 @@ impl Editor {
                     }
                     self.open_completion(items);
                 }
+                lsp::Event::CommandResponse {
+                    command,
+                    result,
+                    error,
+                } => {
+                    self.handle_lsp_debug_command(&command, result, &error);
+                }
                 lsp::Event::Error { server, message } => {
                     self.pending_code_action_resolve = false;
                     self.set_error(&format!("LSP {server}: {message}"));
@@ -251,6 +259,20 @@ impl Editor {
             && self.lsp_dirty_since.elapsed() >= std::time::Duration::from_millis(150)
         {
             self.sync_lsp_document_now();
+        }
+
+        let debug_deadline = self
+            .pending_debug
+            .as_ref()
+            .map(|pending| (pending.started, pending.timeout));
+        if let Some((started, timeout)) = debug_deadline {
+            if !self.lsp.is_running() {
+                self.pending_debug = None;
+                self.set_error("debug: the language server stopped while starting the debugger");
+            } else if started.elapsed() >= timeout {
+                self.pending_debug = None;
+                self.set_error("debug: timed out waiting for the language server");
+            }
         }
 
         self.poll_dap();
@@ -273,7 +295,7 @@ impl Editor {
         self.lsp_synced_revision = self.doc.revision();
     }
 
-    fn ensure_lsp_ready(&mut self, feature: &str) -> bool {
+    pub(super) fn ensure_lsp_ready(&mut self, feature: &str) -> bool {
         if !self.lsp.is_running() {
             self.set_error("No LSP configured");
             return false;

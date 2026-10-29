@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, IsTerminal, Write};
 
 use super::Registry;
+use crate::dap::DebuggerStart;
 use crate::util::git::command_exists;
 
 pub struct LanguageHealthEntry {
@@ -62,10 +63,15 @@ pub fn build() -> (Vec<LanguageHealthEntry>, Vec<String>) {
         });
 
         let debug_adapter = language.debugger.as_ref().map(|debugger| {
-            (
-                debugger.adapter.clone(),
-                crate::dap::Manager::find_adapter(&debugger.adapter).is_some(),
-            )
+            let available = match &debugger.start {
+                DebuggerStart::Stdio => {
+                    crate::dap::Manager::find_adapter(&debugger.adapter).is_some()
+                }
+                DebuggerStart::Lsp(_) => selected
+                    .as_ref()
+                    .is_some_and(|(_, _, available)| *available),
+            };
+            (debugger.adapter.clone(), available)
         });
 
         entries.push(LanguageHealthEntry {

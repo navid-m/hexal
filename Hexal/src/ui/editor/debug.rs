@@ -11,9 +11,11 @@ use super::lsp_ui::wrap_text;
 use super::*;
 use crate::dap::Event as DapEvent;
 use crate::ui::theme::{Style, is_true_color, rgb};
+use crate::util::json::Value;
 
 const MOUSE_SCROLL_LINES: usize = 3;
 
+#[derive(Clone)]
 struct DapLaunchContext {
     workspace: String,
     file: String,
@@ -21,6 +23,18 @@ struct DapLaunchContext {
     file_name: String,
     file_name_without_extension: String,
     executable: Option<String>,
+}
+
+pub(super) struct PendingDebug {
+    debugger: crate::dap::DebuggerConfig,
+    configuration: Value,
+    start_configuration: Value,
+    context: DapLaunchContext,
+    steps: Vec<crate::dap::LspDebuggerStep>,
+    step_index: usize,
+    bindings: HashMap<String, Value>,
+    pub(super) started: std::time::Instant,
+    pub(super) timeout: std::time::Duration,
 }
 
 impl Editor {
@@ -446,20 +460,165 @@ impl Editor {
             return;
         }
 
-        match self.dap.try_start(
-            debugger.clone(),
+        match debugger.start.clone() {
+            crate::dap::DebuggerStart::Stdio => match self.dap.try_start(
+                debugger.clone(),
+                &source_path,
+                &workspace,
+                configuration,
+                &self.breakpoints,
+            ) {
+                Ok(()) => {
+                    self.dap_status = format!("DBG: starting {}", debugger.adapter);
+                    self.dap_stopped = false;
+                    self.dap_stopped_path.clear();
+                    self.dap_stopped_line = -1;
+                    self.clear_message();
+                    self.set_message(&format!("Debug: starting {}.", debugger.adapter));
+                    self.force_full_redraw = true;
+                }
+                Err(error) => self.set_error(&format!("debug: {error}")),
+            },
+            crate::dap::DebuggerStart::Lsp(start) => {
+                self.begin_lsp_debug(debugger, configuration, context, start);
+            }
+        }
+    }
+
+    fn begin_lsp_debug(
+        &mut self,
+        debugger: crate::dap::DebuggerConfig,
+        configuration: Value,
+        context: DapLaunchContext,
+        start: crate::dap::LspDebuggerStart,
+    ) {
+        if !self.ensure_lsp_ready("debugging") {
+            return;
+        }
+        self.pending_debug = Some(PendingDebug {
+            debugger,
+            configuration,
+            start_configuration: start.configuration,
+            context,
+            steps: start.steps,
+            step_index: 0,
+            bindings: HashMap::new(),
+            started: std::time::Instant::now(),
+            timeout: std::time::Duration::from_millis(start.timeout_ms.max(1)),
+        });
+        self.advance_pending_debug();
+    }
+
+    fn advance_pending_debug(&mut self) {
+        let Some(pending) = &mut self.pending_debug else {
+            return;
+        };
+        let Some(step) = pending.steps.get(pending.step_index).cloned() else {
+            self.pending_debug = None;
+            self.set_error("debug: no debug adapter endpoint was configured");
+            return;
+        };
+        let expanded = match &step.arguments {
+            Some(arguments) => {
+                match resolve_debug_template_value(arguments, &pending.context, &pending.bindings) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        self.pending_debug = None;
+                        self.set_error(&format!("debug: {error}"));
+                        return;
+                    }
+                }
+            }
+            None => None,
+        };
+        self.lsp.execute_command(&step.command, expanded.as_ref());
+        self.set_message(&format!("Debug: waiting for {}...", step.command));
+        self.dap_status = "DBG: starting".into();
+    }
+
+    pub(super) fn handle_lsp_debug_command(&mut self, command: &str, result: Value, error: &str) {
+        let Some(pending) = &mut self.pending_debug else {
+            return;
+        };
+        let Some(step) = pending.steps.get(pending.step_index).cloned() else {
+            self.pending_debug = None;
+            return;
+        };
+        if step.command != command {
+            return;
+        }
+        if !error.is_empty() {
+            self.pending_debug = None;
+            self.set_error(&format!("debug: {command} failed: {error}"));
+            return;
+        }
+
+        let selected = match &step.select {
+            Some(select) => {
+                match select_debug_result(&result, select, &pending.context, &pending.bindings) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        self.pending_debug = None;
+                        self.set_error(&format!("debug: {error}"));
+                        return;
+                    }
+                }
+            }
+            None => result.clone(),
+        };
+        if !step.save.is_empty() {
+            pending.bindings.insert(step.save.clone(), selected.clone());
+        }
+
+        let Some(endpoint) = step.endpoint else {
+            pending.step_index += 1;
+            self.advance_pending_debug();
+            return;
+        };
+        let endpoint = match parse_debug_endpoint(&selected, endpoint) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                self.pending_debug = None;
+                self.set_error(&format!("debug: {error}"));
+                return;
+            }
+        };
+
+        let Some(pending) = self.pending_debug.take() else {
+            return;
+        };
+        let mut launch_configuration = pending.configuration.clone();
+        let start_configuration = match resolve_debug_template_value(
+            &pending.start_configuration,
+            &pending.context,
+            &pending.bindings,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_error(&format!("debug: {error}"));
+                return;
+            }
+        };
+        merge_debug_configuration(&mut launch_configuration, &start_configuration);
+
+        let source_path = normalize_debug_path(&pending.context.file);
+        let workspace = pending.context.workspace.clone();
+        match self.dap.try_start_server(
+            pending.debugger.clone(),
+            &endpoint.host,
+            endpoint.port,
             &source_path,
             &workspace,
-            configuration,
+            launch_configuration,
             &self.breakpoints,
         ) {
             Ok(()) => {
-                self.dap_status = format!("DBG: starting {}", debugger.adapter);
+                self.dap_status = format!("DBG: starting {}", pending.debugger.adapter);
                 self.dap_stopped = false;
                 self.dap_stopped_path.clear();
                 self.dap_stopped_line = -1;
                 self.clear_message();
-                self.set_message(&format!("Debug: starting {}.", debugger.adapter));
+                self.set_message(&format!("Debug: starting {}.", pending.debugger.adapter));
                 self.force_full_redraw = true;
             }
             Err(error) => self.set_error(&format!("debug: {error}")),
@@ -1106,15 +1265,18 @@ fn try_resolve_dap_node(
 }
 
 fn resolve_dap_string(text: &str, context: &DapLaunchContext) -> Result<String, String> {
+    let file_uri = crate::lsp::manager::path_to_uri(&context.file, false).unwrap_or_default();
     let mut resolved = text
         .replace("${workspace}", &context.workspace)
         .replace("${file}", &context.file)
+        .replace("${fileUri}", &file_uri)
         .replace("${fileDir}", &context.file_directory)
         .replace("${fileBasename}", &context.file_name)
         .replace(
             "${fileBasenameNoExtension}",
             &context.file_name_without_extension,
-        );
+        )
+        .replace("${fileStem}", &context.file_name_without_extension);
 
     if !resolved.contains("${executable}") {
         return Ok(resolved);
@@ -1127,6 +1289,243 @@ fn resolve_dap_string(text: &str, context: &DapLaunchContext) -> Result<String, 
     };
     resolved = resolved.replace("${executable}", executable);
     Ok(resolved)
+}
+
+fn resolve_debug_template_value(
+    value: &crate::util::json::Value,
+    context: &DapLaunchContext,
+    bindings: &HashMap<String, crate::util::json::Value>,
+) -> Result<crate::util::json::Value, String> {
+    let mut value = value.clone();
+    resolve_debug_template_node(&mut value, context, bindings)?;
+    Ok(value)
+}
+
+fn resolve_debug_template_node(
+    value: &mut crate::util::json::Value,
+    context: &DapLaunchContext,
+    bindings: &HashMap<String, crate::util::json::Value>,
+) -> Result<(), String> {
+    use crate::util::json::Value;
+    match value {
+        Value::String(text) => {
+            if let Some(bound) = exact_binding(text, bindings) {
+                *value = bound;
+            } else {
+                *text = resolve_debug_template_string(text, context, bindings)?;
+            }
+            Ok(())
+        }
+        Value::Array(values) => {
+            for value in values {
+                resolve_debug_template_node(value, context, bindings)?;
+            }
+            Ok(())
+        }
+        Value::Object(entries) => {
+            for (_, value) in entries {
+                resolve_debug_template_node(value, context, bindings)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn resolve_debug_template_string(
+    text: &str,
+    context: &DapLaunchContext,
+    bindings: &HashMap<String, crate::util::json::Value>,
+) -> Result<String, String> {
+    let resolved = resolve_dap_string(text, context)?;
+    let mut output = String::with_capacity(resolved.len());
+    let mut rest = resolved.as_str();
+    while let Some(start) = rest.find("${") {
+        output.push_str(&rest[..start]);
+        let Some(end) = rest[start + 2..].find('}') else {
+            output.push_str(&rest[start..]);
+            return Ok(output);
+        };
+        let name = &rest[start + 2..start + 2 + end];
+        if let Some(value) = lookup_binding(bindings, name) {
+            output.push_str(&debug_value_text(value));
+        } else {
+            output.push_str(&rest[start..start + 2 + end + 1]);
+        }
+        rest = &rest[start + 2 + end + 1..];
+    }
+    output.push_str(rest);
+    Ok(output)
+}
+
+fn exact_binding(
+    text: &str,
+    bindings: &HashMap<String, crate::util::json::Value>,
+) -> Option<crate::util::json::Value> {
+    let name = text.strip_prefix("${")?.strip_suffix('}')?;
+    if name.contains(['{', '}']) {
+        return None;
+    }
+    lookup_binding(bindings, name).cloned()
+}
+
+fn lookup_binding<'a>(
+    bindings: &'a HashMap<String, crate::util::json::Value>,
+    path: &str,
+) -> Option<&'a crate::util::json::Value> {
+    let mut parts = path.split('.');
+    let mut value = bindings.get(parts.next()?)?;
+    for part in parts {
+        value = if let Ok(index) = part.parse::<usize>() {
+            value.as_array()?.get(index)?
+        } else {
+            value.get(part)?
+        };
+    }
+    Some(value)
+}
+
+fn debug_value_text(value: &crate::util::json::Value) -> String {
+    use crate::util::json::Value;
+    match value {
+        Value::Null => String::new(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => {
+            if value.fract() == 0.0 {
+                format!("{}", *value as i64)
+            } else {
+                value.to_string()
+            }
+        }
+        Value::String(value) => value.clone(),
+        _ => crate::util::json::to_string(value, false),
+    }
+}
+
+fn select_debug_result(
+    result: &crate::util::json::Value,
+    select: &crate::dap::LspDebuggerSelect,
+    context: &DapLaunchContext,
+    bindings: &HashMap<String, crate::util::json::Value>,
+) -> Result<crate::util::json::Value, String> {
+    let items = result.as_array().ok_or_else(|| {
+        format!(
+            "expected an array from the language server for select.field '{}'",
+            select.field
+        )
+    })?;
+    let equals = select
+        .equals
+        .as_ref()
+        .map(|value| resolve_debug_template_string(value, context, bindings))
+        .transpose()?;
+    let suffix = select
+        .suffix
+        .as_ref()
+        .map(|value| resolve_debug_template_string(value, context, bindings))
+        .transpose()?;
+    let mut fallback = None;
+    for item in items {
+        fallback.get_or_insert(item.clone());
+        let Some(field) = item.get(&select.field).and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if equals.as_ref().is_some_and(|equals| field != equals) {
+            continue;
+        }
+        if suffix
+            .as_ref()
+            .is_some_and(|suffix| !field.ends_with(suffix))
+        {
+            continue;
+        }
+        return Ok(item.clone());
+    }
+    fallback.ok_or_else(|| {
+        format!(
+            "the language server returned no entries with field '{}'",
+            select.field
+        )
+    })
+}
+
+struct DebugEndpoint {
+    host: String,
+    port: u16,
+}
+
+fn parse_debug_endpoint(
+    result: &crate::util::json::Value,
+    endpoint: crate::dap::LspDebuggerEndpoint,
+) -> Result<DebugEndpoint, String> {
+    use crate::dap::LspDebuggerEndpoint;
+    match endpoint {
+        LspDebuggerEndpoint::Port => {
+            let port = result
+                .as_i64()
+                .and_then(|port| u16::try_from(port).ok())
+                .or_else(|| result.as_str().and_then(|port| port.trim().parse().ok()))
+                .or_else(|| {
+                    result
+                        .get("port")
+                        .and_then(|port| port.as_i64())
+                        .and_then(|port| u16::try_from(port).ok())
+                })
+                .ok_or_else(|| "the language server returned an invalid debug port".to_string())?;
+            Ok(DebugEndpoint {
+                host: "127.0.0.1".into(),
+                port,
+            })
+        }
+        LspDebuggerEndpoint::Uri => {
+            let uri = result
+                .as_str()
+                .or_else(|| result.get("uri").and_then(|uri| uri.as_str()))
+                .or_else(|| {
+                    result
+                        .get("result")
+                        .and_then(|result| result.get("uri"))
+                        .and_then(|uri| uri.as_str())
+                })
+                .ok_or_else(|| "the language server returned no debug adapter URI".to_string())?;
+            let (host, port) = uri
+                .rsplit_once(':')
+                .ok_or_else(|| format!("invalid debug adapter URI '{uri}'"))?;
+            let host = host
+                .rsplit_once("://")
+                .map(|(_, host)| host)
+                .unwrap_or(host)
+                .trim_matches(['[', ']', '/']);
+            let port = port
+                .trim_end_matches('/')
+                .parse::<u16>()
+                .map_err(|_| format!("invalid debug adapter URI '{uri}'"))?;
+            Ok(DebugEndpoint {
+                host: if host.is_empty() {
+                    "127.0.0.1".into()
+                } else {
+                    host.to_string()
+                },
+                port,
+            })
+        }
+    }
+}
+
+fn merge_debug_configuration(
+    base: &mut crate::util::json::Value,
+    extra: &crate::util::json::Value,
+) {
+    use crate::util::json::Value;
+    let Value::Object(extra) = extra else {
+        return;
+    };
+    if !matches!(base, Value::Object(_)) {
+        *base = Value::Object(Vec::new());
+    }
+    for (key, value) in extra {
+        base.set(key, value.clone());
+    }
 }
 
 fn normalize_debug_path(path: &str) -> String {
@@ -1230,5 +1629,109 @@ mod tests {
         };
         let error = try_resolve_dap_node(&mut unresolved, &context).unwrap_err();
         assert!(error.contains("use :debug <program>"));
+    }
+
+    fn debug_context() -> DapLaunchContext {
+        DapLaunchContext {
+            workspace: "/work".into(),
+            file: "/work/src/Main.java".into(),
+            file_directory: "/work/src".into(),
+            file_name: "Main.java".into(),
+            file_name_without_extension: "Main".into(),
+            executable: None,
+        }
+    }
+
+    #[test]
+    fn expands_lsp_command_bindings_and_preserves_non_strings() {
+        let bindings = HashMap::from([
+            (
+                "main".to_string(),
+                json::parse(r#"{"mainClass":"com.example.Main","projectName":"demo"}"#).unwrap(),
+            ),
+            (
+                "classpath".to_string(),
+                json::parse(r#"[["/modules"],["/a.jar","/b.jar"]]"#).unwrap(),
+            ),
+        ]);
+        let input = json::parse(
+            r#"{
+                "mainClass": "${main.mainClass}",
+                "projectName": "${main.projectName}",
+                "modulePaths": "${classpath.0}",
+                "classPaths": "${classpath.1}",
+                "file": "${file}",
+                "uri": "${fileUri}",
+                "stem": "${fileStem}"
+            }"#,
+        )
+        .unwrap();
+        let resolved = resolve_debug_template_value(&input, &debug_context(), &bindings).unwrap();
+        assert_eq!(
+            resolved.get("mainClass").and_then(Value::as_str),
+            Some("com.example.Main")
+        );
+        assert_eq!(
+            resolved.get("projectName").and_then(Value::as_str),
+            Some("demo")
+        );
+        let module_paths = resolved
+            .get("modulePaths")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(module_paths.len(), 1);
+        assert_eq!(module_paths[0].as_str(), Some("/modules"));
+        let class_paths = resolved
+            .get("classPaths")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(class_paths.len(), 2);
+        assert_eq!(class_paths[1].as_str(), Some("/b.jar"));
+        assert_eq!(
+            resolved.get("file").and_then(Value::as_str),
+            Some("/work/src/Main.java")
+        );
+        assert!(
+            resolved
+                .get("uri")
+                .and_then(Value::as_str)
+                .is_some_and(|uri| uri.starts_with("file:"))
+        );
+        assert_eq!(resolved.get("stem").and_then(Value::as_str), Some("Main"));
+    }
+
+    #[test]
+    fn selects_debug_entries_by_suffix_and_parses_endpoints() {
+        let select = crate::dap::LspDebuggerSelect {
+            field: "mainClass".into(),
+            equals: None,
+            suffix: Some("${fileStem}".into()),
+        };
+        let result = json::parse(
+            r#"[{"mainClass":"com.other.Other","projectName":"other"},{"mainClass":"com.example.Main","projectName":"demo"}]"#,
+        )
+        .unwrap();
+        let selected =
+            select_debug_result(&result, &select, &debug_context(), &HashMap::new()).unwrap();
+        assert_eq!(
+            selected.get("mainClass").and_then(Value::as_str),
+            Some("com.example.Main")
+        );
+
+        let endpoint = parse_debug_endpoint(
+            &json::parse("12345").unwrap(),
+            crate::dap::LspDebuggerEndpoint::Port,
+        )
+        .unwrap();
+        assert_eq!(endpoint.host, "127.0.0.1");
+        assert_eq!(endpoint.port, 12345);
+
+        let endpoint = parse_debug_endpoint(
+            &json::parse(r#"{"uri":"tcp://127.0.0.1:63343","name":"demo"}"#).unwrap(),
+            crate::dap::LspDebuggerEndpoint::Uri,
+        )
+        .unwrap();
+        assert_eq!(endpoint.host, "127.0.0.1");
+        assert_eq!(endpoint.port, 63343);
     }
 }

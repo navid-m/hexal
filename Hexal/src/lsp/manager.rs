@@ -20,6 +20,7 @@ pub struct ServerConfig {
     pub command: String,
     pub arguments: Vec<String>,
     pub language_id: String,
+    pub initialization_options: Value,
 }
 
 #[derive(Clone, Debug)]
@@ -126,6 +127,11 @@ pub enum Event {
         request_id: i64,
         items: Vec<CompletionItem>,
     },
+    CommandResponse {
+        command: String,
+        result: Value,
+        error: String,
+    },
 }
 
 enum Incoming {
@@ -153,6 +159,7 @@ pub struct Manager {
     workspace_diagnostics_supported: bool,
     completion_triggers: HashSet<String>,
     pending: HashMap<i64, String>,
+    pending_commands: HashMap<i64, String>,
     diagnostics: HashMap<String, Vec<Diagnostic>>,
     log: VecDeque<String>,
     dropped_log: usize,
@@ -180,6 +187,7 @@ impl Default for Manager {
             workspace_diagnostics_supported: false,
             completion_triggers: HashSet::new(),
             pending: HashMap::new(),
+            pending_commands: HashMap::new(),
             diagnostics: HashMap::new(),
             log: VecDeque::new(),
             dropped_log: 0,
@@ -320,6 +328,7 @@ impl Manager {
         self.workspace_diagnostics_supported = false;
         self.completion_triggers.clear();
         self.pending.clear();
+        self.pending_commands.clear();
         self.diagnostics.clear();
         self.current_text = text.to_string();
         self.config = Some(config.clone());
@@ -439,6 +448,7 @@ impl Manager {
         self.current_text = text.to_string();
         self.version = 1;
         self.pending.clear();
+        self.pending_commands.clear();
 
         if self.initialized {
             self.send_notification("textDocument/didOpen", self.did_open_params());
@@ -690,7 +700,7 @@ impl Manager {
         if command.is_empty() || self.child.is_none() || !self.initialized {
             return;
         }
-        self.send_request(
+        let request_id = self.send_request(
             "workspace/executeCommand",
             object(vec![
                 ("command", string(command)),
@@ -700,6 +710,8 @@ impl Manager {
                 ),
             ]),
         );
+        self.pending_commands
+            .insert(request_id, command.to_string());
     }
 
     /// Drains incoming traffic and returns true when the screen should repaint.
@@ -842,6 +854,25 @@ impl Manager {
     }
 
     fn handle_response(&mut self, method: &str, message: &Value, request_id: i64) {
+        if method == "workspace/executeCommand" {
+            let command = self
+                .pending_commands
+                .remove(&request_id)
+                .unwrap_or_default();
+            let error = message
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            self.events.push(Event::CommandResponse {
+                command,
+                result: message.get("result").cloned().unwrap_or(Value::Null),
+                error,
+            });
+            return;
+        }
+
         if let Some(error) = message.get("error") {
             let text = error
                 .get("message")
@@ -981,6 +1012,13 @@ impl Manager {
                     ("uri", string(&self.root_uri)),
                     ("name", string(&workspace_name)),
                 ])]),
+            ),
+            (
+                "initializationOptions",
+                self.config
+                    .as_ref()
+                    .map(|config| config.initialization_options.clone())
+                    .unwrap_or(Value::Object(Vec::new())),
             ),
             (
                 "capabilities",
@@ -1162,6 +1200,7 @@ impl Manager {
         self.current_text.clear();
         self.document_uri.clear();
         self.pending.clear();
+        self.pending_commands.clear();
         self.diagnostics.clear();
         self.events.push(Event::Stopped);
     }
@@ -1832,6 +1871,7 @@ fn display_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Event, Manager, ServerConfig, path_to_uri};
+    use crate::util::json::Value;
     use std::fs;
     use std::time::{Duration, Instant};
 
@@ -1920,6 +1960,7 @@ while True:
                     command: "python3".into(),
                     arguments: vec![server.to_string_lossy().into_owned()],
                     language_id: "rust".into(),
+                    initialization_options: Value::Object(Vec::new()),
                 },
                 &path,
                 "fn main() {}\n",
@@ -1992,6 +2033,25 @@ while True:
         assert_eq!(actions, 1);
         assert!(manager.is_serving(&path));
         assert_eq!(manager.uri_for_test(), uri);
+
+        manager.execute_command("test.command", None);
+        let mut command_response = false;
+        for _ in 0..100 {
+            manager.poll(Duration::from_millis(5));
+            for event in manager.take_events() {
+                if let Event::CommandResponse { command, error, .. } = event {
+                    if command == "test.command" {
+                        assert!(error.is_empty());
+                        command_response = true;
+                    }
+                }
+            }
+            if command_response {
+                break;
+            }
+        }
+        assert!(command_response, "no executeCommand response event");
+
         manager.stop();
         let _ = fs::remove_dir_all(&dir);
     }
@@ -2051,6 +2111,7 @@ time.sleep(3)
                     command: "python3".into(),
                     arguments: vec![server.to_string_lossy().into_owned()],
                     language_id: "rust".into(),
+                    initialization_options: Value::Object(Vec::new()),
                 },
                 &path,
                 "fn main() {}\n",

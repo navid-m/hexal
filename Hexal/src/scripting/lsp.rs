@@ -34,6 +34,7 @@ pub struct LspRequest {
     pub command: String,
     pub args: Vec<String>,
     pub language_id: String,
+    pub initialization_options: Value,
 }
 
 #[derive(Clone, Debug)]
@@ -1770,11 +1771,21 @@ fn bind_server(lua: &Lua, lsp: &Table, coordinator: &Rc<RefCell<Coordinator>>) -
             if command.trim().is_empty() {
                 return Ok(false);
             }
+            let initialization_options = if let Ok(Some(value)) =
+                config.get::<Option<Table>>("initialization_options")
+            {
+                from_table(&coordinator, &value)
+            } else if let Ok(Some(value)) = config.get::<Option<Table>>("initializationOptions") {
+                from_table(&coordinator, &value)
+            } else {
+                Value::Object(Vec::new())
+            };
             let request = LspRequest {
                 name: table_string(&config, "name").unwrap_or_else(|| command.clone()),
                 command: command.clone(),
                 args: string_array(&config, "args"),
                 language_id: table_string(&config, "language_id").unwrap_or_default(),
+                initialization_options,
             };
             coordinator.borrow_mut().external_requests.push(request);
             Ok(true)

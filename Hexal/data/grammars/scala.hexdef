@@ -124,5 +124,31 @@
     "input": "stdin",
     "output": "stdout",
     "timeout": 30000
+  },
+  "debugger": {
+    "adapter": "metals",
+    "start": {
+      "type": "lsp",
+      "timeout": 120000,
+      "steps": [
+        {
+          "command": "metals.debug-adapter-start",
+          "arguments": {
+            "path": "${fileUri}",
+            "runType": "run"
+          },
+          "endpoint": "uri"
+        }
+      ],
+      "configuration": {
+        "name": "Hexal",
+        "noDebug": false
+      }
+    },
+    "configuration": {
+      "type": "scala",
+      "request": "launch",
+      "cwd": "${workspace}"
+    }
   }
 }

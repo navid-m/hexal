@@ -798,6 +798,7 @@ pub struct Editor {
     problems_workspace: bool,
 
     dap: crate::dap::Manager,
+    pending_debug: Option<debug::PendingDebug>,
     breakpoints: BTreeMap<String, BTreeSet<usize>>,
     dap_status: String,
     dap_stopped_path: String,
@@ -962,6 +963,7 @@ impl Editor {
             lsp_debug_lines: Vec::new(),
             problems_workspace: false,
             dap: crate::dap::Manager::new(),
+            pending_debug: None,
             breakpoints: BTreeMap::new(),
             dap_status: String::new(),
             dap_stopped_path: String::new(),

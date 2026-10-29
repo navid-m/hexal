@@ -9,7 +9,10 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
-use crate::dap::DebuggerConfig;
+use crate::dap::{
+    DebuggerConfig, DebuggerStart, LspDebuggerEndpoint, LspDebuggerSelect, LspDebuggerStart,
+    LspDebuggerStep,
+};
 use crate::ui::theme::SyntaxKind;
 use crate::util::json::{self, Value};
 
@@ -694,10 +697,139 @@ fn parse_debugger(element: &Value) -> Result<Option<DebuggerConfig>, String> {
         }
         configuration = value.clone();
     }
+    let start = parse_debugger_start(value)?;
     Ok(Some(DebuggerConfig {
         adapter,
         arguments: string_array(value, "arguments"),
         configuration,
+        start,
+    }))
+}
+
+fn parse_debugger_start(element: &Value) -> Result<DebuggerStart, String> {
+    let Some(start) = element.get("start") else {
+        return Ok(DebuggerStart::Stdio);
+    };
+    if let Some(kind) = start.as_str() {
+        if kind.eq_ignore_ascii_case("stdio") {
+            return Ok(DebuggerStart::Stdio);
+        }
+        return Err(format!(
+            "debugger.start type must be 'stdio' or an object, got '{kind}'"
+        ));
+    }
+    if !matches!(start, Value::Object(_)) {
+        return Err("debugger.start must be a JSON object or 'stdio'".into());
+    }
+
+    let kind = string_value(start.get("type")).unwrap_or_else(|| "lsp".into());
+    if !kind.eq_ignore_ascii_case("lsp") {
+        return Err(format!("debugger.start.type must be 'lsp', got '{kind}'"));
+    }
+
+    let step_values = start
+        .get("steps")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "debugger.start.steps must be a JSON array".to_string())?;
+    if step_values.is_empty() {
+        return Err("debugger.start.steps must not be empty".into());
+    }
+
+    let mut steps = Vec::with_capacity(step_values.len());
+    for (index, step) in step_values.iter().enumerate() {
+        if !matches!(step, Value::Object(_)) {
+            return Err(format!(
+                "debugger.start.steps[{index}] must be a JSON object"
+            ));
+        }
+        let command = string_value(step.get("command"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if command.is_empty() {
+            return Err(format!("debugger.start.steps[{index}].command is required"));
+        }
+        let endpoint = match string_value(step.get("endpoint"))
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "" => None,
+            "port" => Some(LspDebuggerEndpoint::Port),
+            "uri" => Some(LspDebuggerEndpoint::Uri),
+            other => {
+                return Err(format!(
+                    "debugger.start.steps[{index}].endpoint must be 'port' or 'uri', got '{other}'"
+                ));
+            }
+        };
+        let select = match step.get("select") {
+            None => None,
+            Some(value) if matches!(value, Value::Object(_)) => {
+                let field = string_value(value.get("field"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if field.is_empty() {
+                    return Err(format!(
+                        "debugger.start.steps[{index}].select.field is required"
+                    ));
+                }
+                Some(LspDebuggerSelect {
+                    field,
+                    equals: string_value(value.get("equals")),
+                    suffix: string_value(value.get("suffix")),
+                })
+            }
+            Some(_) => {
+                return Err(format!(
+                    "debugger.start.steps[{index}].select must be a JSON object"
+                ));
+            }
+        };
+        steps.push(LspDebuggerStep {
+            command,
+            arguments: step.get("arguments").cloned(),
+            save: string_value(step.get("save"))
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            select,
+            endpoint,
+        });
+    }
+
+    if steps.last().and_then(|step| step.endpoint).is_none() {
+        return Err("the last debugger.start step must define an endpoint".into());
+    }
+    if steps
+        .iter()
+        .take(steps.len() - 1)
+        .any(|step| step.endpoint.is_some())
+    {
+        return Err("only the last debugger.start step may define an endpoint".into());
+    }
+
+    let configuration = match start.get("configuration") {
+        None => Value::Object(Vec::new()),
+        Some(value) if matches!(value, Value::Object(_)) => value.clone(),
+        Some(_) => {
+            return Err("debugger.start.configuration must be a JSON object".into());
+        }
+    };
+    let timeout_ms = match start.get("timeout") {
+        Some(Value::Number(value)) if *value > 0.0 => *value as u64,
+        Some(_) => {
+            return Err("debugger.start.timeout must be a positive number of milliseconds".into());
+        }
+        None => 30_000,
+    };
+
+    Ok(DebuggerStart::Lsp(LspDebuggerStart {
+        steps,
+        configuration,
+        timeout_ms,
     }))
 }
 

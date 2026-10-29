@@ -202,6 +202,7 @@ impl Editor {
                 command: request.command,
                 arguments: request.args,
                 language_id: request.language_id,
+                initialization_options: request.initialization_options,
             });
         }
         self.plugins = Some(manager);
