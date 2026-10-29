@@ -299,10 +299,31 @@ impl Editor {
         if (self.mode != Mode::Select && !self.command_selection) || rows == 0 {
             return;
         }
-        let (range_start, range_end) = self.selection_range();
-        if range_end <= range_start {
-            return;
+        for selection in self.capture_all_selections() {
+            let (range_start, range_end) =
+                self.selection_range_of(selection.anchor, selection.cursor, selection.linewise);
+            if range_end > range_start {
+                self.render_selection_range(
+                    range_start,
+                    range_end,
+                    selection.linewise,
+                    first_line,
+                    rows,
+                    gutter,
+                );
+            }
         }
+    }
+
+    fn render_selection_range(
+        &mut self,
+        range_start: usize,
+        range_end: usize,
+        linewise: bool,
+        first_line: usize,
+        rows: usize,
+        gutter: usize,
+    ) {
         let style = self.theme.selection_style();
 
         for row in 0..rows {
@@ -318,7 +339,7 @@ impl Editor {
                 self.doc.size()
             };
 
-            if self.selection_linewise {
+            if linewise {
                 if range_start < next_line_start && range_end > line_start {
                     for x in gutter..self.cols {
                         self.screen.apply_style(x, row, style);
@@ -362,19 +383,19 @@ impl Editor {
         let match_style = self.theme.match_style();
         let current_style = self.theme.current_match_style();
 
-        for (index, &(start, end)) in self.find.matches.iter().enumerate() {
-            let line = self.doc.line_of_offset(start);
+        for (index, match_) in self.find.matches.iter().enumerate() {
+            let line = match_.line;
             if line < first_line || line >= first_line + rows {
                 continue;
             }
             let line_start = self.doc.line_start(line);
             let line_end = self.doc.line_end(line);
-            if start > line_end {
+            if match_.start > line_end {
                 continue;
             }
             let text = self.doc.line_text(line);
-            let local_from = (start - line_start).min(text.len());
-            let local_to = (end - line_start).min(text.len());
+            let local_from = (match_.start - line_start).min(text.len());
+            let local_to = (match_.end - line_start).min(text.len());
             if local_to <= local_from {
                 continue;
             }
@@ -399,11 +420,20 @@ impl Editor {
     }
 
     pub(super) fn render_cursor(&mut self, first_line: usize, rows: usize, gutter: usize) {
-        let line = self.cursor_line();
+        for selection in self.capture_all_selections() {
+            self.render_cursor_at(selection.cursor, first_line, rows, gutter);
+        }
+    }
+
+    fn render_cursor_at(&mut self, cursor: usize, first_line: usize, rows: usize, gutter: usize) {
+        let line = self.doc.line_of_offset(cursor);
         if line < first_line || line >= first_line + rows {
             return;
         }
-        let column = self.cursor_visual_column();
+        let start = self.doc.line_start(line);
+        let text = self.doc.line_text(line);
+        let local = cursor.saturating_sub(start).min(text.len());
+        let column = util::visual_column(&text, local, self.doc.tab_width().max(1));
         if column < self.left_column {
             return;
         }
@@ -868,62 +898,195 @@ impl Editor {
             return;
         }
         let available = self.status_row();
-        let height = 4usize;
+        let height = if self.find.replace { 6usize } else { 4usize };
         let width = self.cols.saturating_sub(2).min(72);
         if available < height + 1 || self.cols < 20 || width < 20 {
             return;
         }
         let x = (self.cols - width) / 2;
         let y = available - height;
-        self.draw_box(x, y, width, height, "Find");
+        let title = if self.find.replace {
+            "Regex replace"
+        } else if self.find.regex {
+            "Regex find"
+        } else if self.find.multi_cursor {
+            if self.find.scope.is_empty() {
+                "Find (multi-cursor)"
+            } else {
+                "Find in selection (multi-cursor)"
+            }
+        } else {
+            "Find"
+        };
+        self.draw_box(x, y, width, height, title);
 
-        self.screen.put(
-            (x + 2) as i64,
-            (y + 1) as i64,
-            '>',
-            self.theme.accent_style(),
-            1,
-        );
-        let query_width = width.saturating_sub(6);
-        self.screen.put_str(
-            (x + 4) as i64,
-            (y + 1) as i64,
-            &self.find.query,
-            self.theme.text(),
-            query_width,
-        );
-        if self.find.editing {
-            let column = util::visual_column(self.find.query.as_bytes(), self.find.query.len(), 1);
-            if column < query_width {
-                let cursor_x = x + 4 + column;
-                if cursor_x < x + width - 1 {
-                    let mut style = self.screen.at(cursor_x, y + 1).style;
-                    style.reverse = true;
-                    self.screen.apply_style(cursor_x, y + 1, style);
+        let prompt_style = self.theme.accent_style();
+        let muted_style = self.theme.muted_style();
+        let text_style = self.theme.text();
+        let query = self.find.query.clone();
+        let replacement = self.find.replacement.clone();
+
+        if !self.find.replace {
+            self.screen
+                .put((x + 2) as i64, (y + 1) as i64, '>', prompt_style, 1);
+            let query_width = width.saturating_sub(5);
+            self.screen.put_str(
+                (x + 4) as i64,
+                (y + 1) as i64,
+                &query,
+                text_style,
+                query_width,
+            );
+            if self.find.editing {
+                self.render_find_cursor(x + 4, y + 1, &query, self.find.query_cursor, query_width);
+            }
+        } else {
+            let label_width = 9usize;
+            let field_x = x + 2 + label_width;
+            let field_width = width.saturating_sub(label_width + 4);
+            let find_label_style = if self.find.editing_replacement {
+                muted_style
+            } else {
+                prompt_style
+            };
+            let replace_label_style = if self.find.editing_replacement {
+                prompt_style
+            } else {
+                muted_style
+            };
+
+            self.screen.put_str(
+                (x + 2) as i64,
+                (y + 1) as i64,
+                "Find",
+                find_label_style,
+                label_width,
+            );
+            self.screen.put_str(
+                field_x as i64,
+                (y + 1) as i64,
+                &query,
+                text_style,
+                field_width,
+            );
+            self.screen.put_str(
+                (x + 2) as i64,
+                (y + 2) as i64,
+                "Replace",
+                replace_label_style,
+                label_width,
+            );
+            self.screen.put_str(
+                field_x as i64,
+                (y + 2) as i64,
+                &replacement,
+                text_style,
+                field_width,
+            );
+
+            if self.find.editing {
+                if self.find.editing_replacement {
+                    self.render_find_cursor(
+                        field_x,
+                        y + 2,
+                        &replacement,
+                        self.find.replacement_cursor,
+                        field_width,
+                    );
+                } else {
+                    self.render_find_cursor(
+                        field_x,
+                        y + 1,
+                        &query,
+                        self.find.query_cursor,
+                        field_width,
+                    );
                 }
             }
         }
 
-        let status = if self.find.query.is_empty() {
-            "Type to search".to_string()
+        let mut status_style = self.theme.accent_style();
+        let status = if !self.find.error.is_empty() {
+            status_style = self.theme.error_style();
+            self.find.error.clone()
+        } else if query.is_empty() {
+            if self.find.regex {
+                "Type a regular expression".to_string()
+            } else {
+                "Type to search".to_string()
+            }
         } else if self.find.matches.is_empty() {
             "No matches".to_string()
-        } else if let Some(index) = self.find.index {
-            format!(
-                "{}/{} matches  Enter: navigate  n/p: next/previous  Esc: cancel",
-                index + 1,
-                self.find.matches.len()
-            )
         } else {
-            "matches".to_string()
+            let position = self.find.index.unwrap_or(0) + 1;
+            if self.find.replace {
+                format!("{position}/{} matches", self.find.matches.len())
+            } else {
+                let enter_hint = if self.find.multi_cursor {
+                    "Enter: select all"
+                } else {
+                    "Enter: navigate"
+                };
+                if self.find.editing {
+                    format!(
+                        "{position}/{} matches  {enter_hint}  Esc: cancel",
+                        self.find.matches.len()
+                    )
+                } else {
+                    format!(
+                        "{position}/{} matches  n: next  p: previous  Esc: exit",
+                        self.find.matches.len()
+                    )
+                }
+            }
         };
-        self.screen.put_str(
-            (x + 2) as i64,
-            (y + 2) as i64,
-            &status,
-            self.theme.accent_style(),
-            width.saturating_sub(4),
-        );
+
+        if self.find.replace {
+            self.screen.put_str(
+                (x + 2) as i64,
+                (y + 3) as i64,
+                &status,
+                status_style,
+                width.saturating_sub(4),
+            );
+            let hint = if self.find.error.is_empty() {
+                "Tab: switch  Enter: replace  Ctrl+A: replace all  Esc: close"
+            } else {
+                "Esc: close"
+            };
+            self.screen.put_str(
+                (x + 2) as i64,
+                (y + 4) as i64,
+                hint,
+                muted_style,
+                width.saturating_sub(4),
+            );
+        } else {
+            self.screen.put_str(
+                (x + 2) as i64,
+                (y + 2) as i64,
+                &status,
+                status_style,
+                width.saturating_sub(4),
+            );
+        }
+    }
+
+    fn render_find_cursor(&mut self, x: usize, y: usize, text: &str, cursor: usize, width: usize) {
+        if width == 0 {
+            return;
+        }
+        let column = util::visual_column(text.as_bytes(), cursor.min(text.len()), 1);
+        if column >= width {
+            return;
+        }
+        let cursor_x = x + column;
+        if cursor_x >= x + width || cursor_x >= self.cols {
+            return;
+        }
+        let mut style = self.screen.at(cursor_x, y).style;
+        style.reverse = true;
+        self.screen.apply_style(cursor_x, y, style);
     }
 
     pub(super) fn render_help(&mut self) {

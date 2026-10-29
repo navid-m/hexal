@@ -35,7 +35,10 @@ impl Editor {
         }
 
         let selecting = self.mode == Mode::Select;
-        let touched = self.touched_lines(selecting);
+        let mut touched = BTreeSet::new();
+        for selection in self.capture_all_selections() {
+            self.add_touched_lines(&mut touched, selection, selecting);
+        }
         if touched.is_empty() {
             return;
         }
@@ -54,23 +57,27 @@ impl Editor {
         self.clear_message();
     }
 
-    fn touched_lines(&self, selecting: bool) -> BTreeSet<usize> {
-        let mut lines = BTreeSet::new();
-        if !selecting || self.anchor == self.cursor {
-            lines.insert(self.cursor_line());
-            return lines;
+    pub(super) fn add_touched_lines(
+        &self,
+        lines: &mut BTreeSet<usize>,
+        selection: Selection,
+        selecting: bool,
+    ) {
+        if !selecting || selection.anchor == selection.cursor {
+            lines.insert(self.doc.line_of_offset(selection.cursor));
+            return;
         }
 
-        let start = self.anchor.min(self.cursor);
-        let end = self.anchor.max(self.cursor);
-        let (first, last) = if self.selection_linewise {
+        let start = selection.anchor.min(selection.cursor);
+        let end = selection.anchor.max(selection.cursor);
+        let (first, last) = if selection.linewise {
             (
                 self.doc
-                    .line_of_offset(self.anchor)
-                    .min(self.doc.line_of_offset(self.cursor)),
+                    .line_of_offset(selection.anchor)
+                    .min(self.doc.line_of_offset(selection.cursor)),
                 self.doc
-                    .line_of_offset(self.anchor)
-                    .max(self.doc.line_of_offset(self.cursor)),
+                    .line_of_offset(selection.anchor)
+                    .max(self.doc.line_of_offset(selection.cursor)),
             )
         } else {
             (
@@ -85,7 +92,6 @@ impl Editor {
         for line in first..=last {
             lines.insert(line);
         }
-        lines
     }
 
     fn toggle_line_comments(&mut self, lines: &BTreeSet<usize>, marker: &str) {
@@ -180,14 +186,30 @@ impl Editor {
             return;
         }
         changes.sort_by(|left, right| right.0.cmp(&left.0));
+        let mut selections = self.capture_all_selections();
+        self.doc.begin_composite_edit();
         for (offset, remove, insert) in changes {
             if remove == 0 && insert.is_empty() {
                 continue;
             }
-            self.cursor = adjust_offset(self.cursor, offset, remove, insert.len());
-            self.anchor = adjust_offset(self.anchor, offset, remove, insert.len());
+            for selection in &mut selections {
+                selection.cursor = super::multicursor::adjust_offset(
+                    selection.cursor,
+                    offset,
+                    remove,
+                    insert.len(),
+                );
+                selection.anchor = super::multicursor::adjust_offset(
+                    selection.anchor,
+                    offset,
+                    remove,
+                    insert.len(),
+                );
+            }
             self.doc.replace(offset, remove, &insert);
         }
+        self.doc.end_composite_edit();
+        self.set_selections(selections);
         self.snap_cursor();
         self.doc.break_undo_group();
     }
@@ -254,16 +276,6 @@ impl Editor {
         self.snap_cursor();
         self.set_message("Removed comments from the selection.");
     }
-}
-
-fn adjust_offset(position: usize, offset: usize, removed: usize, inserted: usize) -> usize {
-    if position < offset {
-        return position;
-    }
-    if position >= offset + removed {
-        return position + inserted - removed;
-    }
-    offset + (position - offset).min(inserted)
 }
 
 fn indent_length(text: &[u8]) -> usize {

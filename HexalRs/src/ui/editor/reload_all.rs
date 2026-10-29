@@ -96,6 +96,7 @@ impl Editor {
             pane.find.editing = false;
             pane.find.matches.clear();
             pane.find.index = None;
+            pane.extra_selections.clear();
             pane.preferred_column = None;
             pane.highlighter = Highlighter::default();
             pane.git_diff = diff_lines::DiffLineState::new();

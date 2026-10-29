@@ -49,6 +49,7 @@ pub struct Document {
     group_open: bool,
     group_kind: GroupKind,
     group_last_offset: usize,
+    composite_depth: usize,
     revision: u64,
     saved_revision: u64,
     use_tabs: bool,
@@ -69,6 +70,7 @@ impl Document {
             group_open: false,
             group_kind: GroupKind::Mixed,
             group_last_offset: 0,
+            composite_depth: 0,
             revision: 0,
             saved_revision: 0,
             use_tabs: false,
@@ -119,7 +121,11 @@ impl Document {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if name.is_empty() { path.clone() } else { name }
+                if name.is_empty() {
+                    path.clone()
+                } else {
+                    name
+                }
             }
             None => "[No Name]".to_string(),
         }
@@ -269,7 +275,11 @@ impl Document {
             return;
         }
         let clamped = offset.min(self.size());
-        if !self.group_open
+        if self.composite_depth > 0 {
+            if !self.group_open {
+                self.start_group(GroupKind::Mixed);
+            }
+        } else if !self.group_open
             || self.group_kind != GroupKind::Insert
             || self.group_last_offset != clamped
         {
@@ -298,7 +308,11 @@ impl Document {
         let continuous = self.group_open
             && self.group_kind == GroupKind::Erase
             && (self.group_last_offset == offset || self.group_last_offset == offset + actual);
-        if !continuous {
+        if self.composite_depth > 0 {
+            if !self.group_open {
+                self.start_group(GroupKind::Mixed);
+            }
+        } else if !continuous {
             if self.group_open {
                 self.close_group();
             }
@@ -324,10 +338,16 @@ impl Document {
         }
 
         let removed = self.table.range_alloc(clamped, actual);
-        if self.group_open {
-            self.close_group();
+        if self.composite_depth > 0 {
+            if !self.group_open {
+                self.start_group(GroupKind::Mixed);
+            }
+        } else {
+            if self.group_open {
+                self.close_group();
+            }
+            self.start_group(GroupKind::Mixed);
         }
-        self.start_group(GroupKind::Mixed);
         let group = self.undo.last_mut().expect("open group");
         group.ops.push(Op::Edit {
             offset: clamped,
@@ -337,7 +357,9 @@ impl Document {
         self.table.erase(clamped, actual);
         self.table.insert(clamped, text);
         self.revision += 1;
-        self.close_group();
+        if self.composite_depth == 0 {
+            self.close_group();
+        }
     }
 
     /// Replace the whole buffer while moving the new text into the piece table
@@ -352,6 +374,24 @@ impl Document {
         group.ops.push(Op::ReplaceAll { stored: removed });
         self.revision += 1;
         self.close_group();
+    }
+
+    /// Starts an edit that may span several non-contiguous ranges (for
+    /// example one insertion per cursor). Nested groups are collapsed into a
+    /// single undo step.
+    pub fn begin_composite_edit(&mut self) {
+        self.composite_depth += 1;
+    }
+
+    /// Ends a composite edit started with [`Document::begin_composite_edit`].
+    pub fn end_composite_edit(&mut self) {
+        if self.composite_depth == 0 {
+            return;
+        }
+        self.composite_depth -= 1;
+        if self.composite_depth == 0 {
+            self.close_group();
+        }
     }
 
     pub fn break_undo_group(&mut self) {

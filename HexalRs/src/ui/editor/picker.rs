@@ -37,6 +37,7 @@ impl Editor {
         self.left_column = 0;
         self.pending_g = false;
         self.find = FindState::new();
+        self.extra_selections.clear();
         self.language_override = None;
         self.jumps.clear();
         self.jump_index = -1;
@@ -663,6 +664,9 @@ impl Editor {
                 self.begin_sidebar_diff(&[(source, false), (target, false)]);
             }
             return;
+        }
+        if self.picker.kind == PickerKind::Search {
+            self.begin_workspace_search_session();
         }
         let item = &self.picker.items[self.picker.selected];
         let path = self

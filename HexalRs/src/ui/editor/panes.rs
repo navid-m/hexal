@@ -27,6 +27,7 @@ impl Editor {
             cursor: 0,
             anchor: 0,
             selection_linewise: false,
+            extra_selections: Vec::new(),
             preferred_column: None,
             top_line: 0,
             left_column: 0,
@@ -89,6 +90,7 @@ impl Editor {
         let cursor = self.cursor;
         let anchor = self.anchor;
         let selection_linewise = self.selection_linewise;
+        let extra_selections = std::mem::take(&mut self.extra_selections);
         let preferred_column = self.preferred_column;
         let top_line = self.top_line;
         let left_column = self.left_column;
@@ -108,6 +110,7 @@ impl Editor {
         pane.cursor = cursor;
         pane.anchor = anchor;
         pane.selection_linewise = selection_linewise;
+        pane.extra_selections = extra_selections;
         pane.preferred_column = preferred_column;
         pane.top_line = top_line;
         pane.left_column = left_column;
@@ -147,6 +150,7 @@ impl Editor {
         self.cursor = pane.cursor;
         self.anchor = pane.anchor;
         self.selection_linewise = pane.selection_linewise;
+        self.extra_selections = std::mem::take(&mut pane.extra_selections);
         self.preferred_column = pane.preferred_column;
         self.top_line = pane.top_line;
         self.left_column = pane.left_column;

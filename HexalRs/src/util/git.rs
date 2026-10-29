@@ -72,7 +72,6 @@ fn classify_pattern(pattern: &str) -> PatternKind {
 
 #[derive(Clone)]
 struct Rule {
-    base: PathBuf,
     /// `base` relative to the ignore root, precomputed so matching a path does
     /// not rebuild strings for every rule.
     base_relative: String,
@@ -217,7 +216,6 @@ fn parse_rule(line: &str, base: &Path, root: &Path) -> Option<Rule> {
     let simple_glob = pattern.is_ascii() && !pattern.as_bytes().contains(&b'[');
     let kind = classify_pattern(&pattern);
     Some(Rule {
-        base,
         base_relative,
         pattern,
         simple_glob,

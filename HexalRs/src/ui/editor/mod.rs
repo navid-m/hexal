@@ -12,6 +12,7 @@ mod editing;
 mod find;
 mod input;
 mod lsp_ui;
+mod multicursor;
 mod navigation;
 mod palette;
 mod panes;
@@ -22,6 +23,7 @@ mod plugins;
 mod preview;
 mod reload_all;
 mod render;
+mod search_nav;
 mod sidebar;
 mod status;
 
@@ -221,14 +223,39 @@ struct SidebarPrompt {
     kind: SidebarPromptKind,
 }
 
+#[derive(Clone, Copy)]
+struct Selection {
+    cursor: usize,
+    anchor: usize,
+    linewise: bool,
+    preferred_column: Option<usize>,
+}
+
+#[derive(Clone)]
+struct FindMatch {
+    start: usize,
+    end: usize,
+    line: usize,
+    replacement: String,
+}
+
 #[derive(Clone)]
 struct FindState {
     active: bool,
     editing: bool,
+    multi_cursor: bool,
+    regex: bool,
+    replace: bool,
+    editing_replacement: bool,
+    error: String,
+    saved_selections: Option<Vec<Selection>>,
     query: String,
-    matches: Vec<(usize, usize)>,
+    query_cursor: usize,
+    replacement: String,
+    replacement_cursor: usize,
+    scope: Vec<(usize, usize)>,
+    matches: Vec<FindMatch>,
     index: Option<usize>,
-    origin: usize,
 }
 
 impl FindState {
@@ -236,12 +263,34 @@ impl FindState {
         FindState {
             active: false,
             editing: false,
+            multi_cursor: false,
+            regex: false,
+            replace: false,
+            editing_replacement: false,
+            error: String::new(),
+            saved_selections: None,
             query: String::new(),
+            query_cursor: 0,
+            replacement: String::new(),
+            replacement_cursor: 0,
+            scope: Vec::new(),
             matches: Vec::new(),
             index: None,
-            origin: 0,
         }
     }
+}
+
+#[derive(Clone)]
+struct WorkspaceSearchHit {
+    path: String,
+    line: usize,
+    column: usize,
+}
+
+struct WorkspaceSearchState {
+    query: String,
+    hits: Vec<WorkspaceSearchHit>,
+    index: usize,
 }
 
 type PaneId = u64;
@@ -284,6 +333,7 @@ struct PaneState {
     cursor: usize,
     anchor: usize,
     selection_linewise: bool,
+    extra_selections: Vec<Selection>,
     preferred_column: Option<usize>,
     top_line: usize,
     left_column: usize,
@@ -586,6 +636,7 @@ pub struct Editor {
     cursor: usize,
     anchor: usize,
     selection_linewise: bool,
+    extra_selections: Vec<Selection>,
     preferred_column: Option<usize>,
     top_line: usize,
     left_column: usize,
@@ -642,6 +693,7 @@ pub struct Editor {
     diff_with_source: Option<PathBuf>,
     palette_commands: Vec<PaletteCommand>,
     find: FindState,
+    workspace_search: Option<WorkspaceSearchState>,
     search_match_case: bool,
     plugins: Option<PluginManager>,
     plugin_status: Vec<(String, String)>,
@@ -746,6 +798,7 @@ impl Editor {
             cursor: 0,
             anchor: 0,
             selection_linewise: false,
+            extra_selections: Vec::new(),
             preferred_column: None,
             top_line: 0,
             left_column: 0,
@@ -794,6 +847,7 @@ impl Editor {
             diff_with_source: None,
             palette_commands: Vec::new(),
             find: FindState::new(),
+            workspace_search: None,
             search_match_case: false,
             plugins: None,
             plugin_status: Vec::new(),

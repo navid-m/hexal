@@ -30,8 +30,12 @@ impl Editor {
             self.pending_g = false;
             if event.key == Key::Char {
                 match event.ch {
-                    'g' | 'G' => self.jump_to_document_start(),
-                    'e' | 'E' => self.jump_to_document_end(),
+                    'g' | 'G' => {
+                        self.for_each_selection(|editor| editor.jump_to_document_start(), false)
+                    }
+                    'e' | 'E' => {
+                        self.for_each_selection(|editor| editor.jump_to_document_end(), false)
+                    }
                     'p' | 'P' => self.move_to_previous_location(),
                     'n' | 'N' => self.move_to_next_location(),
                     'd' | 'D' => self.go_to_definition(),
@@ -43,42 +47,42 @@ impl Editor {
 
         match event.key {
             Key::Left => {
-                self.move_left();
+                self.for_each_selection(|editor| editor.move_left(), false);
                 return;
             }
             Key::Right => {
-                self.move_right();
+                self.for_each_selection(|editor| editor.move_right(), false);
                 return;
             }
             Key::Up => {
-                self.move_vertical(-1);
+                self.for_each_selection(|editor| editor.move_vertical(-1), false);
                 return;
             }
             Key::Down => {
-                self.move_vertical(1);
+                self.for_each_selection(|editor| editor.move_vertical(1), false);
                 return;
             }
             Key::PageUp => {
-                self.move_page(-1);
+                self.for_each_selection(|editor| editor.move_page(-1), false);
                 return;
             }
             Key::PageDown => {
-                self.move_page(1);
+                self.for_each_selection(|editor| editor.move_page(1), false);
                 return;
             }
             Key::Home => {
                 if event.ctrl {
-                    self.jump_to_document_start();
+                    self.for_each_selection(|editor| editor.jump_to_document_start(), false);
                 } else {
-                    self.move_to_line_start();
+                    self.for_each_selection(|editor| editor.move_to_line_start(), false);
                 }
                 return;
             }
             Key::End => {
                 if event.ctrl {
-                    self.jump_to_document_end();
+                    self.for_each_selection(|editor| editor.jump_to_document_end(), false);
                 } else {
-                    self.move_to_line_end();
+                    self.for_each_selection(|editor| editor.move_to_line_end(), false);
                 }
                 return;
             }
@@ -89,7 +93,7 @@ impl Editor {
                 return;
             }
             Key::Delete => {
-                self.delete_at_cursor();
+                self.for_each_selection(|editor| editor.delete_at_cursor(), true);
                 return;
             }
             _ => {}
@@ -110,47 +114,69 @@ impl Editor {
                 self.doc.break_undo_group();
                 self.clear_message();
             }
-            '/' => self.open_find(),
+            '/' => self.open_find(false, false, false),
+            '\\' => self.open_find(false, true, false),
+            '\'' => self.open_find(false, true, true),
+            '.' => self.open_find(true, false, false),
             'i' | 'I' => {
                 if event.ch == 'I' {
-                    self.move_to_line_start();
+                    self.for_each_selection(|editor| editor.move_to_line_start(), false);
                 }
                 self.enter_insert();
             }
             'a' => {
-                let end = self.line_end_of_cursor();
-                if self.cursor < end {
-                    self.cursor = self.next_scalar(self.cursor);
-                }
-                self.enter_insert();
+                self.for_each_selection(
+                    |editor| {
+                        let end = editor.line_end_of_cursor();
+                        if editor.cursor < end {
+                            let line = editor.cursor_line();
+                            let start = editor.doc.line_start(line);
+                            let text = editor.doc.line_text(line);
+                            let local = (editor.cursor - start).min(text.len());
+                            editor.cursor = start + util::next_boundary(&text, local);
+                        }
+                        editor.enter_insert();
+                    },
+                    false,
+                );
             }
             'A' => {
-                self.cursor = self.line_end_of_cursor();
-                self.preferred_column = None;
-                self.enter_insert();
+                self.for_each_selection(
+                    |editor| {
+                        editor.cursor = editor.line_end_of_cursor();
+                        editor.preferred_column = None;
+                        editor.enter_insert();
+                    },
+                    false,
+                );
             }
-            'o' => self.insert_newline_below(),
-            'O' => self.insert_newline_above(),
-            'h' => self.move_left(),
-            'l' => self.move_right(),
-            'j' => self.move_vertical(1),
-            'k' => self.move_vertical(-1),
-            'w' | 'W' => self.move_word_forward(),
-            'b' | 'B' | 'q' | 'Q' => self.move_word_backward(),
-            'd' | 'D' => self.delete_at_cursor(),
+            'o' => self.for_each_selection(|editor| editor.insert_newline_below(), true),
+            'O' => self.for_each_selection(|editor| editor.insert_newline_above(), true),
+            'h' => self.for_each_selection(|editor| editor.move_left(), false),
+            'l' => self.for_each_selection(|editor| editor.move_right(), false),
+            'j' => self.for_each_selection(|editor| editor.move_vertical(1), false),
+            'k' => self.for_each_selection(|editor| editor.move_vertical(-1), false),
+            'w' | 'W' => self.for_each_selection(|editor| editor.move_word_forward(), false),
+            'b' | 'B' | 'q' | 'Q' => {
+                self.for_each_selection(|editor| editor.move_word_backward(), false)
+            }
+            'd' | 'D' => self.for_each_selection(|editor| editor.delete_at_cursor(), true),
             'u' => self.undo(),
             'U' => self.redo(),
             'g' | 'G' => self.pending_g = true,
-            'v' | 'V' => self.start_character_selection(),
-            'x' | 'X' => self.start_line_selection(),
+            'v' | 'V' => {
+                self.for_each_selection(|editor| editor.start_character_selection(), false)
+            }
+            'x' | 'X' => self.for_each_selection(|editor| editor.start_line_selection(), false),
             '%' => self.select_all(),
             '<' => self.indent_selection(true),
             '>' => self.indent_selection(false),
             'y' | 'Y' => self.yank_selection(),
             'p' => self.paste_clipboard(false),
             'P' => self.paste_clipboard(true),
-            'C' => self.set_message("Multi-cursor is not implemented in this prototype."),
-            ',' => self.set_message("Only the primary cursor is active."),
+            'C' => self.add_cursor_below(),
+            ',' => self.keep_primary_selection(),
+            'n' | 'N' if self.workspace_search.is_some() => self.workspace_search_step(true),
             _ => {}
         }
     }
@@ -182,31 +208,34 @@ impl Editor {
         }
 
         match event.key {
-            Key::Left => self.move_left(),
-            Key::Right => self.move_right(),
-            Key::Up => self.move_vertical(-1),
-            Key::Down => self.move_vertical(1),
-            Key::PageUp => self.move_page(-1),
-            Key::PageDown => self.move_page(1),
+            Key::Left => self.for_each_selection(|editor| editor.move_left(), false),
+            Key::Right => self.for_each_selection(|editor| editor.move_right(), false),
+            Key::Up => self.for_each_selection(|editor| editor.move_vertical(-1), false),
+            Key::Down => self.for_each_selection(|editor| editor.move_vertical(1), false),
+            Key::PageUp => self.for_each_selection(|editor| editor.move_page(-1), false),
+            Key::PageDown => self.for_each_selection(|editor| editor.move_page(1), false),
             Key::Home => {
                 if event.ctrl {
-                    self.jump_to_document_start();
+                    self.for_each_selection(|editor| editor.jump_to_document_start(), false);
                 } else {
-                    self.move_to_line_start();
+                    self.for_each_selection(|editor| editor.move_to_line_start(), false);
                 }
             }
             Key::End => {
                 if event.ctrl {
-                    self.jump_to_document_end();
+                    self.for_each_selection(|editor| editor.jump_to_document_end(), false);
                 } else {
-                    self.move_to_line_end();
+                    self.for_each_selection(|editor| editor.move_to_line_end(), false);
                 }
             }
-            Key::Enter => self.insert_newline(),
-            Key::Backspace => self.backspace(),
-            Key::Delete => self.delete_forward(),
-            Key::Tab => self.insert_indent(),
-            Key::Char => self.insert_character(event.ch),
+            Key::Enter => self.for_each_selection(|editor| editor.insert_newline(), true),
+            Key::Backspace => self.for_each_selection(|editor| editor.backspace(), true),
+            Key::Delete => self.for_each_selection(|editor| editor.delete_forward(), true),
+            Key::Tab => self.for_each_selection(|editor| editor.insert_indent(), true),
+            Key::Char => {
+                let character = event.ch;
+                self.for_each_selection(|editor| editor.insert_character(character), true);
+            }
             _ => {}
         }
     }
@@ -234,9 +263,14 @@ impl Editor {
             self.pending_g = false;
             if event.key == Key::Char {
                 match event.ch {
-                    'g' | 'G' => self.jump_to_document_start(),
-                    'e' | 'E' => self.jump_to_document_end(),
+                    'g' | 'G' => {
+                        self.for_each_selection(|editor| editor.jump_to_document_start(), false)
+                    }
+                    'e' | 'E' => {
+                        self.for_each_selection(|editor| editor.jump_to_document_end(), false)
+                    }
                     'p' | 'P' => self.move_to_previous_location(),
+                    'n' | 'N' => self.move_to_next_location(),
                     _ => {}
                 }
             }
@@ -245,42 +279,42 @@ impl Editor {
 
         match event.key {
             Key::Left => {
-                self.move_left();
+                self.for_each_selection(|editor| editor.move_left(), false);
                 return;
             }
             Key::Right => {
-                self.move_right();
+                self.for_each_selection(|editor| editor.move_right(), false);
                 return;
             }
             Key::Up => {
-                self.move_vertical(-1);
+                self.for_each_selection(|editor| editor.move_vertical(-1), false);
                 return;
             }
             Key::Down => {
-                self.move_vertical(1);
+                self.for_each_selection(|editor| editor.move_vertical(1), false);
                 return;
             }
             Key::PageUp => {
-                self.move_page(-1);
+                self.for_each_selection(|editor| editor.move_page(-1), false);
                 return;
             }
             Key::PageDown => {
-                self.move_page(1);
+                self.for_each_selection(|editor| editor.move_page(1), false);
                 return;
             }
             Key::Home => {
                 if event.ctrl {
-                    self.jump_to_document_start();
+                    self.for_each_selection(|editor| editor.jump_to_document_start(), false);
                 } else {
-                    self.move_to_line_start();
+                    self.for_each_selection(|editor| editor.move_to_line_start(), false);
                 }
                 return;
             }
             Key::End => {
                 if event.ctrl {
-                    self.jump_to_document_end();
+                    self.for_each_selection(|editor| editor.jump_to_document_end(), false);
                 } else {
-                    self.move_to_line_end();
+                    self.for_each_selection(|editor| editor.move_to_line_end(), false);
                 }
                 return;
             }
@@ -289,7 +323,7 @@ impl Editor {
                 return;
             }
             Key::Delete => {
-                self.delete_selection();
+                self.for_each_selection(|editor| editor.delete_selection(), true);
                 return;
             }
             _ => {}
@@ -311,21 +345,36 @@ impl Editor {
                 self.clear_message();
             }
             '%' => self.select_all(),
-            'x' | 'X' => self.extend_line_selection(),
-            'd' | 'D' => self.delete_selection(),
+            '.' => self.open_find(true, false, false),
+            'x' | 'X' => self.for_each_selection(|editor| editor.extend_line_selection(), false),
+            'd' | 'D' => self.for_each_selection(|editor| editor.delete_selection(), true),
             '<' => self.indent_selection(true),
             '>' => self.indent_selection(false),
-            'h' => self.move_left(),
-            'l' => self.move_right(),
-            'j' => self.move_vertical(1),
-            'k' => self.move_vertical(-1),
-            'w' | 'W' => self.move_word_forward(),
-            'b' | 'B' | 'q' | 'Q' => self.move_word_backward(),
+            'h' => self.for_each_selection(|editor| editor.move_left(), false),
+            'l' => self.for_each_selection(|editor| editor.move_right(), false),
+            'j' => self.for_each_selection(|editor| editor.move_vertical(1), false),
+            'k' => self.for_each_selection(|editor| editor.move_vertical(-1), false),
+            'w' | 'W' => self.for_each_selection(|editor| editor.move_word_forward(), false),
+            'b' | 'B' | 'q' | 'Q' => {
+                self.for_each_selection(|editor| editor.move_word_backward(), false)
+            }
             'g' | 'G' => self.pending_g = true,
-            'i' | 'I' => self.enter_insert_from_selection(),
+            'i' | 'I' => {
+                self.for_each_selection(|editor| editor.enter_insert_from_selection(), true)
+            }
             'y' | 'Y' => self.yank_selection(),
             'p' | 'P' => self.paste_clipboard(event.ch == 'P'),
-            '.' => self.set_message("Multi-cursor find is not implemented in this prototype."),
+            'C' => self.add_cursor_below(),
+            ',' => self.keep_primary_selection(),
+            'u' => {
+                self.cancel_selection();
+                self.undo();
+            }
+            'U' => {
+                self.cancel_selection();
+                self.redo();
+            }
+            'n' | 'N' if self.workspace_search.is_some() => self.workspace_search_step(true),
             _ => {}
         }
     }

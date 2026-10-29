@@ -1017,6 +1017,7 @@ impl Editor {
         self.selection_linewise = false;
         self.preferred_column = None;
         self.find = FindState::new();
+        self.extra_selections.clear();
         self.doc.break_undo_group();
         self.last_revision = self.doc.revision();
         self.snap_cursor();

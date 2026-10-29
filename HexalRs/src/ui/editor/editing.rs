@@ -174,6 +174,7 @@ impl Editor {
 
         if character.is_ascii()
             && !character.is_whitespace()
+            && self.extra_selections.is_empty()
             && self.lsp.is_running()
             && self.lsp.is_initialized()
             && self.lsp.is_completion_trigger(character)
@@ -445,29 +446,58 @@ impl Editor {
     }
 
     pub(super) fn indent_selection(&mut self, unindent: bool) {
-        if self.mode != Mode::Select {
+        let selecting = self.mode == Mode::Select;
+        let mut lines = BTreeSet::new();
+        for selection in self.capture_all_selections() {
+            self.add_touched_lines(&mut lines, selection, selecting);
+        }
+        if lines.is_empty() {
             self.set_message("Select lines before indenting.");
             return;
         }
-        let (range_start, range_end) = self.selection_range();
-        let first_line = self.doc.line_of_offset(range_start);
-        let mut last_line = self.doc.line_of_offset(range_end);
-        if last_line > first_line && range_end == self.doc.line_start(last_line) {
-            last_line -= 1;
-        }
-        for line in first_line..=last_line {
+
+        let mut changes: Vec<(usize, usize, Vec<u8>)> = Vec::new();
+        let unit = self.doc.indent_unit();
+        for line in lines {
             let start = self.doc.line_start(line);
             if unindent {
                 let text = self.doc.line_text(line);
                 let count = self.doc.unindent_length(&text);
                 if count > 0 {
-                    self.doc.erase(start, count);
+                    changes.push((start, count, Vec::new()));
                 }
             } else {
-                let unit = self.doc.indent_unit();
-                self.doc.insert(start, &unit);
+                changes.push((start, 0, unit.clone()));
             }
         }
+
+        if changes.is_empty() {
+            self.set_message("Already at the left margin.");
+            return;
+        }
+
+        changes.sort_by(|left, right| right.0.cmp(&left.0));
+        let mut selections = self.capture_all_selections();
+        self.doc.begin_composite_edit();
+        for (offset, remove, insert) in changes {
+            for selection in &mut selections {
+                selection.cursor = super::multicursor::adjust_offset(
+                    selection.cursor,
+                    offset,
+                    remove,
+                    insert.len(),
+                );
+                selection.anchor = super::multicursor::adjust_offset(
+                    selection.anchor,
+                    offset,
+                    remove,
+                    insert.len(),
+                );
+            }
+            self.doc.replace(offset, remove, &insert);
+        }
+        self.doc.end_composite_edit();
+        self.set_selections(selections);
         self.doc.break_undo_group();
     }
 
@@ -516,6 +546,7 @@ impl Editor {
         self.selection_linewise = false;
         self.anchor = 0;
         self.cursor = self.doc.size();
+        self.extra_selections.clear();
         self.preferred_column = None;
         self.doc.break_undo_group();
     }
@@ -524,15 +555,28 @@ impl Editor {
         self.mode = Mode::Normal;
         self.selection_linewise = false;
         self.anchor = self.cursor;
+        for selection in &mut self.extra_selections {
+            selection.linewise = false;
+            selection.anchor = selection.cursor;
+        }
         self.pending_g = false;
         self.doc.break_undo_group();
         self.clear_message();
     }
 
     pub(super) fn selection_range(&self) -> (usize, usize) {
-        if self.selection_linewise {
-            let anchor_line = self.doc.line_of_offset(self.anchor);
-            let cursor_line = self.doc.line_of_offset(self.cursor);
+        self.selection_range_of(self.anchor, self.cursor, self.selection_linewise)
+    }
+
+    pub(super) fn selection_range_of(
+        &self,
+        anchor: usize,
+        cursor: usize,
+        linewise: bool,
+    ) -> (usize, usize) {
+        if linewise {
+            let anchor_line = self.doc.line_of_offset(anchor);
+            let cursor_line = self.doc.line_of_offset(cursor);
             let first = anchor_line.min(cursor_line);
             let last = anchor_line.max(cursor_line);
             let start = self.doc.line_start(first);
@@ -544,8 +588,8 @@ impl Editor {
             return (start, end);
         }
 
-        let mut range_start = self.anchor.min(self.cursor);
-        let mut range_end = self.anchor.max(self.cursor);
+        let mut range_start = anchor.min(cursor);
+        let mut range_end = anchor.max(cursor);
         if range_end < self.doc.size() {
             let line = self.doc.line_of_offset(range_end);
             let line_end = self.doc.line_end(line);

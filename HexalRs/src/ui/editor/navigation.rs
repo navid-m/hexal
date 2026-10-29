@@ -24,7 +24,7 @@ impl Editor {
         util::visual_column(&text, local, self.doc.tab_width().max(1))
     }
 
-    fn line_and_column_of_offset(&self, offset: usize) -> (usize, usize) {
+    pub(super) fn line_and_column_of_offset(&self, offset: usize) -> (usize, usize) {
         let line = self.doc.line_of_offset(offset);
         let start = self.doc.line_start(line);
         let text = self.doc.line_text(line);
@@ -484,6 +484,7 @@ impl Editor {
                     self.mode = Mode::Normal;
                     self.selection_linewise = false;
                 }
+                self.extra_selections.clear();
                 self.cursor = offset;
                 self.anchor = offset;
                 self.mouse_drag_anchor = offset;
