@@ -184,16 +184,44 @@ pub fn trim_trailing_whitespace(text: &[u8]) -> &[u8] {
     &text[..end]
 }
 
+/// The current user's home directory. Windows exposes `USERPROFILE` (and,
+/// on some setups, `HOMEDRIVE`/`HOMEPATH`) instead of `HOME`.
+pub fn home_directory() -> Option<std::path::PathBuf> {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+    } else {
+        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+    };
+    home.map(std::path::PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE")?;
+            let path = std::env::var_os("HOMEPATH")?;
+            let mut home = std::path::PathBuf::from(drive);
+            home.push(path);
+            Some(home)
+        })
+}
+
 pub fn expand_home(path: &str) -> String {
     if path == "~" {
-        if let Some(home) = std::env::var_os("HOME") {
+        if let Some(home) = home_directory() {
             return home.to_string_lossy().into_owned();
         }
     }
     if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
+        if let Some(home) = home_directory() {
             let mut result = home.to_string_lossy().into_owned();
             result.push('/');
+            result.push_str(rest);
+            return result;
+        }
+    }
+    #[cfg(windows)]
+    if let Some(rest) = path.strip_prefix("~\\") {
+        if let Some(home) = home_directory() {
+            let mut result = home.to_string_lossy().into_owned();
+            result.push('\\');
             result.push_str(rest);
             return result;
         }

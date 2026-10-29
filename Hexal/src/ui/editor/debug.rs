@@ -1133,7 +1133,8 @@ fn normalize_debug_path(path: &str) -> String {
     if path.is_empty() {
         return String::new();
     }
-    git::absolute(Path::new(path))
+    let expanded = util::expand_home(path);
+    git::absolute(Path::new(&expanded))
         .to_string_lossy()
         .into_owned()
 }

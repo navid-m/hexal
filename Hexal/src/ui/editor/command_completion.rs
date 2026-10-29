@@ -184,9 +184,10 @@ impl Editor {
             first_end += 1;
         }
         let command = line[first_start..first_end].to_lowercase();
+        let command_name = command.strip_suffix('!').unwrap_or(&command);
         let file_command = matches!(
-            command.as_str(),
-            "e" | "edit" | "w" | "write" | "debug" | "dbg"
+            command_name,
+            "e" | "edit" | "w" | "write" | "wq" | "lua" | "debug" | "dbg"
         );
         let at_or_inside_command = cursor <= first_end;
         let has_arguments = !line[first_end..].trim().is_empty();
@@ -229,7 +230,11 @@ impl Editor {
             token_start = token_start.min(line.len());
             token_end = token_end.clamp(token_start, line.len());
             let filter = line[token_start..token_end].to_string();
-            let items = self.filter_file_completion_items(&filter);
+            let items = if is_path_completion_token(&filter) {
+                path_completion_items(&filter)
+            } else {
+                self.filter_file_completion_items(&filter)
+            };
             let mut prefix = line[..token_start].to_string();
             if token_start == first_end && first_end == line.len() {
                 prefix.push(' ');
@@ -340,8 +345,18 @@ impl Editor {
             return false;
         };
         let kind = self.command_completion.kind;
+        let is_directory =
+            kind == CommandCompletionKind::Files && is_directory_completion(&selected);
+        let already_quoted = kind == CommandCompletionKind::Files
+            && ((self.command_completion.prefix.ends_with('"')
+                && self.command_completion.suffix.starts_with('"'))
+                || (self.command_completion.prefix.ends_with('\'')
+                    && self.command_completion.suffix.starts_with('\'')));
         let mut inserted = selected;
-        if kind == CommandCompletionKind::Files && inserted.chars().any(char::is_whitespace) {
+        if kind == CommandCompletionKind::Files
+            && !already_quoted
+            && inserted.chars().any(char::is_whitespace)
+        {
             inserted = format!("\"{}\"", inserted.replace('"', "\\\""));
         }
         let line = format!(
@@ -353,7 +368,11 @@ impl Editor {
         self.command_line = line;
         self.command_cursor = cursor.min(self.command_line.len());
         if kind == CommandCompletionKind::Files {
-            self.submit_command();
+            if is_directory {
+                self.try_open_command_completion();
+            } else {
+                self.submit_command();
+            }
         }
         true
     }
@@ -396,6 +415,106 @@ impl Editor {
             .map(|(_, candidate)| candidate)
             .collect()
     }
+}
+
+fn is_path_separator(character: char) -> bool {
+    character == '/' || (cfg!(windows) && character == '\\')
+}
+
+fn preferred_path_separator(token: &str) -> char {
+    if token.contains('/') {
+        '/'
+    } else {
+        std::path::MAIN_SEPARATOR
+    }
+}
+
+/// True for arguments that should complete against the filesystem instead of
+/// the workspace file list: home-relative, absolute, or explicitly relative
+/// (`./`, `../`) paths.
+fn is_path_completion_token(token: &str) -> bool {
+    if token == "~" || token == "." || token == ".." || token.starts_with("~/") {
+        return true;
+    }
+    if cfg!(windows) && (token.starts_with("~\\") || token.starts_with('\\')) {
+        return true;
+    }
+    if token.starts_with('/') || token.starts_with("./") || token.starts_with("../") {
+        return true;
+    }
+    if cfg!(windows) {
+        if token.starts_with(".\\") || token.starts_with("..\\") {
+            return true;
+        }
+        let bytes = token.as_bytes();
+        if bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'/' || bytes[2] == b'\\')
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_directory_completion(item: &str) -> bool {
+    item.ends_with('/') || (cfg!(windows) && item.ends_with('\\'))
+}
+
+/// Lists filesystem entries matching the last component of `token`, keeping
+/// the typed directory prefix (including `~/`) in the returned suggestions.
+/// Directories get a trailing separator so accepting one opens it.
+fn path_completion_items(token: &str) -> Vec<String> {
+    let separator = preferred_path_separator(token);
+    if token == "~" {
+        return util::home_directory()
+            .map(|_| vec![format!("~{separator}")])
+            .unwrap_or_default();
+    }
+    if token == "." || token == ".." {
+        return vec![format!("{token}{separator}")];
+    }
+
+    let Some((separator_index, separator_len)) = token
+        .char_indices()
+        .rev()
+        .find(|(_, character)| is_path_separator(*character))
+        .map(|(index, character)| (index, character.len_utf8()))
+    else {
+        return Vec::new();
+    };
+    let split = separator_index + separator_len;
+    let display_directory = &token[..split];
+    let base = token[split..].to_lowercase();
+    let directory = util::expand_home(display_directory);
+
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut items = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.to_lowercase().starts_with(&base) {
+            continue;
+        }
+        let mut item = String::with_capacity(display_directory.len() + name.len() + 1);
+        item.push_str(display_directory);
+        item.push_str(&name);
+        if entry.path().is_dir() {
+            item.push(separator);
+        }
+        items.push(item);
+        if items.len() >= 1_000 {
+            break;
+        }
+    }
+    items.sort_by(|left, right| {
+        left.to_lowercase()
+            .cmp(&right.to_lowercase())
+            .then_with(|| left.cmp(right))
+    });
+    items
 }
 
 fn fuzzy_score(text: &str, query: &str, match_case: bool) -> Option<usize> {
@@ -642,6 +761,7 @@ pub(super) fn wrap_words(text: &str, width: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn editor() -> Editor {
         let mut editor = Editor::new(Document::new(), 100, 30);
@@ -652,6 +772,197 @@ mod tests {
         ]);
         editor.command_files_show_ignored = editor.sidebar.show_git_ignored;
         editor
+    }
+
+    fn temp_directory(name: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("hexal-completion-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn path_completion_lists_absolute_directories() {
+        let root = temp_directory("paths");
+        std::fs::create_dir(root.join("alpha")).unwrap();
+        std::fs::create_dir(root.join("space dir")).unwrap();
+        std::fs::write(root.join("beta.txt"), b"beta").unwrap();
+        let separator = std::path::MAIN_SEPARATOR;
+        let token = format!("{}{separator}", root.display());
+
+        let items = path_completion_items(&token);
+        assert!(items.contains(&format!("{token}alpha{separator}")));
+        assert!(items.contains(&format!("{token}beta.txt")));
+        assert!(items.contains(&format!("{token}space dir{separator}")));
+
+        let partial = format!("{token}al");
+        assert_eq!(
+            path_completion_items(&partial),
+            vec![format!("{token}alpha{separator}")]
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn path_completion_detects_supported_prefixes() {
+        assert!(is_path_completion_token("~"));
+        assert!(is_path_completion_token("~/"));
+        assert!(is_path_completion_token("~/Documents"));
+        assert!(is_path_completion_token("/usr/local"));
+        assert!(is_path_completion_token("./src"));
+        assert!(is_path_completion_token("../"));
+        assert!(!is_path_completion_token("src/main.rs"));
+        assert!(!is_path_completion_token(""));
+        #[cfg(windows)]
+        {
+            assert!(is_path_completion_token(r"C:\Users"));
+            assert!(is_path_completion_token(r"\\server\share"));
+            assert!(is_path_completion_token(r"~\Documents"));
+        }
+    }
+
+    #[test]
+    fn path_completion_expands_home() {
+        if util::home_directory().is_none() {
+            return;
+        }
+        let separator = std::path::MAIN_SEPARATOR;
+        assert_eq!(path_completion_items("~"), vec![format!("~{separator}")]);
+
+        let home_items = path_completion_items("~/");
+        assert!(home_items.iter().all(|item| item.starts_with("~/")));
+    }
+
+    #[test]
+    fn command_line_completes_home_paths() {
+        if util::home_directory().is_none() {
+            return;
+        }
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.command_line = "e ~/".into();
+        editor.command_cursor = editor.command_line.len();
+        assert!(editor.try_open_command_completion());
+        assert!(editor.command_completion.visible);
+        assert!(matches!(
+            editor.command_completion.kind,
+            CommandCompletionKind::Files
+        ));
+        assert!(editor
+            .command_completion
+            .items
+            .iter()
+            .all(|item| item.starts_with("~/")));
+    }
+
+    #[test]
+    fn every_file_command_completes_filesystem_paths() {
+        let root = temp_directory("commands");
+        std::fs::create_dir(root.join("alpha")).unwrap();
+        let separator = std::path::MAIN_SEPARATOR;
+        let directory = format!("{}{separator}", root.display());
+        let alpha = format!("{directory}alpha{separator}");
+
+        for command in ["e", "edit", "w", "write", "wq", "lua", "debug", "dbg"] {
+            let mut editor = Editor::new(Document::new(), 100, 30);
+            editor.command_line = format!("{command} {directory}");
+            editor.command_cursor = editor.command_line.len();
+            assert!(
+                editor.try_open_command_completion(),
+                "{command} did not open completion"
+            );
+            assert!(
+                editor.command_completion.items.contains(&alpha),
+                "{command} did not list {alpha}: {:?}",
+                editor.command_completion.items
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn command_line_navigates_absolute_directories() {
+        let root = temp_directory("command");
+        std::fs::create_dir(root.join("alpha")).unwrap();
+        std::fs::write(root.join("alpha/file.txt"), b"content").unwrap();
+        let separator = std::path::MAIN_SEPARATOR;
+        let directory = format!("{}{separator}", root.display());
+
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.command_line = format!("e {directory}");
+        editor.command_cursor = editor.command_line.len();
+        assert!(editor.try_open_command_completion());
+
+        let alpha = format!("{directory}alpha{separator}");
+        let index = editor
+            .command_completion
+            .items
+            .iter()
+            .position(|item| item == &alpha)
+            .unwrap();
+        editor.command_completion.selected = index;
+        assert!(editor.accept_command_completion());
+
+        // Accepting a directory keeps the command line open and lists it.
+        assert!(editor.command_completion.visible);
+        assert_eq!(editor.command_line, format!("e {alpha}"));
+        let file = format!("{alpha}file.txt");
+        let index = editor
+            .command_completion
+            .items
+            .iter()
+            .position(|item| item == &file)
+            .unwrap();
+        editor.command_completion.selected = index;
+        assert!(editor.accept_command_completion());
+        assert!(!editor.command_completion.visible);
+        assert!(editor
+            .doc
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with("file.txt")));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn command_line_quotes_directories_with_spaces_once() {
+        let root = temp_directory("spaces");
+        std::fs::create_dir(root.join("space dir")).unwrap();
+        std::fs::write(root.join("space dir/file.txt"), b"content").unwrap();
+        let separator = std::path::MAIN_SEPARATOR;
+        let directory = format!("{}{separator}", root.display());
+
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.command_line = format!("e {directory}");
+        editor.command_cursor = editor.command_line.len();
+        assert!(editor.try_open_command_completion());
+
+        let spaced = format!("{directory}space dir{separator}");
+        let index = editor
+            .command_completion
+            .items
+            .iter()
+            .position(|item| item == &spaced)
+            .unwrap();
+        editor.command_completion.selected = index;
+        assert!(editor.accept_command_completion());
+        assert_eq!(editor.command_line, format!("e \"{spaced}\""));
+
+        let file = format!("{spaced}file.txt");
+        let index = editor
+            .command_completion
+            .items
+            .iter()
+            .position(|item| item == &file)
+            .unwrap();
+        editor.command_completion.selected = index;
+        assert!(editor.accept_command_completion());
+        assert_eq!(editor.command_line, "");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -730,13 +1041,11 @@ mod tests {
         editor.command_line = "E src/main.rs".into();
         editor.command_cursor = editor.command_line.len();
         editor.submit_command();
-        assert!(
-            editor
-                .doc
-                .path
-                .as_deref()
-                .is_some_and(|path| path.ends_with("src/main.rs"))
-        );
+        assert!(editor
+            .doc
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with("src/main.rs")));
     }
 
     #[test]

@@ -562,20 +562,19 @@ impl Editor {
 
         match command_name.as_str() {
             "w" | "write" => {
-                let path = if args.is_empty() {
-                    None
+                if args.is_empty() {
+                    self.save_document(None);
                 } else {
-                    Some(args.as_str())
-                };
-                self.save_document(path);
+                    self.save_document(Some(&util::expand_home(&args)));
+                }
             }
             "wq" => {
-                let path = if args.is_empty() {
-                    None
+                let saved = if args.is_empty() {
+                    self.save_document(None)
                 } else {
-                    Some(args.as_str())
+                    self.save_document(Some(&util::expand_home(&args)))
                 };
-                if self.save_document(path) {
+                if saved {
                     self.running = false;
                 }
             }
@@ -655,7 +654,7 @@ impl Editor {
                 if args.is_empty() {
                     self.set_error("usage: :lua <plugin.lua>");
                 } else {
-                    self.load_lua_plugin(&args);
+                    self.load_lua_plugin(&util::expand_home(&args));
                 }
             }
             "plugins" => self.list_lua_commands(),
