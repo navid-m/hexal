@@ -723,7 +723,7 @@ impl Editor {
                         failures.push(error);
                         continue;
                     }
-                    if let Err(error) = document.save(None) {
+                    if let Err(error) = document.save(None, self.config.fsync_on_save) {
                         failures.push(error.to_string());
                         continue;
                     }

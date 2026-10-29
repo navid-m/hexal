@@ -320,7 +320,7 @@ impl Editor {
         }
 
         let previous_path = self.doc.path.clone();
-        let result = self.doc.save(path);
+        let result = self.doc.save(path, self.config.fsync_on_save);
         match result {
             Ok(()) => {
                 let path_changed = previous_path != self.doc.path;

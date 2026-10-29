@@ -393,7 +393,7 @@ impl Editor {
             replaced += matches.len();
             changed_files += 1;
 
-            if let Err(error) = document.save(None) {
+            if let Err(error) = document.save(None, self.config.fsync_on_save) {
                 failed += 1;
                 if first_error.is_empty() {
                     first_error = format!("{}: {error}", git::file_name(&full_path));

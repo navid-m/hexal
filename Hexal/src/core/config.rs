@@ -19,6 +19,7 @@ pub const DEFAULT_CONTENTS: &str = r#"{
     "version": 1,
     "centralRepositoryUrl": "https://github.com/navid-m/hexal-plugins",
     "formatOnSave": false,
+    "fsyncOnSave": false,
     "trimTrailingWhitespaceOnSave": false,
     "smartBackspace": true,
     "autoDetectIndentationOnStartup": true,
@@ -43,6 +44,7 @@ pub struct Config {
     #[allow(dead_code)]
     pub central_repository_url: String,
     pub format_on_save: bool,
+    pub fsync_on_save: bool,
     pub trim_trailing_whitespace_on_save: bool,
     pub smart_backspace: bool,
     pub auto_detect_indentation_on_startup: bool,
@@ -71,6 +73,7 @@ impl Default for Config {
             source_path: default_path(),
             central_repository_url: DEFAULT_CENTRAL_REPOSITORY_URL.into(),
             format_on_save: false,
+            fsync_on_save: false,
             trim_trailing_whitespace_on_save: false,
             smart_backspace: true,
             auto_detect_indentation_on_startup: true,
@@ -263,6 +266,7 @@ fn parse(text: &str, path: &Path) -> Result<Config, String> {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_CENTRAL_REPOSITORY_URL.to_string()),
         format_on_save: read_bool("formatOnSave", "format_on_save").unwrap_or(false),
+        fsync_on_save: read_bool("fsyncOnSave", "fsync_on_save").unwrap_or(false),
         trim_trailing_whitespace_on_save: read_bool(
             "trimTrailingWhitespaceOnSave",
             "trim_trailing_whitespace_on_save",
@@ -353,6 +357,7 @@ mod tests {
         let config = parse(
             r#"{
                 "format_on_save": true,
+                "fsyncOnSave": true,
                 "editor": { "showGitIgnored": true, "search_match_case_enabled": true },
                 "wordWrap": true
             }"#,
@@ -360,6 +365,7 @@ mod tests {
         )
         .unwrap();
         assert!(config.format_on_save);
+        assert!(config.fsync_on_save);
         assert!(config.show_git_ignored);
         assert!(config.search_match_case_enabled);
         assert!(config.word_wrap);
@@ -390,6 +396,7 @@ mod tests {
     fn parses_default_contents() {
         let config = parse(super::DEFAULT_CONTENTS, Path::new("/tmp/test.hexcfg")).unwrap();
         assert!(config.auto_detect_indentation_on_startup);
+        assert!(!config.fsync_on_save);
         assert!(config.smart_backspace);
         assert!(config.show_diff_lines);
         assert!(!config.word_wrap);

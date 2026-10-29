@@ -454,7 +454,11 @@ impl Document {
         true
     }
 
-    pub fn save(&mut self, save_path: Option<&str>) -> io::Result<()> {
+    /// Writes the document to `save_path` (or its existing path) through a
+    /// temporary file and an atomic rename. When `fsync` is true the data is
+    /// flushed to disk before the rename, which is durable across power loss
+    /// but can stall for seconds on a busy disk. It is off by default.
+    pub fn save(&mut self, save_path: Option<&str>, fsync: bool) -> io::Result<()> {
         let target = save_path
             .map(str::to_string)
             .or_else(|| self.path.clone())
@@ -468,7 +472,9 @@ impl Document {
                 file.write_all(&BOM)?;
             }
             self.table.write_to(&mut file)?;
-            file.sync_all()?;
+            if fsync {
+                file.sync_all()?;
+            }
             drop(file);
             if let Ok(metadata) = fs::metadata(&target) {
                 fs::set_permissions(&temporary, metadata.permissions())?;
@@ -611,5 +617,33 @@ mod tests {
         }
         assert_eq!(doc.size(), 1_000_000);
         assert_eq!(count_newlines(&doc.all_text()), 0);
+    }
+
+    #[test]
+    fn saves_content_without_leaving_temporary_files() {
+        let directory =
+            std::env::temp_dir().join(format!("hexal-save-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("note.txt");
+
+        let mut doc = Document::new();
+        doc.insert(0, b"hello\nworld\n");
+        doc.save(Some(path.to_str().unwrap()), false).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"hello\nworld\n");
+        assert!(!doc.is_dirty());
+
+        doc.insert(0, b"> ");
+        doc.save(None, false).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"> hello\nworld\n");
+
+        let leftovers = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".hexal-tmp-"))
+            .count();
+        assert_eq!(leftovers, 0);
+
+        let _ = fs::remove_dir_all(directory);
     }
 }
