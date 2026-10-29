@@ -1,6 +1,6 @@
 ## Hexal
 
-A general purpose modal text editor with powerful Lua scripting capabilities builtin. Documentation is a WIP.
+A general purpose modal text editor with powerful Lua scripting capabilities builtin.
 
 Links of note:
 
