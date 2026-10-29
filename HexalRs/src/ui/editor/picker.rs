@@ -107,11 +107,17 @@ impl Editor {
     }
 
     pub(super) fn cancel_picker_work(&mut self) {
-        if let Some(task) = self.picker_scan.take() {
+        if let Some(mut task) = self.picker_scan.take() {
             task.cancel.store(true, Ordering::Relaxed);
+            if let Some(handle) = task.handle.take() {
+                let _ = handle.join();
+            }
         }
-        if let Some(task) = self.picker_search.take() {
+        if let Some(mut task) = self.picker_search.take() {
             task.cancel.store(true, Ordering::Relaxed);
+            if let Some(handle) = task.handle.take() {
+                let _ = handle.join();
+            }
         }
     }
 
@@ -123,21 +129,28 @@ impl Editor {
         let root = self.sidebar.root.clone();
         let show_ignored = self.sidebar.show_git_ignored;
         let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             let files =
                 files::scan_root_with_cancel(&root, 20_000, show_ignored, Some(&thread_cancel));
             if !thread_cancel.load(Ordering::Relaxed) {
                 let _ = sender.send(PickerScanResult { generation, files });
             }
         });
-        self.picker_scan = Some(PickerScanTask { receiver, cancel });
+        self.picker_scan = Some(PickerScanTask {
+            receiver,
+            cancel,
+            handle: Some(handle),
+        });
         self.picker.status = Some("Loading files...".into());
         self.force_full_redraw = true;
     }
 
     fn start_picker_search(&mut self) {
-        if let Some(task) = self.picker_search.take() {
+        if let Some(mut task) = self.picker_search.take() {
             task.cancel.store(true, Ordering::Relaxed);
+            if let Some(handle) = task.handle.take() {
+                let _ = handle.join();
+            }
         }
         let generation = self.next_picker_generation();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -151,7 +164,7 @@ impl Editor {
             megabytes => megabytes.saturating_mul(1024 * 1024),
         };
         let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             let hits = files::search(
                 &root,
                 files.as_slice(),
@@ -165,16 +178,22 @@ impl Editor {
                 let _ = sender.send(PickerSearchResult { generation, hits });
             }
         });
-        self.picker_search = Some(PickerSearchTask { receiver, cancel });
+        self.picker_search = Some(PickerSearchTask {
+            receiver,
+            cancel,
+            handle: Some(handle),
+        });
         self.picker.status = Some("Searching...".into());
-        self.force_full_redraw = true;
     }
 
     pub(super) fn poll_picker_work(&mut self) {
         let mut scan_applied = false;
-        if let Some(task) = self.picker_scan.take() {
+        if let Some(mut task) = self.picker_scan.take() {
             match task.receiver.try_recv() {
                 Ok(result) => {
+                    if let Some(handle) = task.handle.take() {
+                        let _ = handle.join();
+                    }
                     if result.generation == self.picker_generation {
                         self.picker.files = Arc::new(result.files);
                         self.picker.files_loaded = true;
@@ -190,18 +209,18 @@ impl Editor {
                 }
             }
         }
-        if scan_applied {
-            if self.picker.kind != PickerKind::None {
-                self.rebuild_picker();
-                self.force_full_redraw = true;
-            }
+        if scan_applied && self.picker.kind != PickerKind::None {
+            self.rebuild_picker();
         }
 
-        let Some(task) = self.picker_search.take() else {
+        let Some(mut task) = self.picker_search.take() else {
             return;
         };
         match task.receiver.try_recv() {
             Ok(result) => {
+                if let Some(handle) = task.handle.take() {
+                    let _ = handle.join();
+                }
                 if result.generation != self.picker_generation
                     || self.picker.kind != PickerKind::Search
                 {
@@ -227,7 +246,6 @@ impl Editor {
                 self.picker.selected = 0;
                 self.picker.top = 0;
                 self.picker.status = None;
-                self.force_full_redraw = true;
             }
             Err(mpsc::TryRecvError::Empty) => self.picker_search = Some(task),
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -316,8 +334,11 @@ impl Editor {
             PickerKind::Search => {
                 if self.picker.query.is_empty() {
                     self.picker.status = None;
-                    if let Some(task) = self.picker_search.take() {
+                    if let Some(mut task) = self.picker_search.take() {
                         task.cancel.store(true, Ordering::Relaxed);
+                        if let Some(handle) = task.handle.take() {
+                            let _ = handle.join();
+                        }
                     }
                 } else if self.picker.files_loaded {
                     self.start_picker_search();

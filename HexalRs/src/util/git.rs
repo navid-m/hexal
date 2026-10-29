@@ -439,6 +439,9 @@ pub struct GitStatus {
 pub fn load_git_status(root: &Path) -> GitStatus {
     let mut result = GitStatus::default();
     let root = absolute(root);
+    if !has_git_directory(&root) {
+        return result;
+    }
     let Some(repository_root) = git_output(&root, &["rev-parse", "--show-toplevel"]) else {
         return result;
     };
@@ -506,6 +509,17 @@ fn add_parent_directories(root: &Path, path: &Path, output: &mut HashSet<PathBuf
         output.insert(directory.to_path_buf());
         parent = directory.parent();
     }
+}
+
+fn has_git_directory(path: &Path) -> bool {
+    let mut current = Some(path);
+    while let Some(directory) = current {
+        if directory.join(".git").exists() {
+            return true;
+        }
+        current = directory.parent();
+    }
+    false
 }
 
 fn git_output(directory: &Path, arguments: &[&str]) -> Option<String> {

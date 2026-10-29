@@ -192,6 +192,7 @@ struct PickerSearchResult {
 struct PickerSearchTask {
     receiver: mpsc::Receiver<PickerSearchResult>,
     cancel: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 struct PickerScanResult {
@@ -202,6 +203,7 @@ struct PickerScanResult {
 struct PickerScanTask {
     receiver: mpsc::Receiver<PickerScanResult>,
     cancel: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -891,18 +893,22 @@ impl Editor {
                 self.clamp_viewport();
             }
 
-            match terminal.read_event(
-                if self
-                    .plugins
-                    .as_ref()
-                    .map(|plugins| plugins.has_due_deferred_tasks())
-                    .unwrap_or(false)
-                {
-                    1
-                } else {
-                    30
-                },
-            ) {
+            let timeout_ms = if self.picker.kind != PickerKind::None
+                || self.picker_scan.is_some()
+                || self.picker_search.is_some()
+            {
+                4
+            } else if self
+                .plugins
+                .as_ref()
+                .map(|plugins| plugins.has_due_deferred_tasks())
+                .unwrap_or(false)
+            {
+                1
+            } else {
+                30
+            };
+            match terminal.read_event(timeout_ms) {
                 Ok(Some(event)) => {
                     let cursor_before = self.cursor;
                     self.handle_event(event);
