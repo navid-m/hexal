@@ -7,6 +7,11 @@ use super::*;
 use std::io;
 
 pub struct Terminal {
+    input_fd: libc::c_int,
+    output_fd: libc::c_int,
+    owns_input_fd: bool,
+    owns_output_fd: bool,
+    nonblocking_input: bool,
     original: libc::termios,
     raw: bool,
     pending: Option<u8>,
@@ -16,9 +21,64 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn init() -> io::Result<Terminal> {
+        // Use stdin/stdout when they are both terminals, but fall back to the
+        // controlling terminal when a launcher such as Git redirects either
+        // stream. Reading/writing fd 0/1 in that case fails with ENODEV.
+        let stdin_is_tty = unsafe { libc::isatty(0) } == 1;
+        let stdout_is_tty = unsafe { libc::isatty(1) } == 1;
+        let (mut input_fd, mut output_fd) = (0, 1);
+        let (mut owns_input_fd, mut owns_output_fd) = (false, false);
+        let mut nonblocking_input = false;
+        if !stdin_is_tty || !stdout_is_tty {
+            // Use separate descriptors: input must be nonblocking because
+            // macOS cannot poll/select /dev/tty, while output stays blocking
+            // so large frame writes cannot fail with EAGAIN.
+            let tty_in = unsafe {
+                libc::open(
+                    b"/dev/tty\0".as_ptr() as *const libc::c_char,
+                    libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NONBLOCK,
+                )
+            };
+            let tty_out = unsafe {
+                libc::open(
+                    b"/dev/tty\0".as_ptr() as *const libc::c_char,
+                    libc::O_WRONLY | libc::O_CLOEXEC,
+                )
+            };
+            if tty_in >= 0 && tty_out >= 0 {
+                input_fd = tty_in;
+                output_fd = tty_out;
+                owns_input_fd = true;
+                owns_output_fd = true;
+                nonblocking_input = true;
+            } else {
+                if tty_in >= 0 {
+                    unsafe {
+                        libc::close(tty_in);
+                    }
+                }
+                if tty_out >= 0 {
+                    unsafe {
+                        libc::close(tty_out);
+                    }
+                }
+            }
+        }
+
         let mut original: libc::termios = unsafe { std::mem::zeroed() };
-        if unsafe { libc::tcgetattr(0, &mut original) } != 0 {
-            return Err(io::Error::last_os_error());
+        if unsafe { libc::tcgetattr(input_fd, &mut original) } != 0 {
+            let error = io::Error::last_os_error();
+            if owns_input_fd {
+                unsafe {
+                    libc::close(input_fd);
+                }
+            }
+            if owns_output_fd {
+                unsafe {
+                    libc::close(output_fd);
+                }
+            }
+            return Err(error);
         }
 
         let mut raw = original;
@@ -36,11 +96,27 @@ impl Terminal {
         raw.c_cflag &= !libc::PARENB;
         raw.c_cc[libc::VMIN] = 1;
         raw.c_cc[libc::VTIME] = 0;
-        if unsafe { libc::tcsetattr(0, libc::TCSAFLUSH, &raw) } != 0 {
-            return Err(io::Error::last_os_error());
+        if unsafe { libc::tcsetattr(input_fd, libc::TCSAFLUSH, &raw) } != 0 {
+            let error = io::Error::last_os_error();
+            if owns_input_fd {
+                unsafe {
+                    libc::close(input_fd);
+                }
+            }
+            if owns_output_fd {
+                unsafe {
+                    libc::close(output_fd);
+                }
+            }
+            return Err(error);
         }
 
         let mut term = Terminal {
+            input_fd,
+            output_fd,
+            owns_input_fd,
+            owns_output_fd,
+            nonblocking_input,
             original,
             raw: true,
             pending: None,
@@ -64,7 +140,7 @@ impl Terminal {
         while offset < bytes.len() {
             let written = unsafe {
                 libc::write(
-                    1,
+                    self.output_fd,
                     bytes[offset..].as_ptr() as *const libc::c_void,
                     bytes.len() - offset,
                 )
@@ -86,7 +162,7 @@ impl Terminal {
 
     pub fn update_size(&mut self) {
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
-        let result = unsafe { libc::ioctl(0, libc::TIOCGWINSZ, &mut ws) };
+        let result = unsafe { libc::ioctl(self.input_fd, libc::TIOCGWINSZ, &mut ws) };
         if result == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
             self.width = ws.ws_col as usize;
             self.height = ws.ws_row as usize;
@@ -180,8 +256,47 @@ impl Terminal {
             return Ok(Some(byte));
         }
 
+        if self.nonblocking_input {
+            let deadline = std::time::Instant::now()
+                + std::time::Duration::from_millis(timeout_ms.max(0) as u64);
+            loop {
+                let mut byte = 0u8;
+                let count = unsafe {
+                    libc::read(
+                        self.input_fd,
+                        &mut byte as *mut u8 as *mut libc::c_void,
+                        1,
+                    )
+                };
+                if count > 0 {
+                    return Ok(Some(byte));
+                }
+                if count == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "terminal closed",
+                    ));
+                }
+                let error = io::Error::last_os_error();
+                let raw = error.raw_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                if error.kind() != io::ErrorKind::WouldBlock
+                    && raw != Some(libc::EAGAIN)
+                    && raw != Some(libc::EWOULDBLOCK)
+                {
+                    return Err(error);
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Ok(None);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+
         let mut fd = libc::pollfd {
-            fd: 0,
+            fd: self.input_fd,
             events: libc::POLLIN,
             revents: 0,
         };
@@ -203,7 +318,7 @@ impl Terminal {
         }
 
         let mut byte = 0u8;
-        let count = unsafe { libc::read(0, &mut byte as *mut u8 as *mut libc::c_void, 1) };
+        let count = unsafe { libc::read(self.input_fd, &mut byte as *mut u8 as *mut libc::c_void, 1) };
         if count < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -290,9 +405,21 @@ impl Drop for Terminal {
             let _ = self
                 .write(b"\x1b[0m\x1b[?25h\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1004l\x1b[?1049l");
             unsafe {
-                libc::tcsetattr(0, libc::TCSAFLUSH, &self.original);
+                libc::tcsetattr(self.input_fd, libc::TCSAFLUSH, &self.original);
             }
             self.raw = false;
+        }
+        if self.owns_input_fd {
+            unsafe {
+                libc::close(self.input_fd);
+            }
+            self.owns_input_fd = false;
+        }
+        if self.owns_output_fd {
+            unsafe {
+                libc::close(self.output_fd);
+            }
+            self.owns_output_fd = false;
         }
     }
 }

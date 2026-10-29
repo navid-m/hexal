@@ -2091,7 +2091,7 @@ unsafe fn raw_arg_bytes<'a>(state: *mut mlua::ffi::lua_State, index: i32) -> Opt
 
 unsafe fn raw_push_bytes(state: *mut mlua::ffi::lua_State, bytes: &[u8]) {
     unsafe {
-        mlua::ffi::lua_pushlstring(state, bytes.as_ptr() as *const i8, bytes.len());
+        mlua::ffi::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
     }
 }
 
@@ -2226,7 +2226,7 @@ unsafe fn call_raw_on_state(
             reference as mlua::ffi::lua_Integer,
         );
         for argument in args {
-            mlua::ffi::lua_pushlstring(state, argument.as_ptr() as *const i8, argument.len());
+            mlua::ffi::lua_pushlstring(state, argument.as_ptr().cast(), argument.len());
         }
         let status = mlua::ffi::lua_pcallk(state, args.len() as i32, 1, 0, 0, None);
         if status != mlua::ffi::LUA_OK {
