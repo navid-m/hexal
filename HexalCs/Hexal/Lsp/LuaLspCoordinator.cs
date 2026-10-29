@@ -197,10 +197,6 @@ public sealed class LuaLspCoordinator : IDisposable
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Timers, async scheduling and file watching
-    // -----------------------------------------------------------------------
-
     public long Schedule(long delayMs, LuaFunction callback)
     {
         if (_disposed || callback is null)
