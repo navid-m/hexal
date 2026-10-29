@@ -33,7 +33,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 
 use crate::core::config::Config;
 use crate::core::diff;
@@ -43,7 +43,7 @@ use crate::languages::{FormatterConfig, Highlighter, Language, Registry, Token};
 use crate::lsp::{self, Manager as LspManager};
 use crate::platform::terminal::{Event, Key, MouseButton, Terminal};
 use crate::scripting::plugin::PluginManager;
-use crate::ui::help::{HELP_LINES, HelpLineKind, HelpState};
+use crate::ui::help::{HelpLineKind, HelpState, HELP_LINES};
 use crate::ui::renderer::Renderer;
 use crate::ui::screen::Screen;
 use crate::ui::sidebar::{self as ui_sidebar, Action as SidebarAction, Sidebar};
@@ -437,16 +437,10 @@ const SPACE_ITEMS: &[SpaceItem] = &[
         label: "Save buffer",
     },
     SpaceItem {
-        key: '?',
-        label: "Key reference",
-    },
-    SpaceItem {
         key: 'q',
         label: "Quit",
     },
 ];
-
-const HELP_TEXT: &str = "i/a/o insert  v select  x line select  d delete  u/U undo/redo  gg/ge/gp  :w :wq :q :e  / find  :lua <file>  Ctrl+P palette  Space menu";
 
 struct CompletionState {
     visible: bool,

@@ -418,7 +418,6 @@ impl Editor {
             'w' | 'W' => {
                 self.save_document(None);
             }
-            '?' => self.set_message(HELP_TEXT),
             'q' | 'Q' => self.request_quit(false),
             _ => {}
         }
