@@ -761,12 +761,18 @@ pub fn grammarDirectories(
 
     if (std.process.executableDirPathAlloc(io, allocator)) |executable_dir| {
         defer allocator.free(executable_dir);
-        const candidate = try std.fs.path.join(allocator, &.{ executable_dir, "data/grammars" });
-        defer allocator.free(candidate);
-        if (std.Io.Dir.cwd().openDir(io, candidate, .{})) |dir| {
-            dir.close(io);
-            try appendUniqueDirectory(allocator, &result, candidate);
-        } else |_| {}
+        var current: ?[]const u8 = executable_dir;
+        var levels: usize = 0;
+        while (current) |directory| : (levels += 1) {
+            if (levels > 3) break;
+            const candidate = try std.fs.path.join(allocator, &.{ directory, "data/grammars" });
+            defer allocator.free(candidate);
+            if (std.Io.Dir.cwd().openDir(io, candidate, .{})) |dir| {
+                dir.close(io);
+                try appendUniqueDirectory(allocator, &result, candidate);
+            } else |_| {}
+            current = std.fs.path.dirname(directory);
+        }
     } else |_| {}
 
     if (std.c.getenv("HOME")) |home_ptr| {

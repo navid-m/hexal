@@ -49,6 +49,14 @@ pub fn build(b: *std.Build) void {
         .linkage = linkage,
     });
     b.installArtifact(exe);
+    // Grammars are data, not code: users edit and add `.hexdef` files without
+    // rebuilding. Install them next to the binary so a relocated `zig-out`
+    // keeps language recognition working from any working directory.
+    b.installDirectory(.{
+        .source_dir = b.path("data"),
+        .install_dir = .prefix,
+        .install_subdir = "data",
+    });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

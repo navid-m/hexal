@@ -11,7 +11,6 @@
 
 use super::*;
 use crate::languages::highlight::tokenize_line;
-use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -334,11 +333,11 @@ impl Editor {
         }
         let mut column = 0usize;
         let mut offset = 0usize;
-        let mut emit = |screen: &mut Screen,
-                        column: &mut usize,
-                        start: usize,
-                        end: usize,
-                        style: crate::ui::theme::Style| {
+        let emit = |screen: &mut Screen,
+                    column: &mut usize,
+                    start: usize,
+                    end: usize,
+                    style: crate::ui::theme::Style| {
             if end <= start || *column >= width {
                 return;
             }
