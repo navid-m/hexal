@@ -36,8 +36,8 @@ const HELP_TEXT: &str = concat!(
     "(C) Navid Momtahen - 2026\n",
     "\n",
     "Usage: \n",
-    "  hexal [options] file\n",
-    "  hexal [options] directory\n",
+    "  hexal [opts] file\n",
+    "  hexal [opts] directory\n",
     "  hexal install-plugin <name>\n",
     "\n",
     "Options:\n",
@@ -45,6 +45,7 @@ const HELP_TEXT: &str = concat!(
     "  -v, --version       Print the version and exit\n",
     "  -vv, --verbose      Write a verbose startup trace to ~/.hexal/hexal.log\n",
     "  --health [lang]     Show language support health and exit\n",
+    "  --lua-bench [opts]  Benchmark a plugin\n",
     "  --                  Treat remaining arguments as file names\n",
 );
 
