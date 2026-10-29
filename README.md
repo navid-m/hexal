@@ -20,6 +20,8 @@ Currently, Hexal is fitted with some less-than-stock features OOTB:
 - Git difflines in gutters.
 - File explorer sidebar, with bulk formatting capabilities (run rustfmt on an entire directory and its subdirectories, for example).
 - Full LSP integration and support for 114 languages.
+- Markdown and gitlog plugins.
+- Panes via the `:hs` and `:vs` Ex commands.
 - Debugger integration through [DAP](https://microsoft.github.io/debug-adapter-protocol).
 
 ---
