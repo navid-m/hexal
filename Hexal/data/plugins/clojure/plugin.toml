@@ -1,0 +1,6 @@
+name = "Clojure"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Clojure"
+lazy = true
+language = "clojure"

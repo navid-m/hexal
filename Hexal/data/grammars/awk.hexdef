@@ -98,5 +98,16 @@
   },
   "numbers": true,
   "indentAfter": ["{"],
-  "unindentBefore": ["}"]
+  "unindentBefore": ["}"],
+  "formatter": {
+    "command": "gawk",
+    "arguments": [
+      "-f",
+      "-",
+      "-o-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

@@ -180,5 +180,14 @@
     "quoteCharacters": ["\""],
     "escapeCharacter": "\\"
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "cmake-format",
+    "arguments": [
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

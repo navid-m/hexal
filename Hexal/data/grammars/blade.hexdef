@@ -99,5 +99,14 @@
     "@endwhile",
     "@endswitch",
     "@endsection"
-  ]
+  ],
+  "formatter": {
+    "command": "blade-formatter",
+    "arguments": [
+      "--stdin"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }

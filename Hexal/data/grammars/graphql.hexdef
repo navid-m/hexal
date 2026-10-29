@@ -35,5 +35,17 @@
   },
   "numbers": true,
   "indentAfter": ["{", "[", "("],
-  "unindentBefore": ["}", "]", ")"]
+  "unindentBefore": ["}", "]", ")"],
+  "formatter": {
+    "command": "prettier",
+    "arguments": [
+      "--parser",
+      "graphql",
+      "--stdin-filepath",
+      "{path}"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

@@ -207,5 +207,12 @@
     "elseif",
     "case",
     "contains"
-  ]
+  ],
+  "formatter": {
+    "command": "findent",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

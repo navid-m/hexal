@@ -1,0 +1,6 @@
+name = "OCaml"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for OCaml"
+lazy = true
+language = "ocaml"

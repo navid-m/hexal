@@ -1,0 +1,6 @@
+name = "Nix"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Nix"
+lazy = true
+language = "nix"

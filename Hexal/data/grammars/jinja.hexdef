@@ -91,5 +91,15 @@
     "{% endif",
     "{% endmacro",
     "{% endwith"
-  ]
+  ],
+  "formatter": {
+    "command": "djlint",
+    "arguments": [
+      "--reformat",
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

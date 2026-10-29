@@ -1,0 +1,6 @@
+name = "GraphQL"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for GraphQL"
+lazy = true
+language = "graphql"

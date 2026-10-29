@@ -1,0 +1,6 @@
+name = "WebAssembly Text"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for WebAssembly Text"
+lazy = true
+language = "wat"

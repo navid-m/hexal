@@ -1,0 +1,6 @@
+name = "CSV"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for CSV"
+lazy = true
+language = "csv"

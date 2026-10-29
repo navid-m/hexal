@@ -133,5 +133,15 @@
     "quoteCharacters": ["\"", "'", "`"],
     "escapeCharacter": "\\"
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "rubyfmt",
+    "arguments": [
+      "--stdin-filepath",
+      "{path}"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

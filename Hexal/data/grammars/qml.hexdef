@@ -117,5 +117,15 @@
   },
   "numbers": true,
   "indentAfter": ["{", "["],
-  "unindentBefore": ["}", "]"]
+  "unindentBefore": ["}", "]"],
+  "formatter": {
+    "command": "qmlformat",
+    "arguments": [
+      "-i",
+      "{tmp}"
+    ],
+    "input": "file",
+    "output": "file",
+    "timeout": 15000
+  }
 }

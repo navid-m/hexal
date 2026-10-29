@@ -159,5 +159,14 @@
   },
   "numbers": true,
   "indentAfter": ["(", "["],
-  "unindentBefore": [")", "]"]
+  "unindentBefore": [")", "]"],
+  "formatter": {
+    "command": "raco",
+    "arguments": [
+      "fmt"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

@@ -452,5 +452,12 @@
       "cwd": "${workspace}",
       "stopOnEntry": false
     }
+  },
+  "formatter": {
+    "command": "asmfmt",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
   }
 }

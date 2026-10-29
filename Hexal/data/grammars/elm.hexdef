@@ -63,5 +63,14 @@
   },
   "numbers": true,
   "indentAfter": ["let", "case", "of", "if", "then", "else"],
-  "unindentBefore": ["in", "else"]
+  "unindentBefore": ["in", "else"],
+  "formatter": {
+    "command": "elm-format",
+    "arguments": [
+      "--stdin"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

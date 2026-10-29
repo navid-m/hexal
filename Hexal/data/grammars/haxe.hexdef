@@ -91,5 +91,18 @@
     "quoteCharacters": ["\"", "'"],
     "escapeCharacter": "\\"
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "haxelib",
+    "arguments": [
+      "run",
+      "formatter",
+      "--stdin",
+      "-s",
+      "{path}"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }

@@ -83,5 +83,17 @@
     "escapeCharacter": "\\"
   },
   "numbers": true,
-  "indentAfter": ["if", "foreach"]
+  "indentAfter": ["if", "foreach"],
+  "formatter": {
+    "command": "meson",
+    "arguments": [
+      "format",
+      "--source-file-path",
+      "{path}",
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

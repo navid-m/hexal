@@ -1,0 +1,6 @@
+name = "Objective-C"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Objective-C"
+lazy = true
+language = "objc"

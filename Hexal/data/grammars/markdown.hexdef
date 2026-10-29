@@ -13,5 +13,24 @@
     "blockStart": "<!--",
     "blockEnd": "-->"
   },
-  "numbers": false
+  "numbers": false,
+  "formatter": {
+    "command": "prettier",
+    "arguments": [
+      "--stdin-filepath",
+      "{path}"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  },
+  "fallbackFormatter": {
+    "command": "mdformat",
+    "arguments": [
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

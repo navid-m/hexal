@@ -119,5 +119,15 @@
     "input": "stdin",
     "output": "stdout",
     "timeout": 15000
+  },
+  "debugger": {
+    "adapter": "js-debug-adapter",
+    "arguments": [],
+    "configuration": {
+      "type": "node",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspace}"
+    }
   }
 }

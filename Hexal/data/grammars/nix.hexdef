@@ -45,5 +45,19 @@
   },
   "numbers": true,
   "indentAfter": ["let", "with", "{", "["],
-  "unindentBefore": ["in", "}", "]"]
+  "unindentBefore": ["in", "}", "]"],
+  "formatter": {
+    "command": "nixfmt",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  },
+  "fallbackFormatter": {
+    "command": "alejandra",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

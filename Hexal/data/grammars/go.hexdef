@@ -79,5 +79,17 @@
     "arguments": [],
     "input": "stdin",
     "output": "stdout"
+  },
+  "debugger": {
+    "adapter": "dlv",
+    "arguments": [
+      "dap"
+    ],
+    "configuration": {
+      "request": "launch",
+      "mode": "auto",
+      "program": "${file}",
+      "cwd": "${workspace}"
+    }
   }
 }

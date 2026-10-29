@@ -88,5 +88,15 @@
   },
   "numbers": true,
   "indentAfter": ["{"],
-  "unindentBefore": ["}"]
+  "unindentBefore": ["}"],
+  "formatter": {
+    "command": "bibtex-tidy",
+    "arguments": [
+      "-",
+      "--quiet"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

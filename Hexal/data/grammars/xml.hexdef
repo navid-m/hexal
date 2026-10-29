@@ -26,5 +26,24 @@
   "strings": {
     "quoteCharacters": ["\"", "'"]
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "xmllint",
+    "arguments": [
+      "--format",
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  },
+  "fallbackFormatter": {
+    "command": "xmlformat",
+    "arguments": [
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

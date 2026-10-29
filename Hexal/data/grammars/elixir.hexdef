@@ -105,5 +105,19 @@
     "input": "stdin",
     "output": "stdout",
     "timeout": 15000
+  },
+  "debugger": {
+    "adapter": "elixir-ls-debugger",
+    "configuration": {
+      "request": "launch",
+      "type": "mix_task",
+      "task": "test",
+      "taskArgs": [],
+      "startApps": true,
+      "projectDir": "${workspace}",
+      "requireFiles": [
+        "test/**/*_test.exs"
+      ]
+    }
   }
 }

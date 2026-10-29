@@ -1,0 +1,6 @@
+name = "Git Commit"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Git Commit"
+lazy = true
+language = "git-commit"

@@ -185,5 +185,14 @@
   },
   "numbers": true,
   "indentAfter": ["{", "["],
-  "unindentBefore": ["}", "]"]
+  "unindentBefore": ["}", "]"],
+  "formatter": {
+    "command": "tclfmt",
+    "arguments": [
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

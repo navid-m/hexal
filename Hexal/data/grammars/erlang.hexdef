@@ -105,5 +105,14 @@
     "receive",
     "try"
   ],
-  "unindentBefore": ["after", "catch", "else", "end"]
+  "unindentBefore": ["after", "catch", "else", "end"],
+  "formatter": {
+    "command": "erlfmt",
+    "arguments": [
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }

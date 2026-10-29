@@ -109,5 +109,16 @@
     "module",
     "do"
   ],
-  "unindentBefore": ["end", "else", "elseif", "catch", "finally"]
+  "unindentBefore": ["end", "else", "elseif", "catch", "finally"],
+  "formatter": {
+    "command": "julia",
+    "arguments": [
+      "--startup-file=no",
+      "-e",
+      "using JuliaFormatter; print(format_text(read(stdin, String)))"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 60000
+  }
 }

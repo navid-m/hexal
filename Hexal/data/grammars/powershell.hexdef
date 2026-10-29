@@ -117,5 +117,31 @@
     "quoteCharacters": ["\"", "'"],
     "escapeCharacter": "`"
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "pwsh",
+    "arguments": [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$src = [Console]::In.ReadToEnd(); Invoke-Formatter -ScriptDefinition $src"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 30000
+  },
+  "fallbackFormatter": {
+    "command": "powershell",
+    "arguments": [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$src = [Console]::In.ReadToEnd(); Invoke-Formatter -ScriptDefinition $src"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }

@@ -144,5 +144,26 @@
     "quoteCharacters": ["\"", "'"],
     "escapeCharacter": "\\"
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "php-cs-fixer",
+    "arguments": [
+      "fix",
+      "--using-cache=no",
+      "--quiet",
+      "{tmp}"
+    ],
+    "input": "file",
+    "output": "file",
+    "timeout": 30000
+  },
+  "debugger": {
+    "adapter": "php-debug-adapter",
+    "configuration": {
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspace}",
+      "port": 0
+    }
+  }
 }

@@ -132,5 +132,25 @@
   },
   "numbers": true,
   "indentAfter": ["=", "then", "else", "do", "->"],
-  "unindentBefore": ["else", "elif", "|", "end"]
+  "unindentBefore": ["else", "elif", "|", "end"],
+  "formatter": {
+    "command": "fantomas",
+    "arguments": [
+      "{tmp}"
+    ],
+    "input": "file",
+    "output": "file",
+    "timeout": 30000
+  },
+  "debugger": {
+    "adapter": "netcoredbg",
+    "arguments": [
+      "--interpreter=vscode"
+    ],
+    "configuration": {
+      "request": "launch",
+      "program": "${executable}",
+      "cwd": "${workspace}"
+    }
+  }
 }

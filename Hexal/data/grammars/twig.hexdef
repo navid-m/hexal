@@ -157,5 +157,18 @@
     "{% endspaceless",
     "{% endcache",
     "{% endtrans"
-  ]
+  ],
+  "formatter": {
+    "command": "twig-cs-fixer",
+    "arguments": [
+      "lint",
+      "{tmp}",
+      "--fix",
+      "--no-interaction",
+      "--quiet"
+    ],
+    "input": "file",
+    "output": "file",
+    "timeout": 30000
+  }
 }

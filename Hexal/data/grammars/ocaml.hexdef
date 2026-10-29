@@ -115,5 +115,24 @@
     "struct",
     "sig"
   ],
-  "unindentBefore": ["end", "else", "in", "with"]
+  "unindentBefore": ["end", "else", "in", "with"],
+  "formatter": {
+    "command": "ocamlformat",
+    "arguments": [
+      "--enable-outside-detected-project",
+      "--name",
+      "{path}",
+      "-"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  },
+  "fallbackFormatter": {
+    "command": "ocp-indent",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

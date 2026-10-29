@@ -105,5 +105,15 @@
   },
   "numbers": true,
   "indentAfter": ["is", "then", "loop", "declare", "begin", "record"],
-  "unindentBefore": ["end", "else", "elsif", "when"]
+  "unindentBefore": ["end", "else", "elsif", "when"],
+  "formatter": {
+    "command": "gnatpp",
+    "arguments": [
+      "--pipe",
+      "{tmp}"
+    ],
+    "input": "file",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }

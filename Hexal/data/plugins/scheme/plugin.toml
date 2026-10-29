@@ -1,0 +1,6 @@
+name = "Scheme"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Scheme"
+lazy = true
+language = "scheme"

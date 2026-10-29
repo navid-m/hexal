@@ -115,5 +115,14 @@
     "quoteCharacters": ["\"", "'"],
     "escapeCharacter": "\\"
   },
-  "numbers": true
+  "numbers": true,
+  "formatter": {
+    "command": "scalafmt",
+    "arguments": [
+      "--stdin"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }

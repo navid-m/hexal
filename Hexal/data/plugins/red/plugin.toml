@@ -1,0 +1,6 @@
+name = "Red"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Red"
+lazy = true
+language = "red"

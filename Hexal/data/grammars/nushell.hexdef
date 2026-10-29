@@ -123,5 +123,14 @@
   },
   "numbers": true,
   "indentAfter": ["{", "[", "(", "for", "if", "match", "try", "while"],
-  "unindentBefore": ["}", "]", ")", "catch", "else"]
+  "unindentBefore": ["}", "]", ")", "catch", "else"],
+  "formatter": {
+    "command": "nufmt",
+    "arguments": [
+      "--stdin"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

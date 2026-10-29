@@ -97,5 +97,14 @@
   },
   "numbers": true,
   "indentAfter": ["ado", "do", "else", "let", "of", "then", "where"],
-  "unindentBefore": ["else", "in"]
+  "unindentBefore": ["else", "in"],
+  "formatter": {
+    "command": "purs-tidy",
+    "arguments": [
+      "format"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

@@ -1,0 +1,6 @@
+name = "Meson"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Meson"
+lazy = true
+language = "meson"

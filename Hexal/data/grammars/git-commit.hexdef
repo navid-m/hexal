@@ -35,5 +35,12 @@
   "strings": {
     "quoteCharacters": []
   },
-  "numbers": false
+  "numbers": false,
+  "formatter": {
+    "command": "commitmsgfmt",
+    "arguments": [],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

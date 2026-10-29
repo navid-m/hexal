@@ -154,5 +154,14 @@
     "command": "clangd",
     "arguments": [],
     "languageId": "objective-c"
+  },
+  "debugger": {
+    "adapter": "lldb-dap",
+    "configuration": {
+      "request": "launch",
+      "program": "${executable}",
+      "cwd": "${workspace}",
+      "stopOnEntry": false
+    }
   }
 }

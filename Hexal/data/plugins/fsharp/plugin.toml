@@ -1,0 +1,6 @@
+name = "F#"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for F#"
+lazy = true
+language = "fsharp"

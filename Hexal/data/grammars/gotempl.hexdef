@@ -82,5 +82,16 @@
   },
   "numbers": true,
   "indentAfter": ["templ", "if", "for", "switch", "func"],
-  "unindentBefore": ["}", "end"]
+  "unindentBefore": ["}", "end"],
+  "formatter": {
+    "command": "templ",
+    "arguments": [
+      "fmt",
+      "-stdin-filepath",
+      "{path}"
+    ],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
 }

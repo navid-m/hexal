@@ -117,5 +117,15 @@
     "input": "stdin",
     "output": "stdout",
     "timeout": 15000
+  },
+  "debugger": {
+    "adapter": "haskell-debug-adapter",
+    "configuration": {
+      "request": "launch",
+      "workspace": "${workspace}",
+      "startup": "${file}",
+      "stopOnEntry": false,
+      "ghciCmd": "stack ghci --with-ghc=ghci-dap"
+    }
   }
 }

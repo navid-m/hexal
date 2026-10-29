@@ -74,5 +74,16 @@
   },
   "numbers": true,
   "indentAfter": ["{", "[", "enum", "message", "oneof", "rpc", "service"],
-  "unindentBefore": ["}", "]"]
+  "unindentBefore": ["}", "]"],
+  "formatter": {
+    "command": "buf",
+    "arguments": [
+      "format",
+      "-w",
+      "{tmp}"
+    ],
+    "input": "file",
+    "output": "file",
+    "timeout": 15000
+  }
 }

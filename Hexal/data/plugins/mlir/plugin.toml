@@ -1,0 +1,6 @@
+name = "MLIR"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for MLIR"
+lazy = true
+language = "mlir"

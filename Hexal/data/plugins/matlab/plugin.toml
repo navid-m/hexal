@@ -1,0 +1,6 @@
+name = "MATLAB"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for MATLAB"
+lazy = true
+language = "matlab"
