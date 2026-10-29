@@ -65,6 +65,8 @@ impl Screen {
         }
         let index = uy * self.width + ux;
 
+        let ch = if ch.is_control() { ' ' } else { ch };
+
         if ux > 0 && self.cells[index].wide_continuation {
             self.cells[index - 1] = Cell::blank(self.cells[index - 1].style);
         }
@@ -146,5 +148,21 @@ impl Screen {
                     source.cells[source_y * source.width + source_x];
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_never_stores_terminal_control_characters() {
+        let mut screen = Screen::new();
+        screen.resize(10, 1);
+        screen.put_str(0, 0, "a\nb\tc\x1b[31m", Style::default(), 10);
+
+        let text: String = screen.cells.iter().map(|cell| cell.ch).collect();
+        assert_eq!(text, "a b c [31m");
+        assert!(!text.chars().any(char::is_control));
     }
 }

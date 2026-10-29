@@ -265,6 +265,7 @@ impl Editor {
         self.picker.total = 0;
         self.picker.items.clear();
         self.picker.status = None;
+        self.force_full_redraw = true;
     }
 
     pub(super) fn rebuild_picker(&mut self) {
