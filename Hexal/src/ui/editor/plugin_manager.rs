@@ -12,6 +12,7 @@ pub(super) struct PluginManagerState {
     selected: usize,
     top: usize,
     filter: String,
+    filter_cursor: usize,
     filtering: bool,
     items: Vec<PluginInfo>,
 }
@@ -23,6 +24,7 @@ impl PluginManagerState {
             selected: 0,
             top: 0,
             filter: String::new(),
+            filter_cursor: 0,
             filtering: false,
             items: Vec::new(),
         }
@@ -33,6 +35,7 @@ impl Editor {
     pub(super) fn open_plugin_manager(&mut self) {
         self.clear_message();
         self.plugin_manager.filter.clear();
+        self.plugin_manager.filter_cursor = 0;
         self.plugin_manager.filtering = false;
         self.refresh_plugin_manager_items(false);
         self.plugin_manager.visible = true;
@@ -43,6 +46,7 @@ impl Editor {
         self.plugin_manager.visible = false;
         self.plugin_manager.top = 0;
         self.plugin_manager.filter.clear();
+        self.plugin_manager.filter_cursor = 0;
         self.plugin_manager.filtering = false;
         self.force_full_redraw = true;
     }
@@ -148,6 +152,7 @@ impl Editor {
             Key::Escape => {
                 if !self.plugin_manager.filter.is_empty() {
                     self.plugin_manager.filter.clear();
+                    self.plugin_manager.filter_cursor = 0;
                     self.refresh_plugin_manager_items(false);
                     self.force_full_redraw = true;
                     return;
@@ -196,6 +201,7 @@ impl Editor {
         match event.ch {
             '/' => {
                 self.plugin_manager.filtering = true;
+                self.plugin_manager.filter_cursor = self.plugin_manager.filter.len();
                 self.force_full_redraw = true;
             }
             'q' | 'Q' => self.close_plugin_manager(),
@@ -213,6 +219,7 @@ impl Editor {
         match event.key {
             Key::Escape => {
                 self.plugin_manager.filter.clear();
+                self.plugin_manager.filter_cursor = 0;
                 self.plugin_manager.filtering = false;
                 self.refresh_plugin_manager_items(false);
                 self.force_full_redraw = true;
@@ -224,13 +231,46 @@ impl Editor {
                 return;
             }
             Key::Backspace => {
-                let previous = util::previous_boundary(
+                if self.plugin_manager.filter_cursor > 0 {
+                    let previous = util::previous_boundary(
+                        self.plugin_manager.filter.as_bytes(),
+                        self.plugin_manager.filter_cursor,
+                    );
+                    self.plugin_manager
+                        .filter
+                        .replace_range(previous..self.plugin_manager.filter_cursor, "");
+                    self.plugin_manager.filter_cursor = previous;
+                    self.refresh_plugin_manager_items(true);
+                    self.force_full_redraw = true;
+                }
+                return;
+            }
+            Key::Delete => {
+                if self.plugin_manager.filter_cursor < self.plugin_manager.filter.len() {
+                    let next = util::next_boundary(
+                        self.plugin_manager.filter.as_bytes(),
+                        self.plugin_manager.filter_cursor,
+                    );
+                    self.plugin_manager
+                        .filter
+                        .replace_range(self.plugin_manager.filter_cursor..next, "");
+                    self.refresh_plugin_manager_items(true);
+                    self.force_full_redraw = true;
+                }
+                return;
+            }
+            Key::Left => {
+                self.plugin_manager.filter_cursor = util::previous_boundary(
                     self.plugin_manager.filter.as_bytes(),
-                    self.plugin_manager.filter.len(),
+                    self.plugin_manager.filter_cursor,
                 );
-                self.plugin_manager.filter.truncate(previous);
-                self.refresh_plugin_manager_items(true);
-                self.force_full_redraw = true;
+                return;
+            }
+            Key::Right => {
+                self.plugin_manager.filter_cursor = util::next_boundary(
+                    self.plugin_manager.filter.as_bytes(),
+                    self.plugin_manager.filter_cursor,
+                );
                 return;
             }
             Key::Up | Key::ScrollUp => {
@@ -252,21 +292,35 @@ impl Editor {
                 return;
             }
             Key::Home => {
-                self.plugin_manager.selected = 0;
-                self.ensure_plugin_manager_selection_visible();
+                if event.ctrl {
+                    self.plugin_manager.selected = 0;
+                    self.ensure_plugin_manager_selection_visible();
+                } else {
+                    self.plugin_manager.filter_cursor = 0;
+                }
                 return;
             }
             Key::End => {
-                self.plugin_manager.selected = self.plugin_manager.items.len().saturating_sub(1);
-                self.ensure_plugin_manager_selection_visible();
+                if event.ctrl {
+                    self.plugin_manager.selected =
+                        self.plugin_manager.items.len().saturating_sub(1);
+                    self.ensure_plugin_manager_selection_visible();
+                } else {
+                    self.plugin_manager.filter_cursor = self.plugin_manager.filter.len();
+                }
                 return;
             }
             _ => {}
         }
-        if event.key != Key::Char || event.ctrl || event.alt {
+        if event.key != Key::Char || event.ctrl || event.alt || event.ch == '\0' {
             return;
         }
-        self.plugin_manager.filter.push(event.ch);
+        let cursor = self
+            .plugin_manager
+            .filter_cursor
+            .min(self.plugin_manager.filter.len());
+        self.plugin_manager.filter.insert(cursor, event.ch);
+        self.plugin_manager.filter_cursor = cursor + event.ch.len_utf8();
         self.refresh_plugin_manager_items(true);
         self.force_full_redraw = true;
     }
@@ -386,15 +440,16 @@ impl Editor {
         let x = self.cols.saturating_sub(width) / 2;
         let y = self.rows.saturating_sub(height) / 2;
         let title = if !self.plugin_manager.filter.is_empty() || self.plugin_manager.filtering {
-            format!(
-                " Plugins · /{}{} ",
-                self.plugin_manager.filter,
-                if self.plugin_manager.filtering {
-                    "▏"
-                } else {
-                    " "
-                }
-            )
+            if self.plugin_manager.filtering {
+                let cursor = self
+                    .plugin_manager
+                    .filter_cursor
+                    .min(self.plugin_manager.filter.len());
+                let (before, after) = self.plugin_manager.filter.split_at(cursor);
+                format!(" Plugins · /{before}▏{after} ")
+            } else {
+                format!(" Plugins · /{} ", self.plugin_manager.filter)
+            }
         } else {
             " Plugins ".to_string()
         };
@@ -616,5 +671,58 @@ mod tests {
         assert!(screen.contains("Demo [on]"), "{screen}");
         assert!(screen.contains("Description: A demo plugin."), "{screen}");
         assert!(screen.contains("Commands: demo, gl"), "{screen}");
+    }
+
+    fn character(ch: char) -> Event {
+        Event {
+            key: Key::Char,
+            ch,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        }
+    }
+
+    fn key(key: Key) -> Event {
+        Event {
+            key,
+            ch: '\0',
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        }
+    }
+
+    #[test]
+    fn plugin_manager_filter_supports_cursor_movement_and_editing() {
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.plugin_manager.visible = true;
+        editor.plugin_manager.filtering = true;
+
+        for ch in "ac".chars() {
+            editor.handle_plugin_manager_filter_input(character(ch));
+        }
+        assert_eq!(editor.plugin_manager.filter, "ac");
+
+        editor.handle_plugin_manager_filter_input(key(Key::Left));
+        editor.handle_plugin_manager_filter_input(character('b'));
+        assert_eq!(editor.plugin_manager.filter, "abc");
+        assert_eq!(editor.plugin_manager.filter_cursor, 2);
+
+        editor.handle_plugin_manager_filter_input(key(Key::Home));
+        editor.handle_plugin_manager_filter_input(key(Key::Delete));
+        assert_eq!(editor.plugin_manager.filter, "bc");
+        assert_eq!(editor.plugin_manager.filter_cursor, 0);
+
+        editor.handle_plugin_manager_filter_input(key(Key::End));
+        editor.handle_plugin_manager_filter_input(key(Key::Backspace));
+        assert_eq!(editor.plugin_manager.filter, "b");
+        assert_eq!(editor.plugin_manager.filter_cursor, 1);
     }
 }

@@ -94,6 +94,7 @@ impl Editor {
         }
         self.picker.kind = kind;
         self.picker.query.clear();
+        self.picker.query_cursor = 0;
         self.picker.selected = 0;
         self.picker.top = 0;
         self.picker.total = 0;
@@ -300,6 +301,7 @@ impl Editor {
         self.picker.kind = PickerKind::None;
         self.picker_scan_root = None;
         self.picker.query.clear();
+        self.picker.query_cursor = 0;
         self.picker.selected = 0;
         self.picker.top = 0;
         self.picker.total = 0;
@@ -533,7 +535,9 @@ impl Editor {
         }
 
         if event.key == Key::Char && !event.ctrl && !event.alt && event.ch != '\0' {
-            self.picker.query.push(event.ch);
+            let cursor = self.picker.query_cursor.min(self.picker.query.len());
+            self.picker.query.insert(cursor, event.ch);
+            self.picker.query_cursor = cursor + event.ch.len_utf8();
             self.picker.selected = 0;
             self.picker.top = 0;
             self.rebuild_picker();
@@ -542,11 +546,35 @@ impl Editor {
 
         match event.key {
             Key::Backspace => {
-                if self.picker.query.pop().is_some() {
+                let cursor = self.picker.query_cursor.min(self.picker.query.len());
+                if cursor > 0 {
+                    let previous = util::previous_boundary(self.picker.query.as_bytes(), cursor);
+                    self.picker.query.replace_range(previous..cursor, "");
+                    self.picker.query_cursor = previous;
                     self.picker.selected = 0;
                     self.picker.top = 0;
                     self.rebuild_picker();
                 }
+            }
+            Key::Delete => {
+                let cursor = self.picker.query_cursor.min(self.picker.query.len());
+                if cursor < self.picker.query.len() {
+                    let next = util::next_boundary(self.picker.query.as_bytes(), cursor);
+                    self.picker.query.replace_range(cursor..next, "");
+                    self.picker.selected = 0;
+                    self.picker.top = 0;
+                    self.rebuild_picker();
+                }
+            }
+            Key::Left => {
+                let cursor = self.picker.query_cursor.min(self.picker.query.len());
+                self.picker.query_cursor =
+                    util::previous_boundary(self.picker.query.as_bytes(), cursor);
+            }
+            Key::Right => {
+                let cursor = self.picker.query_cursor.min(self.picker.query.len());
+                self.picker.query_cursor =
+                    util::next_boundary(self.picker.query.as_bytes(), cursor);
             }
             Key::Up => {
                 if self.picker.selected > 0 {
@@ -574,12 +602,20 @@ impl Editor {
                 self.preview_theme_selection();
             }
             Key::Home => {
-                self.picker.selected = 0;
-                self.preview_theme_selection();
+                if event.ctrl {
+                    self.picker.selected = 0;
+                    self.preview_theme_selection();
+                } else {
+                    self.picker.query_cursor = 0;
+                }
             }
             Key::End => {
-                self.picker.selected = self.picker.items.len().saturating_sub(1);
-                self.preview_theme_selection();
+                if event.ctrl {
+                    self.picker.selected = self.picker.items.len().saturating_sub(1);
+                    self.preview_theme_selection();
+                } else {
+                    self.picker.query_cursor = self.picker.query.len();
+                }
             }
             Key::Enter => self.open_picker_selection(),
             _ => {}
@@ -817,6 +853,92 @@ mod tests {
             symbol_index: None,
             problem: Some((path, line, column)),
         }
+    }
+
+    fn character(ch: char) -> Event {
+        Event {
+            key: Key::Char,
+            ch,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        }
+    }
+
+    fn key(key: Key) -> Event {
+        Event {
+            key,
+            ch: '\0',
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        }
+    }
+
+    #[test]
+    fn picker_query_supports_cursor_movement_and_editing() {
+        let mut editor = Editor::new(Document::new(), 80, 24);
+        editor.picker.kind = PickerKind::Files;
+        editor.picker.files_loaded = true;
+
+        for ch in "ac".chars() {
+            editor.handle_picker(character(ch));
+        }
+        assert_eq!(editor.picker.query, "ac");
+        assert_eq!(editor.picker.query_cursor, 2);
+
+        // Left moves the cursor so new input is inserted before the last char.
+        editor.handle_picker(key(Key::Left));
+        assert_eq!(editor.picker.query_cursor, 1);
+        editor.handle_picker(character('b'));
+        assert_eq!(editor.picker.query, "abc");
+        assert_eq!(editor.picker.query_cursor, 2);
+
+        // Home/Delete remove the character at the cursor.
+        editor.handle_picker(key(Key::Home));
+        assert_eq!(editor.picker.query_cursor, 0);
+        editor.handle_picker(key(Key::Delete));
+        assert_eq!(editor.picker.query, "bc");
+        assert_eq!(editor.picker.query_cursor, 0);
+
+        // End/Backspace remove the character before the cursor.
+        editor.handle_picker(key(Key::End));
+        assert_eq!(editor.picker.query_cursor, 2);
+        editor.handle_picker(key(Key::Backspace));
+        assert_eq!(editor.picker.query, "b");
+        assert_eq!(editor.picker.query_cursor, 1);
+
+        // Right at the end is a no-op.
+        editor.handle_picker(key(Key::Right));
+        assert_eq!(editor.picker.query_cursor, 1);
+        editor.close_picker();
+    }
+
+    #[test]
+    fn picker_cursor_stays_on_a_character_boundary() {
+        let mut editor = Editor::new(Document::new(), 80, 24);
+        editor.picker.kind = PickerKind::Files;
+        editor.picker.files_loaded = true;
+
+        for ch in "aé".chars() {
+            editor.handle_picker(character(ch));
+        }
+        assert_eq!(editor.picker.query, "aé");
+        editor.handle_picker(key(Key::Left));
+        assert_eq!(editor.picker.query_cursor, 1);
+        editor.handle_picker(key(Key::Left));
+        assert_eq!(editor.picker.query_cursor, 0);
+        editor.handle_picker(key(Key::Right));
+        assert_eq!(editor.picker.query_cursor, 1);
+        editor.handle_picker(character('b'));
+        assert_eq!(editor.picker.query, "abé");
+        editor.close_picker();
     }
 
     #[test]

@@ -613,10 +613,13 @@ impl Editor {
         }
 
         if let Some(input) = &self.goto_prompt {
-            let text = format!("Go to line: {input}");
+            let prefix = "Go to line: ";
+            let text = format!("{prefix}{input}");
             self.screen
                 .put_str(1, row as i64, &text, self.theme.accent_style(), width);
-            let x = 1 + util::text_width(&text);
+            let cursor_column =
+                util::visual_column(input.as_bytes(), self.goto_cursor.min(input.len()), 1);
+            let x = 1 + util::text_width(prefix) + cursor_column;
             if x < self.cols {
                 let mut style = self.screen.at(x, row).style;
                 style.reverse = true;
@@ -822,17 +825,17 @@ impl Editor {
             1,
         );
         let query_width = width.saturating_sub(5);
+        let (query, query_cursor) =
+            visible_picker_query(&self.picker.query, self.picker.query_cursor, query_width);
         self.screen.put_str(
             (x + 4) as i64,
             (y + 1) as i64,
-            &self.picker.query,
+            &query,
             self.theme.text(),
             query_width,
         );
-        let query_column =
-            util::visual_column(self.picker.query.as_bytes(), self.picker.query.len(), 1);
-        if query_column < query_width {
-            let cursor_x = x + 4 + query_column;
+        if query_cursor < query_width {
+            let cursor_x = x + 4 + query_cursor;
             if cursor_x < x + width - 1 {
                 let mut style = self.screen.at(cursor_x, y + 1).style;
                 style.reverse = true;
@@ -1249,5 +1252,62 @@ impl Editor {
         } else {
             self.set_message(&format!("Reloaded {} theme(s)", self.themes.themes().len()));
         }
+    }
+}
+
+/// Returns the part of `query` that fits in `width` cells around `cursor`,
+/// plus the cursor's column within that slice. The query scrolls horizontally
+/// once the cursor would otherwise move past the right edge.
+fn visible_picker_query(query: &str, cursor: usize, width: usize) -> (String, usize) {
+    if width == 0 {
+        return (String::new(), 0);
+    }
+    let bytes = query.as_bytes();
+    let cursor = cursor.min(bytes.len());
+    let cursor_column = util::visual_column(bytes, cursor, 1);
+    if cursor_column < width {
+        return (query.to_string(), cursor_column);
+    }
+
+    let scroll = cursor_column + 1 - width;
+    let mut start = 0usize;
+    let mut column = 0usize;
+    while start < cursor && column < scroll {
+        let (ch, len) = util::decode_at(bytes, start);
+        if len == 0 {
+            break;
+        }
+        column += if ch == '\t' {
+            1
+        } else {
+            util::display_width(ch)
+        };
+        start += len;
+    }
+
+    let visible = query[start..].to_string();
+    let visible_cursor = util::visual_column(visible.as_bytes(), cursor - start, 1);
+    (visible, visible_cursor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visible_picker_query;
+
+    #[test]
+    fn picker_query_scrolls_to_keep_the_cursor_visible() {
+        let (text, cursor) = visible_picker_query("abcdefghij", 10, 10);
+        assert_eq!(text, "bcdefghij");
+        assert_eq!(cursor, 9);
+        let (text, cursor) = visible_picker_query("abcdefghij", 4, 10);
+        assert_eq!(text, "abcdefghij");
+        assert_eq!(cursor, 4);
+        let query = "日🥓🥓🥓🥓";
+        let (text, cursor) = visible_picker_query(query, query.len(), 4);
+        assert_eq!(text, "🥓");
+        assert!(cursor < 4);
+        let (text, cursor) = visible_picker_query("abc", 1, 0);
+        assert_eq!(text, "");
+        assert_eq!(cursor, 0);
     }
 }

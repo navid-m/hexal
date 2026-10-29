@@ -1096,6 +1096,7 @@ impl Editor {
         self.cancel_picker_work();
         self.picker.kind = PickerKind::Folders;
         self.picker.query.clear();
+        self.picker.query_cursor = 0;
         self.picker.selected = 0;
         self.picker.top = 0;
         self.picker.total = 0;

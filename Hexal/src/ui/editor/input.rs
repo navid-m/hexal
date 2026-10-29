@@ -868,6 +868,7 @@ impl Editor {
 
     pub(super) fn open_goto_prompt(&mut self) {
         self.goto_prompt = Some(String::new());
+        self.goto_cursor = 0;
         self.doc.break_undo_group();
         self.clear_message();
     }
@@ -876,15 +877,43 @@ impl Editor {
         match event.key {
             Key::Escape => {
                 self.goto_prompt = None;
+                self.goto_cursor = 0;
                 self.set_message("Cancelled.");
             }
             Key::Backspace => {
-                if let Some(input) = self.goto_prompt.as_mut() {
-                    input.pop();
+                if let Some(input) = self.goto_prompt.as_mut()
+                    && self.goto_cursor > 0
+                {
+                    let previous = util::previous_boundary(input.as_bytes(), self.goto_cursor);
+                    input.replace_range(previous..self.goto_cursor, "");
+                    self.goto_cursor = previous;
                 }
+            }
+            Key::Delete => {
+                if let Some(input) = self.goto_prompt.as_mut()
+                    && self.goto_cursor < input.len()
+                {
+                    let next = util::next_boundary(input.as_bytes(), self.goto_cursor);
+                    input.replace_range(self.goto_cursor..next, "");
+                }
+            }
+            Key::Left => {
+                if let Some(input) = self.goto_prompt.as_ref() {
+                    self.goto_cursor = util::previous_boundary(input.as_bytes(), self.goto_cursor);
+                }
+            }
+            Key::Right => {
+                if let Some(input) = self.goto_prompt.as_ref() {
+                    self.goto_cursor = util::next_boundary(input.as_bytes(), self.goto_cursor);
+                }
+            }
+            Key::Home => self.goto_cursor = 0,
+            Key::End => {
+                self.goto_cursor = self.goto_prompt.as_ref().map_or(0, String::len);
             }
             Key::Enter => {
                 let input = self.goto_prompt.take().unwrap_or_default();
+                self.goto_cursor = 0;
                 let Ok(number) = input.parse::<usize>() else {
                     self.set_error("go to line: enter a line number");
                     return;
@@ -907,10 +936,12 @@ impl Editor {
                 if event.ctrl || event.alt {
                     return;
                 }
-                if event.ch.is_ascii_digit() {
-                    if let Some(input) = self.goto_prompt.as_mut() {
-                        input.push(event.ch);
-                    }
+                if event.ch.is_ascii_digit()
+                    && let Some(input) = self.goto_prompt.as_mut()
+                {
+                    let cursor = self.goto_cursor.min(input.len());
+                    input.insert(cursor, event.ch);
+                    self.goto_cursor = cursor + event.ch.len_utf8();
                 }
             }
             _ => {}
@@ -954,6 +985,45 @@ mod tests {
             mouse_y: 0,
             mouse_button: MouseButton::None,
         }
+    }
+
+    fn key(key: Key) -> Event {
+        Event {
+            key,
+            ch: '\0',
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        }
+    }
+
+    #[test]
+    fn goto_prompt_supports_cursor_movement_and_editing() {
+        let mut editor = editor();
+        editor.open_goto_prompt();
+        for ch in "12".chars() {
+            editor.handle_goto_prompt(character(ch));
+        }
+        assert_eq!(editor.goto_prompt.as_deref(), Some("12"));
+        assert_eq!(editor.goto_cursor, 2);
+
+        editor.handle_goto_prompt(key(Key::Left));
+        editor.handle_goto_prompt(character('3'));
+        assert_eq!(editor.goto_prompt.as_deref(), Some("132"));
+        assert_eq!(editor.goto_cursor, 2);
+
+        editor.handle_goto_prompt(key(Key::Home));
+        editor.handle_goto_prompt(key(Key::Delete));
+        assert_eq!(editor.goto_prompt.as_deref(), Some("32"));
+        assert_eq!(editor.goto_cursor, 0);
+
+        editor.handle_goto_prompt(key(Key::End));
+        editor.handle_goto_prompt(key(Key::Backspace));
+        assert_eq!(editor.goto_prompt.as_deref(), Some("3"));
+        assert_eq!(editor.goto_cursor, 1);
     }
 
     #[test]

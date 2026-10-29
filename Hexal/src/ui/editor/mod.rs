@@ -172,6 +172,7 @@ struct PickerItem {
 struct Picker {
     kind: PickerKind,
     query: String,
+    query_cursor: usize,
     files: Arc<Vec<String>>,
     files_loaded: bool,
     items: Vec<PickerItem>,
@@ -186,6 +187,7 @@ impl Picker {
         Picker {
             kind: PickerKind::None,
             query: String::new(),
+            query_cursor: 0,
             files: Arc::new(Vec::new()),
             files_loaded: false,
             items: Vec::new(),
@@ -728,6 +730,7 @@ pub struct Editor {
     pending_line: usize,
     pending_column: usize,
     goto_prompt: Option<String>,
+    goto_cursor: usize,
 
     language_override: Option<String>,
     languages: Registry,
@@ -898,6 +901,7 @@ impl Editor {
             pending_line: 0,
             pending_column: 0,
             goto_prompt: None,
+            goto_cursor: 0,
             language_override: None,
             languages,
             highlighter: Highlighter::default(),
