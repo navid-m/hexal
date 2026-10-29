@@ -134,15 +134,11 @@ impl Editor {
             return;
         }
         if event.key == Key::Left && event.ctrl {
-            self.sidebar.resize(self.cols, -2);
-            self.force_full_redraw = true;
-            self.set_message(&format!("Sidebar width: {}", self.sidebar.width(self.cols)));
+            self.resize_sidebar(-2);
             return;
         }
         if event.key == Key::Right && event.ctrl {
-            self.sidebar.resize(self.cols, 2);
-            self.force_full_redraw = true;
-            self.set_message(&format!("Sidebar width: {}", self.sidebar.width(self.cols)));
+            self.resize_sidebar(2);
             return;
         }
 
@@ -180,6 +176,8 @@ impl Editor {
             Key::Enter => self.activate_sidebar_node(),
             Key::Char if !event.ctrl && !event.alt => match event.ch {
                 'c' | 'C' => self.open_sidebar_context_menu(),
+                '+' | '=' => self.resize_sidebar(2),
+                '-' | '_' => self.resize_sidebar(-2),
                 ' ' => {
                     self.sidebar.focused = false;
                     self.open_space_menu();
@@ -190,6 +188,12 @@ impl Editor {
         }
         self.sidebar.update_top(rows);
         self.force_full_redraw = true;
+    }
+
+    fn resize_sidebar(&mut self, delta: isize) {
+        self.sidebar.resize(self.cols, delta);
+        self.force_full_redraw = true;
+        self.set_message(&format!("Sidebar width: {}", self.sidebar.width(self.cols)));
     }
 
     pub(super) fn activate_sidebar_node(&mut self) {
@@ -2008,5 +2012,36 @@ mod tests {
         assert!(row.contains("2/4"), "{row:?}");
         assert!(row.contains('━'), "{row:?}");
         assert!(row.contains('─'), "{row:?}");
+    }
+
+    #[test]
+    fn plus_and_minus_resize_the_sidebar() {
+        use crate::platform::terminal::{Event, Key, MouseButton};
+
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.sidebar.visible = true;
+        editor.sidebar.focused = true;
+        let initial = editor.sidebar.width(editor.cols);
+
+        let char_event = |ch| Event {
+            key: Key::Char,
+            ch,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        };
+
+        editor.handle_sidebar(char_event('+'));
+        assert_eq!(editor.sidebar.width(editor.cols), initial + 2);
+        editor.handle_sidebar(char_event('-'));
+        assert_eq!(editor.sidebar.width(editor.cols), initial);
+
+        editor.handle_sidebar(char_event('='));
+        assert_eq!(editor.sidebar.width(editor.cols), initial + 2);
+        editor.handle_sidebar(char_event('_'));
+        assert_eq!(editor.sidebar.width(editor.cols), initial);
     }
 }
