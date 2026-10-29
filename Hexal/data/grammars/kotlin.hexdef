@@ -144,5 +144,15 @@
     "input": "stdin",
     "output": "stdout",
     "timeout": 15000
+  },
+  "debugger": {
+    "adapter": "kotlin-debug-adapter",
+    "configuration": {
+      "type": "kotlin",
+      "request": "launch",
+      "projectRoot": "${workspace}",
+      "mainClass": "${fileBasenameNoExtension}Kt",
+      "stopOnEntry": false
+    }
   }
 }

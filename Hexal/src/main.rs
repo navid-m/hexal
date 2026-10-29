@@ -45,16 +45,16 @@ const HELP_TEXT: &str = concat!(
     "  -v, --version       Print the version and exit\n",
     "  -vv, --verbose      Write a verbose startup trace to ~/.hexal/hexal.log\n",
     "  --health [lang]     Show language support health and exit\n",
-    "  --lua-bench [opts]  Benchmark a plugin\n",
+    "  --p-bench [opts]    Benchmark a plugin\n",
     "  --                  Treat remaining arguments as file names\n",
 );
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     util::trace::begin(&args);
-    if args.get(1).map(String::as_str) == Some("--lua-bench") {
+    if args.get(1).map(String::as_str) == Some("--p-bench") {
         if let Err(error) = run_lua_bench(&args[2..]) {
-            eprintln!("hexal: lua bench: {error}");
+            eprintln!("hexal: plugin bench: {error}");
             std::process::exit(1);
         }
         return;
@@ -253,7 +253,7 @@ fn run_install_plugin(arguments: &[String]) -> i32 {
 
 fn run_lua_bench(args: &[String]) -> Result<(), String> {
     if args.len() < 3 || args.len() > 4 {
-        return Err("usage: hexal --lua-bench <plugin.lua> <command> <iterations> [file]".into());
+        return Err("usage: hexal --p-bench <plugin.lua> <command> <iterations> [file]".into());
     }
     let plugin = &args[0];
     let command = &args[1];
@@ -275,7 +275,7 @@ fn run_lua_bench(args: &[String]) -> Result<(), String> {
     let _ = &cursor;
     let host = std::rc::Rc::new(std::cell::RefCell::new(scripting::lua::HostState::default()));
     let start = std::time::Instant::now();
-    let mut runtime = LuaRuntime::new("lua-bench", ".", host)
+    let mut runtime = LuaRuntime::new("p-bench", ".", host)
         .map_err(|error| format!("cannot start Lua: {error}"))?;
     runtime
         .load_file(plugin)
