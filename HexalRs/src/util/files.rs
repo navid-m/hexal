@@ -60,9 +60,12 @@ pub fn scan_root_with_cancel(
         ignore.as_ref(),
         cancel,
     );
+    eprintln!("IGNORE_NS={}", IGNORE_NS.swap(0, Ordering::Relaxed));
     files.sort();
     files
 }
+
+static IGNORE_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[allow(clippy::too_many_arguments)]
 fn walk(
@@ -87,29 +90,34 @@ fn walk(
         Err(_) => return,
     };
 
-    // Nested .gitignore files apply to the directory that contains them and
-    // everything below it, so each directory gets its own accumulated rules.
-    let ignore = if show_ignored || relative.is_empty() {
-        None
-    } else {
-        Some(match parent_ignore {
-            Some(parent) => parent.with_directory(directory),
-            None => GitIgnore::new(directory),
-        })
-    };
-    let ignore = ignore.as_ref().or(parent_ignore);
+    let mut nested_ignore: Option<GitIgnore> = None;
+    if !show_ignored && !relative.is_empty() {
+        match parent_ignore {
+            Some(parent) => {
+                if directory.join(".gitignore").is_file() {
+                    nested_ignore = Some(parent.with_directory(directory));
+                }
+            }
+            None => nested_ignore = Some(GitIgnore::new(root)),
+        }
+    }
+    let ignore = nested_ignore.as_ref().or(parent_ignore);
 
     for entry in entries.flatten() {
         if files.len() >= max_files || cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
             return;
         }
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
         let child_relative = if relative.is_empty() {
-            name.clone()
+            name.to_string()
         } else {
-            format!("{relative}/{name}")
+            let mut child = String::with_capacity(relative.len() + 1 + name.len());
+            child.push_str(relative);
+            child.push('/');
+            child.push_str(&name);
+            child
         };
-        let child_path = directory.join(&name);
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(_) => continue,
@@ -120,10 +128,15 @@ fn walk(
                 if git::is_built_in_ignored_directory(&name) {
                     continue;
                 }
-                if ignore.is_some_and(|ignore| ignore.is_ignored(&child_path, true)) {
+                let t = std::time::Instant::now();
+                let ignored =
+                    ignore.is_some_and(|ignore| ignore.is_ignored_relative(&child_relative, true));
+                IGNORE_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                if ignored {
                     continue;
                 }
             }
+            let child_path = directory.join(name.as_ref());
             walk(
                 root,
                 &child_path,
@@ -136,8 +149,14 @@ fn walk(
                 cancel,
             );
         } else if file_type.is_file() {
-            if !show_ignored && ignore.is_some_and(|ignore| ignore.is_ignored(&child_path, false)) {
-                continue;
+            if !show_ignored {
+                let t = std::time::Instant::now();
+                let ignored =
+                    ignore.is_some_and(|ignore| ignore.is_ignored_relative(&child_relative, false));
+                IGNORE_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                if ignored {
+                    continue;
+                }
             }
             files.push(child_relative);
         }
@@ -302,6 +321,102 @@ fn search_range(
         }
     }
     hits
+}
+
+#[cfg(test)]
+mod bench {
+    use super::{scan_root_with_ignored, search};
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    fn raw_scan(root: &std::path::Path) -> usize {
+        fn walk(dir: &std::path::Path, count: &mut usize) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let Ok(ft) = entry.file_type() else { continue };
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                if ft.is_dir() {
+                    if matches!(
+                        name,
+                        ".git"
+                            | ".hg"
+                            | ".svn"
+                            | "target"
+                            | "build"
+                            | "dist"
+                            | "zig-cache"
+                            | ".zig-cache"
+                            | "zig-out"
+                            | "vendor"
+                            | ".cache"
+                            | ".idea"
+                            | ".vscode"
+                            | "out"
+                            | "cmake-build-debug"
+                            | "cmake-build-release"
+                            | "bin"
+                            | "obj"
+                            | "node_modules"
+                    ) {
+                        continue;
+                    }
+                    walk(&entry.path(), count);
+                } else if ft.is_file() {
+                    *count += 1;
+                }
+            }
+        }
+        let mut count = 0;
+        walk(root, &mut count);
+        count
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_search_hexal_root() {
+        let root = std::path::Path::new("..");
+        let raw_start = Instant::now();
+        let raw = raw_scan(root);
+        let raw_ms = raw_start.elapsed().as_secs_f64() * 1000.0;
+        let scan_start = Instant::now();
+        let files = scan_root_with_ignored(root, usize::MAX, false);
+        let scan_ms = scan_start.elapsed().as_secs_f64() * 1000.0;
+        println!("RAW scan files={raw} ms={raw_ms:.2}");
+        let cancel = AtomicBool::new(false);
+        let mut hits = search(
+            root,
+            &files,
+            "Hello, world",
+            500,
+            false,
+            &cancel,
+            4 * 1024 * 1024,
+        );
+        let mut best = f64::MAX;
+        for _ in 0..5 {
+            let t = Instant::now();
+            hits = search(
+                root,
+                &files,
+                "Hello, world",
+                500,
+                false,
+                &cancel,
+                4 * 1024 * 1024,
+            );
+            best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        println!(
+            "BENCH rust files={} scan_ms={:.2} search_ms={:.2} hits={}",
+            files.len(),
+            scan_ms,
+            best,
+            hits.len()
+        );
+    }
 }
 
 #[cfg(test)]

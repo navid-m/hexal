@@ -32,10 +32,56 @@ pub fn is_built_in_ignored_directory(name: &str) -> bool {
         .any(|entry| entry.eq_ignore_ascii_case(name))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PatternKind {
+    Literal,
+    /// `*suffix`
+    Suffix,
+    /// `prefix*`
+    Prefix,
+    /// `prefix*suffix` with no other wildcards
+    Affix,
+    Glob,
+}
+
+fn classify_pattern(pattern: &str) -> PatternKind {
+    if !pattern.is_ascii() {
+        return PatternKind::Glob;
+    }
+    let bytes = pattern.as_bytes();
+    let mut star = None;
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'*' => {
+                if star.is_some() {
+                    return PatternKind::Glob;
+                }
+                star = Some(index);
+            }
+            b'?' | b'[' | b'\\' => return PatternKind::Glob,
+            _ => {}
+        }
+    }
+    match star {
+        None => PatternKind::Literal,
+        Some(0) => PatternKind::Suffix,
+        Some(index) if index + 1 == bytes.len() => PatternKind::Prefix,
+        Some(_) => PatternKind::Affix,
+    }
+}
+
 #[derive(Clone)]
 struct Rule {
     base: PathBuf,
+    /// `base` relative to the ignore root, precomputed so matching a path does
+    /// not rebuild strings for every rule.
+    base_relative: String,
     pattern: String,
+    /// True when `pattern` is ASCII and has no character classes, allowing
+    /// the allocation-free byte matcher.
+    simple_glob: bool,
+    /// Fast-path classification for the common single-`*` shapes.
+    kind: PatternKind,
     anchored: bool,
     directory_only: bool,
     negated: bool,
@@ -80,10 +126,11 @@ impl GitIgnore {
             return;
         };
         for line in text.lines() {
-            if let Some(rule) = parse_rule(line, base) {
+            if let Some(rule) = parse_rule(line, base, &self.root) {
                 self.rules.push(rule);
             }
         }
+        eprintln!("LOADED {} -> {} rules", path.display(), self.rules.len());
     }
 
     pub fn is_ignored(&self, path: &Path, is_directory: bool) -> bool {
@@ -94,34 +141,39 @@ impl GitIgnore {
         let Ok(relative) = relative_slash_path(&self.root, &full) else {
             return false;
         };
+        self.is_ignored_relative(&relative, is_directory)
+    }
+
+    /// Same as [`GitIgnore::is_ignored`] but takes a path relative to the
+    /// ignore root, avoiding a `getcwd` call and path allocations per entry.
+    pub fn is_ignored_relative(&self, relative: &str, is_directory: bool) -> bool {
         if relative.is_empty() || relative == "." {
             return false;
         }
 
         let mut ignored = false;
         for rule in &self.rules {
-            let base_relative = match relative_slash_path(&rule.base, &full) {
-                Ok(path) => path,
-                Err(_) => continue,
+            let base_relative = if rule.base_relative.is_empty() {
+                relative
+            } else {
+                // The candidate must live below the directory that owns the
+                // rule; anything else cannot match it.
+                let base = rule.base_relative.as_str();
+                if relative.len() <= base.len() || !relative.starts_with(base) {
+                    continue;
+                }
+                if relative.as_bytes()[base.len()] != b'/' {
+                    continue;
+                }
+                &relative[base.len() + 1..]
             };
-            if base_relative.is_empty() || base_relative == "." || base_relative.starts_with("../")
-            {
+            if base_relative.is_empty() {
                 continue;
             }
-            let matched = if rule.anchored || rule.pattern.contains('/') {
-                matches_anchored(
-                    &rule.pattern,
-                    &base_relative,
-                    is_directory,
-                    rule.directory_only,
-                )
+            let matched = if rule.anchored {
+                matches_anchored(rule, base_relative, is_directory, rule.directory_only)
             } else {
-                matches_component(
-                    &rule.pattern,
-                    &base_relative,
-                    is_directory,
-                    rule.directory_only,
-                )
+                matches_component(rule, base_relative, is_directory, rule.directory_only)
             };
             if matched {
                 ignored = !rule.negated;
@@ -131,7 +183,7 @@ impl GitIgnore {
     }
 }
 
-fn parse_rule(line: &str, base: &Path) -> Option<Rule> {
+fn parse_rule(line: &str, base: &Path, root: &Path) -> Option<Rule> {
     let mut line = line.trim_end_matches('\r').to_string();
     if line.is_empty() || line.starts_with('#') {
         return None;
@@ -160,43 +212,81 @@ fn parse_rule(line: &str, base: &Path) -> Option<Rule> {
     }
     // A slash anywhere except the trailing one anchors the rule to its base.
     let anchored = anchored || line.contains('/');
+    let base = absolute(base);
+    let base_relative = relative_slash_path(root, &base).unwrap_or_default();
+    let pattern = line.replace('\\', "/");
+    let simple_glob = pattern.is_ascii() && !pattern.as_bytes().contains(&b'[');
+    let kind = classify_pattern(&pattern);
     Some(Rule {
-        base: absolute(base),
-        pattern: line.replace('\\', "/"),
+        base,
+        base_relative,
+        pattern,
+        simple_glob,
+        kind,
         anchored,
         directory_only,
         negated,
     })
 }
 
-fn matches_anchored(
-    pattern: &str,
-    relative: &str,
-    is_directory: bool,
-    directory_only: bool,
-) -> bool {
+fn rule_matches_glob(rule: &Rule, text: &str) -> bool {
+    let pattern = rule.pattern.as_bytes();
+    match rule.kind {
+        PatternKind::Literal => text == rule.pattern,
+        PatternKind::Suffix => {
+            let suffix = &pattern[1..];
+            text.len() >= suffix.len()
+                && text.as_bytes().ends_with(suffix)
+                && !text.as_bytes()[..text.len() - suffix.len()].contains(&b'/')
+        }
+        PatternKind::Prefix => {
+            let prefix = &pattern[..pattern.len() - 1];
+            text.len() >= prefix.len()
+                && text.as_bytes().starts_with(prefix)
+                && !text.as_bytes()[prefix.len()..].contains(&b'/')
+        }
+        PatternKind::Affix => {
+            let star = pattern.iter().position(|&byte| byte == b'*').unwrap_or(0);
+            let prefix = &pattern[..star];
+            let suffix = &pattern[star + 1..];
+            text.len() >= prefix.len() + suffix.len()
+                && text.as_bytes().starts_with(prefix)
+                && text.as_bytes().ends_with(suffix)
+                && !text.as_bytes()[prefix.len()..text.len() - suffix.len()].contains(&b'/')
+        }
+        PatternKind::Glob => {
+            if rule.simple_glob && text.is_ascii() {
+                glob_ascii(pattern, text.as_bytes())
+            } else {
+                glob_match(&rule.pattern, text)
+            }
+        }
+    }
+}
+
+fn matches_anchored(rule: &Rule, relative: &str, is_directory: bool, directory_only: bool) -> bool {
     if directory_only && !is_directory {
         return false;
     }
-    glob_match(pattern, relative)
+    rule_matches_glob(rule, relative)
         || relative
             .match_indices('/')
-            .any(|(index, _)| glob_match(pattern, &relative[..index]))
+            .any(|(index, _)| rule_matches_glob(rule, &relative[..index]))
 }
 
 fn matches_component(
-    pattern: &str,
+    rule: &Rule,
     relative: &str,
     is_directory: bool,
     directory_only: bool,
 ) -> bool {
-    let components: Vec<&str> = relative.split('/').collect();
-    for (index, component) in components.iter().enumerate() {
-        let component_is_directory = is_directory || index + 1 < components.len();
+    let mut components = relative.split('/').peekable();
+    while let Some(component) = components.next() {
+        let component_is_directory = is_directory || components.peek().is_some();
         if directory_only && !component_is_directory {
             continue;
         }
-        if glob_match(pattern, component) {
+        if rule_matches_glob(rule, component) {
             return true;
         }
     }
@@ -206,9 +296,56 @@ fn matches_component(
 /// Glob matcher used by `.gitignore`. Supports `*`, `?`, `**` and character
 /// classes. `*` never matches `/`; `**` does.
 pub fn glob_match(pattern: &str, text: &str) -> bool {
+    if pattern.is_ascii() && text.is_ascii() && !pattern.as_bytes().contains(&b'[') {
+        return glob_ascii(pattern.as_bytes(), text.as_bytes());
+    }
     let pattern: Vec<char> = pattern.chars().collect();
     let text: Vec<char> = text.chars().collect();
     glob_inner(&pattern, &text)
+}
+
+fn glob_ascii(pattern: &[u8], text: &[u8]) -> bool {
+    if pattern.is_empty() {
+        return text.is_empty();
+    }
+    match pattern[0] {
+        b'*' => {
+            if pattern.get(1) == Some(&b'*') {
+                let rest = if pattern.get(2) == Some(&b'/') {
+                    &pattern[3..]
+                } else {
+                    &pattern[2..]
+                };
+                if rest.is_empty() {
+                    return true;
+                }
+                for index in 0..=text.len() {
+                    if glob_ascii(rest, &text[index..]) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            for index in 0..=text.len() {
+                if glob_ascii(&pattern[1..], &text[index..]) {
+                    return true;
+                }
+                if index < text.len() && text[index] == b'/' {
+                    break;
+                }
+            }
+            false
+        }
+        b'?' => !text.is_empty() && text[0] != b'/' && glob_ascii(&pattern[1..], &text[1..]),
+        b'\\' => {
+            if pattern.len() > 1 {
+                !text.is_empty() && text[0] == pattern[1] && glob_ascii(&pattern[2..], &text[1..])
+            } else {
+                !text.is_empty() && text[0] == b'\\' && glob_ascii(&pattern[1..], &text[1..])
+            }
+        }
+        value => !text.is_empty() && text[0] == value && glob_ascii(&pattern[1..], &text[1..]),
+    }
 }
 
 fn glob_inner(pattern: &[char], text: &[char]) -> bool {
@@ -849,7 +986,9 @@ mod tests {
             root: root.clone(),
             rules: Vec::new(),
         };
-        ignore.rules.push(parse_rule("*.log", &root).expect("rule"));
+        ignore
+            .rules
+            .push(parse_rule("*.log", &root, &root).expect("rule"));
         assert!(ignore.is_ignored(Path::new("/tmp/project/a.log"), false));
         assert!(ignore.is_ignored(Path::new("/tmp/project/sub/a.log"), false));
         assert!(!ignore.is_ignored(Path::new("/tmp/project/a.rs"), false));
