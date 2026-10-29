@@ -26,6 +26,10 @@ Currently, Hexal is fitted with some less-than-stock features OOTB:
 
 ---
 
+<img src="./.github/assets/screenshot.png">
+
+---
+
 &copy; Navid Momtahen - 2026
 
 Licensed under GPL-3.0-only.
