@@ -1,0 +1,35 @@
+{
+  "id": "one-dark",
+  "name": "One Dark",
+  "description": "Atom's classic dark theme with balanced, readable colors.",
+  "colors": {
+    "foreground": "#abb2bf",
+    "background": "#282c34",
+    "muted": "#5c6370",
+    "dimmed": "#7f848e",
+    "accent": "#61afef",
+    "border": "#3e4451",
+    "error": "#e06c75",
+    "warning": "#e5c07b",
+    "success": "#98c379",
+    "gitModified": "#56b6c2",
+    "alert": { "fg": "#ffffff", "bg": "#be5046" },
+    "selection": { "fg": "#ffffff", "bg": "#3e4451" },
+    "status": { "fg": "#abb2bf", "bg": "#21252b" },
+    "insert": { "fg": "#282c34", "bg": "#98c379" },
+    "select": { "fg": "#282c34", "bg": "#e5c07b" },
+    "prompt": { "fg": "#282c34", "bg": "#61afef" },
+    "command": { "fg": "#282c34", "bg": "#61afef" },
+    "match": { "fg": "#282c34", "bg": "#e5c07b" },
+    "currentMatch": { "fg": "#282c34", "bg": "#98c379" },
+    "syntax": {
+      "keyword": "#c678dd",
+      "control": "#61afef",
+      "type": "#e5c07b",
+      "constant": "#d19a66",
+      "string": "#98c379",
+      "comment": "#5c6370",
+      "number": "#d19a66"
+    }
+  }
+}

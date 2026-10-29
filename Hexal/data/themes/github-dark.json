@@ -1,0 +1,35 @@
+{
+  "id": "github-dark",
+  "name": "GitHub Dark",
+  "description": "Familiar GitHub dark palette with crisp blue accents.",
+  "colors": {
+    "foreground": "#c9d1d9",
+    "background": "#0d1117",
+    "muted": "#6e7681",
+    "dimmed": "#8b949e",
+    "accent": "#58a6ff",
+    "border": "#30363d",
+    "error": "#f85149",
+    "warning": "#d29922",
+    "success": "#3fb950",
+    "gitModified": "#d29922",
+    "alert": { "fg": "#ffffff", "bg": "#da3633" },
+    "selection": { "fg": "#ffffff", "bg": "#1f6feb" },
+    "status": { "fg": "#c9d1d9", "bg": "#161b22" },
+    "insert": { "fg": "#0d1117", "bg": "#3fb950" },
+    "select": { "fg": "#0d1117", "bg": "#d29922" },
+    "prompt": { "fg": "#0d1117", "bg": "#58a6ff" },
+    "command": { "fg": "#0d1117", "bg": "#58a6ff" },
+    "match": { "fg": "#0d1117", "bg": "#d29922" },
+    "currentMatch": { "fg": "#0d1117", "bg": "#3fb950" },
+    "syntax": {
+      "keyword": "#ff7b72",
+      "control": "#d2a8ff",
+      "type": "#ffa657",
+      "constant": "#79c0ff",
+      "string": "#a5d6ff",
+      "comment": "#8b949e",
+      "number": "#79c0ff"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "id": "coffee",
+  "name": "Coffee",
+  "description": "Soothing pastel theme with soft, warm contrast.",
+  "colors": {
+    "foreground": "#cdd6f4",
+    "background": "#1e1e2e",
+    "muted": "#6c7086",
+    "dimmed": "#9399b2",
+    "accent": "#89b4fa",
+    "border": "#45475a",
+    "error": "#f38ba8",
+    "warning": "#f9e2af",
+    "success": "#a6e3a1",
+    "gitModified": "#89dceb",
+    "alert": { "fg": "#1e1e2e", "bg": "#f38ba8" },
+    "selection": { "fg": "#cdd6f4", "bg": "#45475a" },
+    "status": { "fg": "#cdd6f4", "bg": "#313244" },
+    "insert": { "fg": "#1e1e2e", "bg": "#a6e3a1" },
+    "select": { "fg": "#1e1e2e", "bg": "#f9e2af" },
+    "prompt": { "fg": "#1e1e2e", "bg": "#89b4fa" },
+    "command": { "fg": "#1e1e2e", "bg": "#89b4fa" },
+    "match": { "fg": "#1e1e2e", "bg": "#f9e2af" },
+    "currentMatch": { "fg": "#1e1e2e", "bg": "#a6e3a1" },
+    "syntax": {
+      "keyword": "#cba6f7",
+      "control": "#89b4fa",
+      "type": "#f9e2af",
+      "constant": "#fab387",
+      "string": "#a6e3a1",
+      "comment": "#6c7086",
+      "number": "#fab387"
+    }
+  }
+}

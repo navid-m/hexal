@@ -1,0 +1,35 @@
+{
+  "id": "github-light",
+  "name": "GitHub Light",
+  "description": "Clean, bright GitHub light palette for daytime editing.",
+  "colors": {
+    "foreground": "#24292f",
+    "background": "#ffffff",
+    "muted": "#8c959f",
+    "dimmed": "#6e7781",
+    "accent": "#0969da",
+    "border": "#d0d7de",
+    "error": "#cf222e",
+    "warning": "#9a6700",
+    "success": "#1a7f37",
+    "gitModified": "#bf8700",
+    "alert": { "fg": "#ffffff", "bg": "#cf222e" },
+    "selection": { "fg": "#24292f", "bg": "#b6d6f7" },
+    "status": { "fg": "#24292f", "bg": "#f6f8fa" },
+    "insert": { "fg": "#ffffff", "bg": "#1a7f37" },
+    "select": { "fg": "#ffffff", "bg": "#9a6700" },
+    "prompt": { "fg": "#ffffff", "bg": "#0969da" },
+    "command": { "fg": "#ffffff", "bg": "#0969da" },
+    "match": { "fg": "#24292f", "bg": "#fff8c5" },
+    "currentMatch": { "fg": "#ffffff", "bg": "#1a7f37" },
+    "syntax": {
+      "keyword": "#cf222e",
+      "control": "#8250df",
+      "type": "#953800",
+      "constant": "#0550ae",
+      "string": "#0a3069",
+      "comment": "#6e7781",
+      "number": "#0550ae"
+    }
+  }
+}
