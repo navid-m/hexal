@@ -144,7 +144,16 @@ fn walk(
     }
 }
 
-const MAX_SEARCH_FILE_BYTES: u64 = 4 * 1024 * 1024;
+fn search_worker_count(file_count: usize) -> usize {
+    if file_count < 64 {
+        return 1;
+    }
+    std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .clamp(2, 8)
+        .min(file_count)
+}
 
 pub fn search(
     root: &Path,
@@ -153,25 +162,88 @@ pub fn search(
     max_hits: usize,
     match_case: bool,
     cancel: &AtomicBool,
+    max_file_bytes: u64,
+) -> Vec<SearchHit> {
+    if query.is_empty() || max_hits == 0 || files.is_empty() {
+        return Vec::new();
+    }
+
+    let workers = search_worker_count(files.len());
+    if workers <= 1 {
+        return search_range(
+            root,
+            files,
+            query,
+            max_hits,
+            match_case,
+            cancel,
+            max_file_bytes,
+            0,
+            files.len(),
+        );
+    }
+
+    let chunk = files.len().div_ceil(workers);
+    let mut hits = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for worker in 0..workers {
+            let start = worker * chunk;
+            if start >= files.len() {
+                break;
+            }
+            let end = (start + chunk).min(files.len());
+            handles.push(scope.spawn(move || {
+                search_range(
+                    root,
+                    files,
+                    query,
+                    max_hits,
+                    match_case,
+                    cancel,
+                    max_file_bytes,
+                    start,
+                    end,
+                )
+            }));
+        }
+        let mut hits = Vec::new();
+        for handle in handles {
+            hits.extend(handle.join().unwrap_or_default());
+        }
+        hits
+    });
+
+    hits.sort_by(|left, right| {
+        (left.file_index, left.line, left.column).cmp(&(right.file_index, right.line, right.column))
+    });
+    hits.truncate(max_hits);
+    hits
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_range(
+    root: &Path,
+    files: &[String],
+    query: &str,
+    max_hits: usize,
+    match_case: bool,
+    cancel: &AtomicBool,
+    max_file_bytes: u64,
+    start: usize,
+    end: usize,
 ) -> Vec<SearchHit> {
     let mut hits = Vec::new();
-    if query.is_empty() {
-        return hits;
-    }
     let needle = query.as_bytes();
 
-    for (file_index, path) in files.iter().enumerate() {
+    for (file_index, path) in files.iter().enumerate().take(end).skip(start) {
         if hits.len() >= max_hits || cancel.load(Ordering::Relaxed) {
             break;
         }
         let full_path = root.join(path);
-        // Check the size before reading. Ignored build directories can contain
-        // multi-gigabyte artifacts; reading them only to discard the bytes made
-        // search across a large workspace needlessly slow.
         let Ok(metadata) = fs::metadata(&full_path) else {
             continue;
         };
-        if !metadata.is_file() || metadata.len() > MAX_SEARCH_FILE_BYTES {
+        if !metadata.is_file() || metadata.len() > max_file_bytes {
             continue;
         }
         let mut file = match fs::File::open(&full_path) {
@@ -188,11 +260,8 @@ pub fn search(
         }
         let mut data = Vec::with_capacity(metadata.len() as usize);
         data.extend_from_slice(&prefix[..prefix_len]);
-        let remaining = MAX_SEARCH_FILE_BYTES.saturating_sub(prefix_len as u64);
+        let remaining = max_file_bytes.saturating_sub(prefix_len as u64);
         if file.take(remaining).read_to_end(&mut data).is_err() {
-            continue;
-        }
-        if data.len() > MAX_SEARCH_FILE_BYTES as usize {
             continue;
         }
         let mut line = 0usize;
@@ -291,9 +360,44 @@ mod tests {
             10,
             true,
             &AtomicBool::new(false),
+            4 * 1024 * 1024,
         );
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].file_index, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn search_respects_the_configured_size_limit() {
+        let root =
+            std::env::temp_dir().join(format!("hexal-search-size-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("text.txt"), b"needle\n").unwrap();
+
+        let files = ["text.txt".to_string()];
+        let skipped = search(
+            &root,
+            &files,
+            "needle",
+            10,
+            true,
+            &AtomicBool::new(false),
+            3,
+        );
+        assert!(skipped.is_empty());
+
+        let searched = search(
+            &root,
+            &files,
+            "needle",
+            10,
+            true,
+            &AtomicBool::new(false),
+            100,
+        );
+        assert_eq!(searched.len(), 1);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -313,6 +417,7 @@ mod tests {
             10,
             true,
             &AtomicBool::new(false),
+            4 * 1024 * 1024,
         );
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].line, 0);

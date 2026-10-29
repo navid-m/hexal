@@ -32,7 +32,8 @@ pub const DEFAULT_CONTENTS: &str = r#"{
     "wordWrap": false,
     "keepSidebarFocusOnOpen": true,
     "confirmQuitWithoutSaving": true,
-    "searchMatchCaseEnabled": false
+    "searchMatchCaseEnabled": false,
+    "searchSkipFilesOverSizeMb": 4
 }
 "#;
 
@@ -62,6 +63,7 @@ pub struct Config {
     pub keep_sidebar_focus_on_open: bool,
     pub confirm_quit_without_saving: bool,
     pub search_match_case_enabled: bool,
+    pub search_skip_files_over_size_mb: u64,
 }
 
 impl Default for Config {
@@ -84,6 +86,7 @@ impl Default for Config {
             keep_sidebar_focus_on_open: true,
             confirm_quit_without_saving: true,
             search_match_case_enabled: false,
+            search_skip_files_over_size_mb: 4,
         }
     }
 }
@@ -240,6 +243,20 @@ fn parse(text: &str, path: &Path) -> Result<Config, String> {
                 })
             })
     };
+    let read_size_mb = |name: &str, alias: &str| -> Option<u64> {
+        root.get(name)
+            .and_then(Value::as_i64)
+            .or_else(|| root.get(alias).and_then(Value::as_i64))
+            .or_else(|| {
+                editor.and_then(|editor| {
+                    editor
+                        .get(name)
+                        .and_then(Value::as_i64)
+                        .or_else(|| editor.get(alias).and_then(Value::as_i64))
+                })
+            })
+            .and_then(|value| u64::try_from(value).ok())
+    };
 
     let central_repository_url = read_string("centralRepositoryUrl", "central_repository_url");
     Ok(Config {
@@ -289,6 +306,11 @@ fn parse(text: &str, path: &Path) -> Result<Config, String> {
         .unwrap_or(true),
         search_match_case_enabled: read_bool("searchMatchCaseEnabled", "search_match_case_enabled")
             .unwrap_or(false),
+        search_skip_files_over_size_mb: read_size_mb(
+            "searchSkipFilesOverSizeMb",
+            "search_skip_files_over_size_mb",
+        )
+        .unwrap_or(4),
     })
 }
 
@@ -344,6 +366,26 @@ mod tests {
         assert!(config.search_match_case_enabled);
         assert!(config.word_wrap);
         assert!(config.show_diff_lines);
+        assert_eq!(config.search_skip_files_over_size_mb, 4);
+    }
+
+    #[test]
+    fn parses_search_size_limit_from_editor_object() {
+        let config = parse(
+            r#"{
+                "editor": { "searchSkipFilesOverSizeMb": 12 }
+            }"#,
+            Path::new("/tmp/test.hexcfg"),
+        )
+        .unwrap();
+        assert_eq!(config.search_skip_files_over_size_mb, 12);
+
+        let unlimited = parse(
+            r#"{ "search_skip_files_over_size_mb": 0 }"#,
+            Path::new("/tmp/test.hexcfg"),
+        )
+        .unwrap();
+        assert_eq!(unlimited.search_skip_files_over_size_mb, 0);
     }
 
     #[test]
@@ -354,6 +396,7 @@ mod tests {
         assert!(config.show_diff_lines);
         assert!(!config.word_wrap);
         assert!(!config.search_match_case_enabled);
+        assert_eq!(config.search_skip_files_over_size_mb, 4);
         assert_eq!(
             config.central_repository_url,
             super::DEFAULT_CENTRAL_REPOSITORY_URL

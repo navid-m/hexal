@@ -146,6 +146,10 @@ impl Editor {
         let root = self.sidebar.root.clone();
         let query = self.picker.query.clone();
         let match_case = self.search_match_case;
+        let max_file_bytes = match self.config.search_skip_files_over_size_mb {
+            0 => u64::MAX,
+            megabytes => megabytes.saturating_mul(1024 * 1024),
+        };
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
             let hits = files::search(
@@ -155,6 +159,7 @@ impl Editor {
                 500,
                 match_case,
                 &thread_cancel,
+                max_file_bytes,
             );
             if !thread_cancel.load(Ordering::Relaxed) {
                 let _ = sender.send(PickerSearchResult { generation, hits });
