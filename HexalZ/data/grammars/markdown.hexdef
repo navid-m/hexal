@@ -1,0 +1,17 @@
+{
+  "id": "markdown",
+  "name": "Markdown",
+  "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+  "autoIndent": false,
+  "autoClose": false,
+  "extensions": [".md", ".markdown", ".mdown", ".mkd", ".mkdn"],
+  "keywords": [],
+  "controlStatements": [],
+  "types": [],
+  "constants": [],
+  "comments": {
+    "blockStart": "<!--",
+    "blockEnd": "-->"
+  },
+  "numbers": false
+}

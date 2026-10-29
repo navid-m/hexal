@@ -1,0 +1,6 @@
+name = "SCSS"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for SCSS"
+lazy = true
+language = "scss"

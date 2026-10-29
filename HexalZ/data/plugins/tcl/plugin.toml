@@ -1,0 +1,6 @@
+name = "Tcl"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Tcl"
+lazy = true
+language = "tcl"

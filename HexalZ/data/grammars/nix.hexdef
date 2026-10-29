@@ -1,0 +1,49 @@
+{
+  "id": "nix",
+  "name": "Nix",
+  "indentation": { "style": "spaces", "width": 2, "tabWidth": 4 },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".nix"],
+  "keywords": [
+    "abort",
+    "assert",
+    "baseNameOf",
+    "builtins",
+    "derivation",
+    "dirOf",
+    "else",
+    "fetchGit",
+    "fetchTarball",
+    "fetchurl",
+    "if",
+    "import",
+    "in",
+    "inherit",
+    "isNull",
+    "let",
+    "map",
+    "or",
+    "rec",
+    "removeAttrs",
+    "then",
+    "throw",
+    "toString",
+    "with"
+  ],
+  "controlStatements": ["assert", "else", "if", "in", "let", "then", "with"],
+  "types": [],
+  "constants": ["false", "null", "true"],
+  "comments": {
+    "line": "#",
+    "blockStart": "/*",
+    "blockEnd": "*/"
+  },
+  "strings": {
+    "quoteCharacters": ["''", "\""],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "indentAfter": ["let", "with", "{", "["],
+  "unindentBefore": ["in", "}", "]"]
+}

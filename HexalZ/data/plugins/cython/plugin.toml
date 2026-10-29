@@ -1,0 +1,6 @@
+name = "Cython"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Cython"
+lazy = true
+language = "cython"

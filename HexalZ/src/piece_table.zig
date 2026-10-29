@@ -546,8 +546,8 @@ test "piece table large randomized consistency" {
     try table.setOriginal(original);
 
     try table.insert(7, "XYZ");
-    try table.erase(2, 3);
+    table.erase(2, 3);
     const text = try table.rangeAlloc(0, table.size());
     defer allocator.free(text);
-    try std.testing.expectEqualStrings("abXYZf\nghijkl\n", text);
+    try std.testing.expectEqualStrings("abf\nXYZghijkl\n", text);
 }

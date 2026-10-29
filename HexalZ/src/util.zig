@@ -493,6 +493,25 @@ pub fn trimTrailingWhitespace(line: []const u8) []const u8 {
     return line[0..end];
 }
 
+/// Display width of a UTF-8 string. Tabs are treated as four cells; control
+/// characters are ignored. Used for plugin panel layout.
+pub fn displayWidthString(text: []const u8) usize {
+    var offset: usize = 0;
+    var width: usize = 0;
+    while (offset < text.len) {
+        const decoded = decodeAt(text, offset);
+        if (decoded.len == 0) break;
+        offset += decoded.len;
+        if (decoded.codepoint == '\t') {
+            width += 4;
+            continue;
+        }
+        if (decoded.codepoint < 0x20 or decoded.codepoint == 0x7F) continue;
+        width += displayWidth(decoded.codepoint);
+    }
+    return width;
+}
+
 pub fn isWordByte(byte: u8) bool {
     return std.ascii.isAlphanumeric(byte) or byte == '_' or byte >= 0x80;
 }

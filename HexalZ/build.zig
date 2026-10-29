@@ -54,7 +54,27 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run HexalZ");
     run_step.dependOn(&run_cmd.step);
 
-    const tests = b.addTest(.{ .root_module = mod });
+    const test_mod = b.addModule("hexalz-tests", .{
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    test_mod.addIncludePath(b.path("third_party/lua"));
+    test_mod.addCSourceFiles(.{
+        .root = b.path("third_party/lua"),
+        .files = &.{
+            "lapi.c",     "lauxlib.c", "lbaselib.c", "lcode.c",   "lcorolib.c",
+            "lctype.c",   "ldblib.c",  "ldebug.c",   "ldo.c",     "ldump.c",
+            "lfunc.c",    "lgc.c",     "linit.c",    "liolib.c",  "llex.c",
+            "lmathlib.c", "lmem.c",    "loadlib.c",  "lobject.c", "lopcodes.c",
+            "loslib.c",   "lparser.c", "lstate.c",   "lstring.c", "lstrlib.c",
+            "ltable.c",   "ltablib.c", "ltm.c",      "lundump.c", "lutf8lib.c",
+            "lvm.c",      "lzio.c",
+        },
+        .flags = &.{ "-std=c99", "-DLUA_USE_POSIX" },
+    });
+    const tests = b.addTest(.{ .root_module = test_mod });
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run the HexalZ tests");
     test_step.dependOn(&run_tests.step);

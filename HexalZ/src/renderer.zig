@@ -5,6 +5,7 @@ const std = @import("std");
 const Screen = @import("screen.zig").Screen;
 const Cell = @import("screen.zig").Cell;
 const Style = @import("theme.zig").Style;
+const theme_mod = @import("theme.zig");
 
 /// Produces ANSI escape sequences for changed cells only.
 pub const Renderer = struct {
@@ -128,7 +129,14 @@ fn appendColor(
     color: u32,
     foreground: bool,
 ) !void {
-    if (color < 8) {
+    if (theme_mod.isTrueColor(color)) {
+        try output.appendSlice(allocator, if (foreground) ";38;2;" else ";48;2;");
+        try appendInt(output, allocator, (color >> 16) & 0xFF);
+        try output.append(allocator, ';');
+        try appendInt(output, allocator, (color >> 8) & 0xFF);
+        try output.append(allocator, ';');
+        try appendInt(output, allocator, color & 0xFF);
+    } else if (color < 8) {
         try output.appendSlice(allocator, if (foreground) ";3" else ";4");
         try appendInt(output, allocator, color);
     } else if (color < 16) {

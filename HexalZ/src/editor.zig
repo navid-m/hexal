@@ -132,6 +132,9 @@ pub const Editor = struct {
     screen: scr.Screen = .{},
     renderer: renderer_mod.Renderer = .{},
     theme: theme_mod.Theme = .{},
+    theme_registry: theme_mod.Registry = .{ .allocator = undefined },
+    syntax_registry: syntax.Registry = .{ .allocator = undefined },
+    highlighter: syntax.Highlighter = undefined,
 
     mode: Mode = .normal,
     running: bool = true,
@@ -166,7 +169,14 @@ pub const Editor = struct {
 
     picker: Picker = .{},
     find: FindState = .{},
-    lua: ?lua_mod.Runtime = null,
+    lua: ?lua_mod.Manager = null,
+    workspace_root: []u8 = &.{},
+    plugin_panel_id: ?i64 = null,
+    plugin_prompt_id: ?i64 = null,
+    plugin_prompt_label: std.ArrayList(u8) = .empty,
+    plugin_prompt_text: std.ArrayList(u8) = .empty,
+    mouse_dragging: bool = false,
+    mouse_anchor: usize = 0,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -180,6 +190,13 @@ pub const Editor = struct {
             document_mod.Document.init(allocator, io);
         errdefer doc.deinit();
 
+        var syntax_registry = syntax.Registry.load(allocator, io) catch syntax.Registry.init(allocator);
+        errdefer syntax_registry.deinit();
+        var theme_registry = theme_mod.Registry.load(allocator, io, preferredTheme(allocator, io)) catch
+            theme_mod.Registry.init(allocator);
+        errdefer theme_registry.deinit();
+        const highlighter = syntax.Highlighter.init(allocator);
+
         // Terminal.init already queried the window size; avoid a second ioctl
         // on the startup path.
         var self = Editor{
@@ -189,7 +206,13 @@ pub const Editor = struct {
             .doc = doc,
             .cols = terminal.width,
             .rows = terminal.height,
+            .theme = theme_registry.active,
+            .theme_registry = theme_registry,
+            .syntax_registry = syntax_registry,
+            .highlighter = highlighter,
         };
+        self.workspace_root = std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator) catch
+            (allocator.dupe(u8, ".") catch &.{});
         if (file != null) {
             self.message.clearRetainingCapacity();
             self.appendMessageFmt("Opened {s}", .{self.doc.displayName()});
@@ -200,8 +223,17 @@ pub const Editor = struct {
         return self;
     }
 
+    fn preferredTheme(allocator: std.mem.Allocator, io: std.Io) []const u8 {
+        _ = allocator;
+        _ = io;
+        return "hexal-dark";
+    }
+
     pub fn deinit(self: *Editor) void {
         if (self.lua) |*runtime| runtime.deinit();
+        if (self.workspace_root.len > 0) self.allocator.free(self.workspace_root);
+        self.plugin_prompt_label.deinit(self.allocator);
+        self.plugin_prompt_text.deinit(self.allocator);
         self.message.deinit(self.allocator);
         self.command_line.deinit(self.allocator);
         self.clipboard.deinit(self.allocator);
@@ -222,6 +254,9 @@ pub const Editor = struct {
         self.picker.hits.deinit(self.allocator);
         self.renderer.deinit(self.allocator);
         self.screen.deinit(self.allocator);
+        self.highlighter.deinit();
+        self.syntax_registry.deinit();
+        self.theme_registry.deinit();
         self.doc.deinit();
         self.* = undefined;
     }
@@ -267,11 +302,35 @@ pub const Editor = struct {
             }
 
             try self.pumpPickerWork();
+            try self.pumpPlugins();
             try self.render();
         }
     }
 
     fn handleEvent(self: *Editor, event: term.Event) !void {
+        if (self.plugin_prompt_id != null) {
+            try self.handlePluginPrompt(event);
+            return;
+        }
+        if (self.plugin_panel_id != null) {
+            try self.handlePluginPanelKey(event);
+            return;
+        }
+        if (event.key == .scroll_up) {
+            const amount: usize = 3;
+            self.top_line = self.top_line -| amount;
+            return;
+        }
+        if (event.key == .scroll_down) {
+            const amount: usize = 3;
+            const last_line = self.doc.lineCount() - 1;
+            self.top_line = @min(self.top_line + amount, last_line);
+            return;
+        }
+        if (event.key == .mouse_down or event.key == .mouse_move or event.key == .mouse_up) {
+            try self.handleMouse(event);
+            return;
+        }
         if (self.picker.kind != .none) {
             try self.handlePicker(event);
             return;
@@ -294,6 +353,209 @@ pub const Editor = struct {
             .select => try self.handleSelect(event),
             .normal => try self.handleNormal(event),
         }
+    }
+
+    fn handleMouse(self: *Editor, event: term.Event) !void {
+        if (self.rows == 0 or self.cols == 0) return;
+        const text_rows = self.textRows();
+        if (event.mouse_y >= text_rows) return;
+        const gutter = self.gutterWidth();
+        if (event.key == .mouse_down and event.mouse_x < gutter) return;
+        const line = self.top_line + event.mouse_y;
+        if (line >= self.doc.lineCount()) return;
+        const text = self.doc.lineText(line, &self.line_buffer) catch return;
+        var visual = self.left_column;
+        if (event.mouse_x >= gutter) visual += event.mouse_x - gutter;
+        const local = util.byteOffsetForVisualColumn(text, visual, TabWidth);
+        const offset = @min(self.doc.lineStart(line) + local, self.doc.size());
+
+        switch (event.key) {
+            .mouse_down => {
+                self.mouse_dragging = true;
+                self.mouse_anchor = offset;
+                self.anchor = offset;
+                self.cursor = offset;
+                self.selection_linewise = false;
+                self.mode = .select;
+                self.preferred_column = null;
+                self.doc.breakUndoGroup();
+                self.snapCursor();
+            },
+            .mouse_move => {
+                if (!self.mouse_dragging) return;
+                self.cursor = offset;
+                self.anchor = self.mouse_anchor;
+                self.selection_linewise = false;
+                self.mode = .select;
+                self.preferred_column = null;
+                self.snapCursor();
+            },
+            .mouse_up => {
+                if (!self.mouse_dragging) return;
+                self.mouse_dragging = false;
+                self.cursor = offset;
+                self.anchor = self.mouse_anchor;
+                if (self.cursor == self.anchor) {
+                    self.cancelSelection();
+                } else {
+                    self.selection_linewise = false;
+                    self.mode = .select;
+                }
+                self.snapCursor();
+            },
+            else => {},
+        }
+    }
+
+    fn panelKeyName(event: term.Event, buffer: *[32]u8) []const u8 {
+        var length: usize = 0;
+        if (event.ctrl) {
+            @memcpy(buffer[0..5], "ctrl+");
+            length = 5;
+        } else if (event.alt) {
+            @memcpy(buffer[0..4], "alt+");
+            length = 4;
+        } else if (event.shift) {
+            @memcpy(buffer[0..6], "shift+");
+            length = 6;
+        }
+        const name: []const u8 = switch (event.key) {
+            .enter => "enter",
+            .escape => "esc",
+            .backspace => "backspace",
+            .delete => "delete",
+            .tab => "tab",
+            .backtab => "backtab",
+            .up => "up",
+            .down => "down",
+            .left => "left",
+            .right => "right",
+            .home => "home",
+            .end => "end",
+            .page_up => "pageup",
+            .page_down => "pagedown",
+            .character => {
+                var encoded: [4]u8 = undefined;
+                const count = std.unicode.utf8Encode(event.ch, &encoded) catch return buffer[0..0];
+                @memcpy(buffer[length .. length + count], encoded[0..count]);
+                return buffer[0 .. length + count];
+            },
+            else => return buffer[0..0],
+        };
+        @memcpy(buffer[length .. length + name.len], name);
+        return buffer[0 .. length + name.len];
+    }
+
+    fn handlePluginPanelKey(self: *Editor, event: term.Event) !void {
+        const manager = if (self.lua) |*value| value else {
+            self.plugin_panel_id = null;
+            return;
+        };
+        const id = self.plugin_panel_id orelse return;
+        if (manager.findPanel(id) == null) {
+            self.plugin_panel_id = null;
+            return;
+        }
+        var buffer: [32]u8 = undefined;
+        const key = panelKeyName(event, &buffer);
+        if (key.len == 0) return;
+        const selected = manager.findPanel(id).?.selected;
+        const handled = manager.handlePanelKey(id, key, selected, &self.doc, &self.cursor) catch |err| blk: {
+            self.setErrorFmt("plugin panel: {s}", .{@errorName(err)});
+            break :blk null;
+        };
+        if (handled orelse false) {
+            try self.flushPluginEffects();
+            if (manager.findPanel(id) == null) self.plugin_panel_id = null;
+            return;
+        }
+        if (std.mem.eql(u8, key, "q") or std.mem.eql(u8, key, "esc")) {
+            manager.closePanel(id);
+            self.plugin_panel_id = null;
+            self.clearMessage();
+            return;
+        }
+        if (std.mem.eql(u8, key, "j") or std.mem.eql(u8, key, "down")) {
+            self.movePluginPanelSelection(1);
+        } else if (std.mem.eql(u8, key, "k") or std.mem.eql(u8, key, "up")) {
+            self.movePluginPanelSelection(-1);
+        } else if (std.mem.eql(u8, key, "pageup")) {
+            self.movePluginPanelSelection(-10);
+        } else if (std.mem.eql(u8, key, "pagedown")) {
+            self.movePluginPanelSelection(10);
+        } else if (std.mem.eql(u8, key, "home")) {
+            self.setPluginPanelSelection(0);
+        } else if (std.mem.eql(u8, key, "end")) {
+            if (manager.findPanel(id)) |panel| self.setPluginPanelSelection(panel.lines.items.len -| 1);
+        }
+        try self.flushPluginEffects();
+    }
+
+    fn movePluginPanelSelection(self: *Editor, delta: isize) void {
+        const manager = if (self.lua) |*value| value else return;
+        const id = self.plugin_panel_id orelse return;
+        const panel = manager.findPanel(id) orelse return;
+        if (panel.lines.items.len == 0) return;
+        const selectable = panel.selectable;
+        var index: isize = @intCast(panel.selected);
+        const step: isize = if (delta < 0) -1 else 1;
+        var remaining: usize = @intCast(@abs(delta));
+        while (remaining > 0) {
+            var candidate = index + step;
+            if (candidate < 0 or candidate >= @as(isize, @intCast(panel.lines.items.len))) break;
+            while (selectable and !panel.lines.items[@intCast(candidate)].selectable) {
+                candidate += step;
+                if (candidate < 0 or candidate >= @as(isize, @intCast(panel.lines.items.len))) break;
+            }
+            if (candidate < 0 or candidate >= @as(isize, @intCast(panel.lines.items.len))) break;
+            index = candidate;
+            remaining -= 1;
+        }
+        panel.selected = @intCast(index);
+    }
+
+    fn setPluginPanelSelection(self: *Editor, index: usize) void {
+        const manager = if (self.lua) |*value| value else return;
+        const id = self.plugin_panel_id orelse return;
+        const panel = manager.findPanel(id) orelse return;
+        panel.selected = @min(index, panel.lines.items.len -| 1);
+    }
+
+    fn handlePluginPrompt(self: *Editor, event: term.Event) !void {
+        const id = self.plugin_prompt_id orelse return;
+        if (event.key == .escape) {
+            self.finishPluginPrompt(id, null) catch {};
+            return;
+        }
+        if (event.key == .enter) {
+            const value = try self.allocator.dupe(u8, self.plugin_prompt_text.items);
+            defer self.allocator.free(value);
+            self.finishPluginPrompt(id, value) catch {};
+            return;
+        }
+        if (event.key == .backspace) {
+            if (self.plugin_prompt_text.items.len > 0) {
+                const previous = util.previousBoundary(self.plugin_prompt_text.items, self.plugin_prompt_text.items.len);
+                self.plugin_prompt_text.items.len = previous;
+            }
+            return;
+        }
+        if (event.key == .character and !event.ctrl and !event.alt) {
+            var buffer: [4]u8 = undefined;
+            const length = std.unicode.utf8Encode(event.ch, &buffer) catch return;
+            try self.plugin_prompt_text.appendSlice(self.allocator, buffer[0..length]);
+        }
+    }
+
+    fn finishPluginPrompt(self: *Editor, id: i64, value: ?[]const u8) !void {
+        const manager = if (self.lua) |*value_manager| value_manager else return;
+        self.plugin_prompt_id = null;
+        self.plugin_prompt_label.clearRetainingCapacity();
+        self.plugin_prompt_text.clearRetainingCapacity();
+        if (self.mode == .command) self.mode = .normal;
+        _ = manager.resolvePrompt(id, value);
+        self.updatePluginContext();
+        try self.flushPluginEffects();
     }
 
     // -----------------------------------------------------------------------
@@ -731,6 +993,13 @@ pub const Editor = struct {
         }
     }
 
+    fn runExLine(self: *Editor, line: []const u8) !void {
+        self.command_line.clearRetainingCapacity();
+        try self.command_line.appendSlice(self.allocator, line);
+        self.command_cursor = self.command_line.items.len;
+        try self.submitCommand();
+    }
+
     fn submitCommand(self: *Editor) !void {
         const trimmed = std.mem.trim(u8, self.command_line.items, " \t\r\n");
         const line = try self.allocator.dupe(u8, trimmed);
@@ -784,12 +1053,24 @@ pub const Editor = struct {
         } else if (std.mem.eql(u8, name, "lang")) {
             if (args.len == 0) {
                 self.setError("usage: :lang <language>");
-            } else if (syntax.Language.fromId(args)) |language| {
+            } else if (self.syntax_registry.find(args)) |language| {
                 if (self.language_override) |old| self.allocator.free(old);
                 self.language_override = try self.allocator.dupe(u8, args);
+                self.highlighter.clear();
                 self.setMessageFmt("Language: {s}", .{language.name});
+                self.firePluginEvent("buffer_opened");
             } else {
                 self.setErrorFmt("unknown language: {s}", .{args});
+            }
+        } else if (std.mem.eql(u8, name, "theme")) {
+            if (args.len == 0) {
+                self.setMessageFmt("Theme: {s}", .{self.theme.name});
+            } else if (self.theme_registry.setActive(args)) {
+                self.theme = self.theme_registry.active;
+                self.renderer.reset(self.allocator);
+                self.setMessageFmt("Theme: {s}", .{self.theme.name});
+            } else {
+                self.setErrorFmt("unknown theme: {s}", .{args});
             }
         } else if (std.mem.eql(u8, name, "cw")) {
             try self.trimTrailingWhitespace();
@@ -810,7 +1091,7 @@ pub const Editor = struct {
         } else if (std.mem.eql(u8, name, "rcfg")) {
             self.setMessage("Configuration reload is not implemented in this Zig port.");
         } else if (std.mem.eql(u8, name, "fmt")) {
-            self.setError("no formatter is configured in this build");
+            try self.formatDocument();
         } else {
             if (self.tryLuaCommand(name)) return;
             self.setErrorFmt("unknown command: {s}", .{name});
@@ -818,63 +1099,133 @@ pub const Editor = struct {
     }
 
     fn loadPlugins(self: *Editor) !void {
-        var dir = std.Io.Dir.cwd().openDir(self.io, "plugins", .{ .iterate = true }) catch return;
-        defer dir.close(self.io);
+        if (self.lua == null) self.lua = try lua_mod.Manager.init(self.allocator, self.io);
+        self.updatePluginContext();
+        const manager = if (self.lua) |*value| value else return;
+        try manager.loadAll(&self.doc, &self.cursor);
+        try self.flushPluginEffects();
+        self.firePluginEvent("buffer_opened");
+    }
 
-        var paths = std.ArrayList([]u8).empty;
-        defer {
-            for (paths.items) |path| self.allocator.free(path);
-            paths.deinit(self.allocator);
-        }
-
-        var iterator = dir.iterate();
-        while (try iterator.next(self.io)) |entry| {
-            if (entry.kind == .directory) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".lua")) continue;
-            try paths.append(self.allocator, try std.fmt.allocPrint(
-                self.allocator,
-                "plugins/{s}",
-                .{entry.name},
-            ));
-        }
-        if (paths.items.len == 0) return;
-        std.mem.sort([]u8, paths.items, {}, lessThanPath);
-
-        self.lua = try lua_mod.Runtime.init(self.allocator);
-        var loaded: usize = 0;
-        for (paths.items) |path| {
-            self.lua.?.loadFile(path) catch |err| {
-                if (self.lua.?.takeError()) |message| {
-                    defer self.allocator.free(message);
-                    self.setError(message);
-                } else {
-                    self.setErrorFmt("lua plugin {s}: {s}", .{ path, @errorName(err) });
-                }
-                continue;
+    fn updatePluginContext(self: *Editor) void {
+        const manager = if (self.lua) |*value| value else return;
+        const language = if (self.activeLanguage()) |lang| lang.id else "";
+        const selection: ?lua_mod.Host.Selection = if (self.mode == .select) blk: {
+            const range = self.selectionRange();
+            if (range.end <= range.start) break :blk null;
+            const start_line = self.doc.lineOfOffset(range.start);
+            const end_line = self.doc.lineOfOffset(range.end);
+            const text = self.doc.rangeAlloc(range.start, range.end - range.start) catch break :blk null;
+            break :blk .{
+                .start_line = start_line,
+                .start_column = range.start - self.doc.lineStart(start_line),
+                .end_line = end_line,
+                .end_column = range.end - self.doc.lineStart(end_line),
+                .text = text,
+                .linewise = self.selection_linewise,
             };
-            loaded += 1;
+        } else null;
+        manager.setContext(
+            self.doc.path orelse self.doc.displayName(),
+            self.doc.path,
+            language,
+            self.workspace_root,
+            self.cols,
+            self.rows,
+            selection,
+        );
+    }
+
+    fn firePluginEvent(self: *Editor, event: []const u8) void {
+        const manager = if (self.lua) |*value| value else return;
+        self.updatePluginContext();
+        manager.fireEvent(event, &self.doc, &self.cursor);
+        self.flushPluginEffects() catch {};
+    }
+
+    fn flushPluginEffects(self: *Editor) !void {
+        const manager = if (self.lua) |*value| value else return;
+        var index: usize = 0;
+        while (index < manager.host.messages.items.len) : (index += 1) {
+            const item = manager.host.messages.items[index];
+            if (item.is_error) self.setError(item.text) else self.setMessage(item.text);
         }
-        if (loaded > 0) {
-            self.setMessageFmt("Loaded {d} Lua plugin(s)", .{loaded});
+        for (manager.host.messages.items) |item| self.allocator.free(item.text);
+        manager.host.messages.clearRetainingCapacity();
+
+        if (manager.host.clipboard) |text| {
+            self.storeClipboard(text);
+            self.allocator.free(text);
+            manager.host.clipboard = null;
         }
+
+        if (self.plugin_panel_id == null and manager.host.panels.items.len > 0) {
+            self.plugin_panel_id = manager.host.panels.items[manager.host.panels.items.len - 1].id;
+        }
+
+        try self.maybeStartPluginPrompt();
+
+        while (manager.host.pending_commands.items.len > 0) {
+            var command = manager.host.pending_commands.orderedRemove(0);
+            defer {
+                self.allocator.free(command.name);
+                for (command.args.items) |arg| self.allocator.free(arg);
+                command.args.deinit(self.allocator);
+            }
+            var line: std.ArrayList(u8) = .empty;
+            defer line.deinit(self.allocator);
+            try line.appendSlice(self.allocator, command.name);
+            for (command.args.items) |arg| {
+                try line.append(self.allocator, ' ');
+                const quoted = std.mem.indexOfAny(u8, arg, " \t") != null;
+                if (quoted) try line.append(self.allocator, '"');
+                try line.appendSlice(self.allocator, arg);
+                if (quoted) try line.append(self.allocator, '"');
+            }
+            try self.runExLine(line.items);
+        }
+    }
+
+    fn maybeStartPluginPrompt(self: *Editor) !void {
+        if (self.plugin_prompt_id != null) return;
+        const manager = if (self.lua) |*value| value else return;
+        if (manager.host.prompts.items.len == 0) return;
+        const request = manager.host.prompts.orderedRemove(0);
+        defer self.allocator.free(request.label);
+        self.plugin_prompt_id = request.id;
+        self.plugin_prompt_label.clearRetainingCapacity();
+        try self.plugin_prompt_label.appendSlice(self.allocator, request.label);
+        self.plugin_prompt_text.clearRetainingCapacity();
+        self.mode = .command;
+        self.command_line.clearRetainingCapacity();
+        self.command_cursor = 0;
+    }
+
+    fn pumpPlugins(self: *Editor) !void {
+        if (self.lua) |*manager| {
+            _ = manager.runDeferred(&self.doc, &self.cursor);
+        }
+        try self.flushPluginEffects();
     }
 
     fn loadLuaPlugin(self: *Editor, path: []const u8) void {
         if (self.lua == null) {
-            self.lua = lua_mod.Runtime.init(self.allocator) catch |err| {
+            self.lua = lua_mod.Manager.init(self.allocator, self.io) catch |err| {
                 self.setErrorFmt("lua init failed: {s}", .{@errorName(err)});
                 return;
             };
         }
-        self.lua.?.loadFile(path) catch |err| {
-            if (self.lua.?.takeError()) |message| {
-                defer self.allocator.free(message);
-                self.setError(message);
+        self.updatePluginContext();
+        const manager = if (self.lua) |*value| value else return;
+        manager.loadFilePlugin(path, &self.doc, &self.cursor) catch |err| {
+            if (manager.errors.items.len > 0) {
+                self.setError(manager.errors.items[manager.errors.items.len - 1]);
             } else {
                 self.setErrorFmt("lua plugin {s}: {s}", .{ path, @errorName(err) });
             }
             return;
         };
+        self.flushPluginEffects() catch {};
         self.setMessageFmt("Loaded Lua plugin {s}", .{path});
     }
 
@@ -889,7 +1240,11 @@ pub const Editor = struct {
             self.allocator.free(names);
         }
         if (names.len == 0) {
-            self.setMessage("No Lua commands registered.");
+            if (self.lua.?.errors.items.len > 0) {
+                self.setError(self.lua.?.errors.items[0]);
+            } else {
+                self.setMessage("No Lua commands registered.");
+            }
             return;
         }
         var builder = std.ArrayList(u8).empty;
@@ -903,22 +1258,19 @@ pub const Editor = struct {
     }
 
     fn tryLuaCommand(self: *Editor, name: []const u8) bool {
-        if (self.lua == null) return false;
-        if (!self.lua.?.hasCommand(name)) return false;
+        const manager = if (self.lua) |*value| value else return false;
+        if (!manager.hasCommand(name)) return false;
 
-        if (self.lua.?.invoke(name, &self.doc, &self.cursor)) |_| {
-            if (self.lua.?.takeMessage()) |message| {
-                defer self.allocator.free(message);
-                self.setMessage(message);
-            }
-        } else |err| {
-            if (self.lua.?.takeError()) |message| {
-                defer self.allocator.free(message);
-                self.setError(message);
+        self.updatePluginContext();
+        _ = manager.executeCommand(name, &.{}, &self.doc, &self.cursor) catch |err| {
+            if (manager.errors.items.len > 0) {
+                self.setError(manager.errors.items[manager.errors.items.len - 1]);
             } else {
                 self.setErrorFmt("lua command {s}: {s}", .{ name, @errorName(err) });
             }
-        }
+            return true;
+        };
+        self.flushPluginEffects() catch {};
 
         self.anchor = self.cursor;
         self.selection_linewise = false;
@@ -933,6 +1285,127 @@ pub const Editor = struct {
         return std.mem.lessThan(u8, left, right);
     }
 
+    fn formatDocument(self: *Editor) !void {
+        const language = self.activeLanguage() orelse {
+            self.setError("no language is active");
+            return;
+        };
+        const formatter = language.formatter orelse {
+            self.setErrorFmt("no formatter is configured for {s}", .{language.id});
+            return;
+        };
+        const contents = try self.doc.rangeAlloc(0, self.doc.size());
+        defer self.allocator.free(contents);
+
+        var temp_path: ?[]u8 = null;
+        defer if (temp_path) |path| self.allocator.free(path);
+        const use_file_input = std.ascii.eqlIgnoreCase(formatter.input, "file");
+        if (use_file_input) {
+            const now = std.Io.Clock.Timestamp.now(self.io, .awake).raw.nanoseconds;
+            const path = try std.fmt.allocPrint(self.allocator, ".hexal-fmt-{d}.tmp", .{now});
+            temp_path = path;
+            try std.Io.Dir.cwd().writeFile(self.io, .{ .sub_path = path, .data = contents });
+        }
+
+        var argv: std.ArrayList([]const u8) = .empty;
+        defer argv.deinit(self.allocator);
+        try argv.append(self.allocator, formatter.command);
+        for (formatter.arguments) |argument| {
+            if (std.mem.eql(u8, argument, "{file}")) {
+                if (temp_path) |path| {
+                    try argv.append(self.allocator, path);
+                } else if (self.doc.path) |path| {
+                    try argv.append(self.allocator, path);
+                } else {
+                    try argv.append(self.allocator, "-");
+                }
+            } else {
+                try argv.append(self.allocator, argument);
+            }
+        }
+
+        var child = std.process.spawn(self.io, .{
+            .argv = argv.items,
+            .stdin = .pipe,
+            .stdout = .pipe,
+            .stderr = .pipe,
+        }) catch |err| {
+            self.setErrorFmt("cannot start formatter '{s}': {s}", .{ formatter.command, @errorName(err) });
+            return;
+        };
+        var killed = false;
+        defer if (!killed) child.kill(self.io);
+
+        if (!use_file_input) {
+            if (child.stdin) |stdin| {
+                stdin.writeStreamingAll(self.io, contents) catch {};
+                stdin.close(self.io);
+                child.stdin = null;
+            }
+        } else if (child.stdin) |stdin| {
+            stdin.close(self.io);
+            child.stdin = null;
+        }
+
+        var stdout_buffer: [4096]u8 = undefined;
+        var stderr_buffer: [4096]u8 = undefined;
+        var stdout: []u8 = &.{};
+        defer if (stdout.len > 0) self.allocator.free(stdout);
+        var stderr: []u8 = &.{};
+        defer if (stderr.len > 0) self.allocator.free(stderr);
+        if (child.stdout) |file| {
+            var reader = file.reader(self.io, &stdout_buffer);
+            stdout = reader.interface.allocRemaining(self.allocator, .limited(128 * 1024 * 1024)) catch &.{};
+            file.close(self.io);
+            child.stdout = null;
+        }
+        if (child.stderr) |file| {
+            var reader = file.reader(self.io, &stderr_buffer);
+            stderr = reader.interface.allocRemaining(self.allocator, .limited(1024 * 1024)) catch &.{};
+            file.close(self.io);
+            child.stderr = null;
+        }
+        const exit_term = child.wait(self.io) catch |err| {
+            self.setErrorFmt("formatter failed: {s}", .{@errorName(err)});
+            return;
+        };
+        killed = true;
+
+        if (!exit_term.success()) {
+            const message = std.mem.trim(u8, stderr, " \t\r\n");
+            if (message.len > 0) {
+                self.setErrorFmt("formatter failed: {s}", .{message});
+            } else {
+                self.setError("formatter exited with an error");
+            }
+            return;
+        }
+
+        var output: []const u8 = stdout;
+        var file_output: ?[]u8 = null;
+        defer if (file_output) |value| self.allocator.free(value);
+        if (std.ascii.eqlIgnoreCase(formatter.output, "file")) {
+            const path = temp_path orelse {
+                self.setError("formatter output=file requires an input file");
+                return;
+            };
+            file_output = std.Io.Dir.cwd().readFileAlloc(self.io, path, self.allocator, .limited(128 * 1024 * 1024)) catch {
+                self.setError("formatter did not produce output");
+                return;
+            };
+            output = file_output.?;
+        }
+        if (output.len == 0) {
+            self.setError("formatter produced empty output");
+            return;
+        }
+        try self.doc.replaceAllOwned(try self.allocator.dupe(u8, output));
+        if (self.cursor > self.doc.size()) self.cursor = self.doc.size();
+        self.anchor = self.cursor;
+        self.snapCursor();
+        self.setMessageFmt("Formatted {s}", .{self.doc.displayName()});
+    }
+
     fn saveDocument(self: *Editor, path: ?[]const u8) !bool {
         self.doc.save(path) catch |err| {
             self.setErrorFmt("save failed: {s}", .{@errorName(err)});
@@ -943,6 +1416,7 @@ pub const Editor = struct {
         } else {
             self.setMessageFmt("Saved {s}", .{self.doc.displayName()});
         }
+        self.firePluginEvent("buffer_saved");
         return true;
     }
 
@@ -1067,6 +1541,7 @@ pub const Editor = struct {
         self.anchor = self.cursor;
         self.doc.breakUndoGroup();
         self.setMessageFmt("Opened {s}", .{self.doc.displayName()});
+        self.firePluginEvent("buffer_opened");
     }
 
     fn openPicker(self: *Editor, kind: PickerKind) !void {
@@ -2201,6 +2676,7 @@ pub const Editor = struct {
         self.renderSpaceMenu();
         self.renderPicker();
         self.renderFind();
+        self.renderPluginPanel();
 
         const output = try self.renderer.render(self.allocator, self.screen, false);
         try self.terminal.write(output);
@@ -2219,11 +2695,15 @@ pub const Editor = struct {
         line: usize,
         row: usize,
         gutter: usize,
-        language: ?syntax.Language,
+        language: ?*const syntax.Language,
     ) void {
         if (self.cols <= gutter) return;
         const text = self.doc.lineText(line, &self.line_buffer) catch return;
-        syntax.tokenizeLine(self.allocator, text, language, &self.tokens) catch {};
+        if (language) |lang| {
+            self.highlighter.getLineTokens(&self.doc, lang, line, text, &self.tokens) catch {};
+        } else {
+            self.tokens.clearRetainingCapacity();
+        }
         const text_width = self.cols - gutter;
 
         var offset: usize = 0;
@@ -2395,6 +2875,57 @@ pub const Editor = struct {
         self.screen.applyStyle(x, row, style);
     }
 
+    fn renderPluginPanel(self: *Editor) void {
+        const id = self.plugin_panel_id orelse return;
+        const manager = if (self.lua) |*value| value else return;
+        const panel = manager.findPanel(id) orelse return;
+        const available = self.statusRow();
+        if (available < 3 or self.cols < 20) return;
+        var width = if (self.cols > 4) self.cols - 4 else self.cols;
+        if (width > 108) width = 108;
+        if (width < 20) return;
+        const height = @min(panel.lines.items.len + 2, if (available > 2) available - 1 else 0);
+        if (height < 3) return;
+        const x = (self.cols - width) / 2;
+        const y = if (available > height) (available - height) / 2 else 0;
+        self.drawBox(x, y, width, height, panel.title);
+
+        const list_rows = height - 2;
+        if (panel.selected < panel.top) panel.top = panel.selected;
+        if (panel.selected >= panel.top + list_rows) panel.top = panel.selected - list_rows + 1;
+        const max_top = panel.lines.items.len -| list_rows;
+        if (panel.top > max_top) panel.top = max_top;
+
+        var row: usize = 0;
+        while (row < list_rows) : (row += 1) {
+            const index = panel.top + row;
+            if (index >= panel.lines.items.len) break;
+            const screen_row = y + 1 + row;
+            const selected = index == panel.selected;
+            const base_style = if (selected) self.theme.selectedItemStyle() else self.theme.text();
+            self.screen.fill(@intCast(x + 1), @intCast(screen_row), width - 2, 1, ' ', base_style);
+            var column: usize = x + 1;
+            const limit = x + width - 1;
+            for (panel.lines.items[index].segments) |segment| {
+                if (column >= limit) break;
+                const style = if (selected) base_style else self.theme.namedStyle(segment.style);
+                const remaining = limit - column;
+                self.screen.putString(@intCast(column), @intCast(screen_row), segment.text, style, remaining);
+                const written = util.displayWidthString(segment.text);
+                column += @min(written, remaining);
+            }
+        }
+        if (panel.footer.len > 0 and width > 4) {
+            self.screen.putString(
+                @intCast(x + 2),
+                @intCast(y + height - 1),
+                panel.footer,
+                self.theme.accentStyle(),
+                width - 4,
+            );
+        }
+    }
+
     fn renderStatusLine(self: *Editor) void {
         if (self.rows == 0) return;
         const row = self.statusRow();
@@ -2454,6 +2985,29 @@ pub const Editor = struct {
         const row = self.commandRow();
         self.screen.fill(0, @intCast(row), self.cols, 1, ' ', self.theme.base());
 
+        if (self.plugin_prompt_id != null) {
+            const label = self.plugin_prompt_label.items;
+            self.screen.putString(1, @intCast(row), label, self.theme.accentStyle(), if (self.cols > 1) self.cols - 1 else 0);
+            const prompt_x = 1 + util.displayWidthString(label);
+            if (prompt_x < self.cols) {
+                self.screen.putString(
+                    @intCast(prompt_x),
+                    @intCast(row),
+                    self.plugin_prompt_text.items,
+                    self.theme.text(),
+                    self.cols - prompt_x,
+                );
+                const visual = util.displayWidthString(self.plugin_prompt_text.items);
+                const cursor_x = prompt_x + visual;
+                if (cursor_x < self.cols) {
+                    var style = self.screen.at(cursor_x, row).style;
+                    style.reverse = true;
+                    self.screen.applyStyle(cursor_x, row, style);
+                }
+            }
+            return;
+        }
+
         if (self.mode == .command) {
             self.screen.put(1, @intCast(row), ':', self.theme.accentStyle(), 1);
             self.screen.putString(2, @intCast(row), self.command_line.items, self.theme.text(), if (self.cols > 2) self.cols - 2 else 0);
@@ -2487,6 +3041,8 @@ pub const Editor = struct {
     }
 
     fn modeLabel(self: *Editor) []const u8 {
+        if (self.plugin_prompt_id != null) return "PROMPT";
+        if (self.plugin_panel_id != null) return "PANEL";
         if (self.pending != .none) return "CONFIRM";
         if (self.find.active) return "FIND";
         if (self.picker.kind != .none) return "PICKER";
@@ -2499,6 +3055,7 @@ pub const Editor = struct {
     }
 
     fn statusStyle(self: *Editor) theme_mod.Style {
+        if (self.plugin_prompt_id != null or self.plugin_panel_id != null) return self.theme.promptStatusStyle();
         if (self.pending != .none) return self.theme.promptStatusStyle();
         return switch (self.mode) {
             .insert => self.theme.insertStatusStyle(),
@@ -2678,11 +3235,11 @@ pub const Editor = struct {
     // SMALL HELPERS
     // -----------------------------------------------------------------------
 
-    fn activeLanguage(self: *Editor) ?syntax.Language {
+    fn activeLanguage(self: *Editor) ?*const syntax.Language {
         if (self.language_override) |id| {
-            if (syntax.Language.fromId(id)) |lang| return lang;
+            if (self.syntax_registry.find(id)) |lang| return lang;
         }
-        if (self.doc.path) |path| return syntax.Language.fromPath(path);
+        if (self.doc.path) |path| return self.syntax_registry.findByPath(path);
         return null;
     }
 

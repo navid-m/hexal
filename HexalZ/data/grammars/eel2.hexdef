@@ -1,0 +1,43 @@
+{
+  "id": "eel2",
+  "name": "EEL2",
+  "indentation": {
+    "style": "spaces",
+    "width": 2,
+    "tabWidth": 4
+  },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".eel", ".eel2", ".jsfx", ".jsfx-inc"],
+  "keywords": [
+    "function",
+    "global",
+    "gmem",
+    "import",
+    "instance",
+    "local",
+    "loop",
+    "options",
+    "slider",
+    "slider_automate",
+    "slider_next",
+    "static",
+    "this",
+    "while"
+  ],
+  "controlStatements": ["else", "if", "loop", "return", "while"],
+  "types": [],
+  "constants": ["e", "false", "pi", "true"],
+  "comments": {
+    "line": "//",
+    "blockStart": "/*",
+    "blockEnd": "*/"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "'"],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "indentAfter": ["{", "(", "else", "function", "if", "loop", "while"],
+  "unindentBefore": [")", "}", "else"]
+}

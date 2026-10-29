@@ -75,13 +75,13 @@ pub const Terminal = struct {
         try posix.tcsetattr(0, .FLUSH, raw);
         term.raw = true;
         term.updateSize();
-        try term.write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H");
+        try term.write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1000h\x1b[?1002h\x1b[?1006h");
         return term;
     }
 
     pub fn deinit(self: *Terminal) void {
         if (self.raw) {
-            self.write("\x1b[0m\x1b[?25h\x1b[?1049l") catch {};
+            self.write("\x1b[0m\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l") catch {};
             if (self.original) |original| {
                 posix.tcsetattr(0, .FLUSH, original) catch {};
             }

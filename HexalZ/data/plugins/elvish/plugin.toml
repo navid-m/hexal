@@ -1,0 +1,6 @@
+name = "Elvish"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Elvish"
+lazy = true
+language = "elvish"

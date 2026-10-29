@@ -174,11 +174,11 @@ fn runLuaBench(
 
     var cursor: usize = 0;
     const start = std.Io.Clock.Timestamp.now(io, .awake);
-    var runtime = try lua_mod.Runtime.init(allocator);
-    defer runtime.deinit();
-    runtime.loadFile(plugin) catch |err| {
-        if (runtime.takeError()) |message| {
-            defer allocator.free(message);
+    var manager = try lua_mod.Manager.init(allocator, io);
+    defer manager.deinit();
+    manager.setContext("[No Name]", file, "text", ".", 80, 24, null);
+    manager.loadFilePlugin(plugin, &document, &cursor) catch |err| {
+        for (manager.errors.items) |message| {
             try writeStderr(io, message);
             try writeStderr(io, "\n");
         }
@@ -186,9 +186,8 @@ fn runLuaBench(
     };
     const init_ns = start.durationTo(std.Io.Clock.Timestamp.now(io, .awake)).raw.nanoseconds;
 
-    _ = runtime.invoke(command, &document, &cursor) catch |err| {
-        if (runtime.takeError()) |message| {
-            defer allocator.free(message);
+    _ = manager.executeCommand(command, &.{}, &document, &cursor) catch |err| {
+        for (manager.errors.items) |message| {
             try writeStderr(io, message);
             try writeStderr(io, "\n");
         }
@@ -200,14 +199,14 @@ fn runLuaBench(
     var iteration: usize = 0;
     while (iteration < iterations) : (iteration += 1) {
         const iteration_start = std.Io.Clock.Timestamp.now(io, .awake);
-        checksum += runtime.invoke(command, &document, &cursor) catch |err| {
-            if (runtime.takeError()) |message| {
-                defer allocator.free(message);
+        const handled = manager.executeCommand(command, &.{}, &document, &cursor) catch |err| {
+            for (manager.errors.items) |message| {
                 try writeStderr(io, message);
                 try writeStderr(io, "\n");
             }
             return err;
         };
+        if (handled) checksum += 1;
         total_ns += iteration_start.durationTo(std.Io.Clock.Timestamp.now(io, .awake)).raw.nanoseconds;
     }
 

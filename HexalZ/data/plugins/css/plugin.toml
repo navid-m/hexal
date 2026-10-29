@@ -1,0 +1,6 @@
+name = "CSS"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for CSS"
+lazy = true
+language = "css"

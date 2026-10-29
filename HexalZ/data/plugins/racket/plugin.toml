@@ -1,0 +1,6 @@
+name = "Racket"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Racket"
+lazy = true
+language = "racket"

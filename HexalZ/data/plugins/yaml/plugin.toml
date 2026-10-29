@@ -1,0 +1,6 @@
+name = "YAML"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for YAML"
+lazy = true
+language = "yaml"

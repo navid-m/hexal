@@ -1,0 +1,6 @@
+name = "Scar"
+version = "1.0"
+entry = "init.lua"
+description = "Language association for the Scar programming language"
+lazy = true
+language = "scar"

@@ -1,0 +1,49 @@
+{
+  "id": "yaml",
+  "name": "YAML",
+  "indentation": {
+    "style": "spaces",
+    "width": 2,
+    "tabWidth": 4
+  },
+  "autoIndent": true,
+  "autoClose": true,
+  "extensions": [".yaml", ".yml"],
+  "keywords": [],
+  "controlStatements": [],
+  "types": [],
+  "constants": [
+    "true",
+    "false",
+    "null",
+    "True",
+    "False",
+    "Null",
+    "TRUE",
+    "FALSE",
+    "NULL"
+  ],
+  "comments": {
+    "line": "#"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "'"],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "indentAfter": [":"],
+  "formatter": {
+    "command": "yamlfmt",
+    "arguments": ["-"],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  },
+  "fallbackFormatter": {
+    "command": "prettier",
+    "arguments": ["--stdin-filepath", "{path}"],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
+}

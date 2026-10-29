@@ -1,0 +1,21 @@
+{
+  "id": "diff",
+  "name": "Diff",
+  "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+  "autoIndent": false,
+  "autoClose": false,
+  "extensions": [".diff", ".patch"],
+  "keywords": [],
+  "controlStatements": [],
+  "types": [],
+  "constants": [],
+  "linePatterns": [
+    { "pattern": "^\\+.*", "kind": "added" },
+    { "pattern": "^-.*", "kind": "deleted" }
+  ],
+  "comments": {},
+  "strings": {
+    "quoteCharacters": []
+  },
+  "numbers": false
+}
