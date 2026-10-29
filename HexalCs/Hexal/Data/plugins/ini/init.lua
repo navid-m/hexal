@@ -1,3 +1,0 @@
--- INI has no bundled language server. Syntax
--- highlighting and editing behaviour are provided by the
--- bundled INI grammar.

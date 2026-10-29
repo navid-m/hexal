@@ -1,6 +1,0 @@
-name = "CMake"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for CMake"
-lazy = true
-language = "cmake"

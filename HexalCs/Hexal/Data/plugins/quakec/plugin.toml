@@ -1,6 +1,0 @@
-name = "QuakeC"
-version = "1.0"
-entry = "init.lua"
-description = "Syntax support for QuakeC"
-lazy = true
-language = "quakec"

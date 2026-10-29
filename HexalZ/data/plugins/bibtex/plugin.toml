@@ -1,6 +1,0 @@
-name = "BibTeX"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for BibTeX"
-lazy = true
-language = "bibtex"

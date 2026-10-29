@@ -1,6 +1,0 @@
-name = "Twig"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Twig"
-lazy = true
-language = "twig"

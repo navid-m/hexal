@@ -1,6 +1,0 @@
-name = "PowerShell"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for PowerShell"
-lazy = true
-language = "powershell"

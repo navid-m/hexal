@@ -1,6 +1,0 @@
-name = "CSV"
-version = "1.0"
-entry = "init.lua"
-description = "Syntax support for CSV and TSV files"
-lazy = true
-language = "csv"

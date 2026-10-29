@@ -1,6 +1,0 @@
-name = "Protocol Buffers"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Protocol Buffers"
-lazy = true
-language = "protobuf"

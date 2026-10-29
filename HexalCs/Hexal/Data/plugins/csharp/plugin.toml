@@ -1,6 +1,0 @@
-name = "C#"
-version = "2.1"
-entry = "init.lua"
-description = "OmniSharp language server with a built-in Lua fallback"
-lazy = true
-language = "csharp"

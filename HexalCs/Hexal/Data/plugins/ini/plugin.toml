@@ -1,6 +1,0 @@
-name = "INI"
-version = "1.0"
-entry = "init.lua"
-description = "Syntax support for INI and configuration files"
-lazy = true
-language = "ini"

@@ -1,7 +1,0 @@
-.liger-cache
-bin/
-obj/
-publish/
-*.user
-*.suo
-.DS_Store

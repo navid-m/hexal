@@ -1,3 +1,0 @@
--- Thymeleaf has no dedicated standalone language server. Syntax
--- highlighting, HTML tag closing and indentation are provided by the
--- bundled Thymeleaf grammar.

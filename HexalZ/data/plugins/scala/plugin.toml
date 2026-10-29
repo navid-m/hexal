@@ -1,6 +1,0 @@
-name = "Scala"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Scala"
-lazy = true
-language = "scala"

@@ -1,6 +1,0 @@
-name = "CoffeeScript"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for CoffeeScript"
-lazy = true
-language = "coffeescript"

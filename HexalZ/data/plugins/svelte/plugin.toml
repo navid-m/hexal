@@ -1,6 +1,0 @@
-name = "Svelte"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for Svelte"
-lazy = true
-language = "svelte"

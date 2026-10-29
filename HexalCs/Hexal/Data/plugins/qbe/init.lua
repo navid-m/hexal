@@ -1,3 +1,0 @@
--- QBE IR has no bundled language server. Syntax
--- highlighting and editing behaviour are provided by the
--- bundled QBE IR grammar.

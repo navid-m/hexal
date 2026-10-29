@@ -1,6 +1,0 @@
-name = "TOML"
-version = "1.0"
-entry = "init.lua"
-description = "Language server association for TOML"
-lazy = true
-language = "toml"
