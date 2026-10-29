@@ -303,10 +303,12 @@ mod tests {
         assert_eq!(editor.message, "Reloaded 1 file(s).");
         assert_eq!(editor.pane_count(), 2);
         assert_eq!(editor.doc.all_text(), b"ONE\nTWO\n");
-        assert!(editor
-            .panes
-            .iter()
-            .all(|pane| pane.doc_id == editor.doc.id()));
+        assert!(
+            editor
+                .panes
+                .iter()
+                .all(|pane| pane.doc_id == editor.doc.id())
+        );
         assert_eq!(
             editor
                 .panes

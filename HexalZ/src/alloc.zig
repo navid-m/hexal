@@ -12,6 +12,7 @@
 //! copy.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
@@ -87,7 +88,12 @@ pub const HugeAllocator = struct {
             .fromByteUnits(huge),
             wanted,
         ) catch return null;
-        std.posix.madvise(mapping.ptr, mapping.len, std.posix.MADV.HUGEPAGE) catch {};
+        // Transparent huge pages are a Linux facility; macOS (and other
+        // targets) manage large-page promotion themselves, so only request
+        // the hint where the kernel supports it.
+        if (builtin.os.tag == .linux) {
+            std.posix.madvise(mapping.ptr, mapping.len, std.posix.MADV.HUGEPAGE) catch {};
+        }
         return mapping.ptr;
     }
 

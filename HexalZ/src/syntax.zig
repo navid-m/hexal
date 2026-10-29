@@ -35,6 +35,18 @@ pub const Indentation = struct {
     tab_width: usize,
 };
 
+pub const Debugger = struct {
+    adapter: []u8,
+    arguments: []const []u8,
+    configuration: json.Value,
+
+    fn deinit(self: *Debugger, allocator: std.mem.Allocator) void {
+        allocator.free(self.adapter);
+        freeStrings(allocator, self.arguments);
+        self.configuration.deinit(allocator);
+    }
+};
+
 pub const LineHighlight = struct {
     pattern: regex_mod.Regex,
     kind: theme.SyntaxKind,
@@ -60,6 +72,7 @@ pub const Language = struct {
     formatter: ?FormatterConfig = null,
     fallback_formatter: ?FormatterConfig = null,
     fallback_lsp: ?LspFallback = null,
+    debugger: ?Debugger = null,
     format_on_save: bool = false,
     indentation: ?Indentation = null,
     auto_indent: bool = true,
@@ -92,6 +105,7 @@ pub const Language = struct {
             freeStrings(a, lsp.arguments);
             a.free(lsp.language_id);
         }
+        if (self.debugger) |*debugger| debugger.deinit(a);
         freeStrings(a, self.indent_after);
         freeStrings(a, self.unindent_before);
         self.* = undefined;
@@ -319,6 +333,70 @@ fn parseFallbackLsp(allocator: std.mem.Allocator, root: json.Value, id: []const 
     };
 }
 
+fn cloneValue(allocator: std.mem.Allocator, value: json.Value) !json.Value {
+    return switch (value) {
+        .null => .null,
+        .boolean => |item| .{ .boolean = item },
+        .number => |item| .{ .number = item },
+        .string => |item| .{ .string = try allocator.dupe(u8, item) },
+        .array => |items| blk: {
+            var result: std.ArrayList(json.Value) = .empty;
+            errdefer {
+                for (result.items) |*item| item.deinit(allocator);
+                result.deinit(allocator);
+            }
+            for (items.items) |item| try result.append(allocator, try cloneValue(allocator, item));
+            break :blk .{ .array = result };
+        },
+        .object => |items| blk: {
+            var result: std.ArrayList(json.Member) = .empty;
+            errdefer {
+                for (result.items) |*item| {
+                    allocator.free(item.key);
+                    item.value.deinit(allocator);
+                }
+                result.deinit(allocator);
+            }
+            for (items.items) |item| {
+                const key = try allocator.dupe(u8, item.key);
+                errdefer allocator.free(key);
+                try result.append(allocator, .{
+                    .key = key,
+                    .value = try cloneValue(allocator, item.value),
+                });
+            }
+            break :blk .{ .object = result };
+        },
+    };
+}
+
+fn parseDebugger(allocator: std.mem.Allocator, root: json.Value) !?Debugger {
+    const object = root.get("debugger") orelse return null;
+    if (object.asObject() == null) return error.InvalidDebugger;
+    const adapter = std.mem.trim(
+        u8,
+        stringValue(object.get("adapter")) orelse "",
+        " \t\r\n",
+    );
+    if (adapter.len == 0) return error.InvalidDebugger;
+    var arguments = try object.stringArray(allocator, "arguments");
+    errdefer {
+        for (arguments.items) |item| allocator.free(item);
+        arguments.deinit(allocator);
+    }
+    var configuration: json.Value = .{ .object = .empty };
+    errdefer configuration.deinit(allocator);
+    if (object.get("configuration")) |value| {
+        if (value.asObject() == null) return error.InvalidDebugger;
+        configuration = try cloneValue(allocator, value);
+    }
+    return .{
+        .adapter = try allocator.dupe(u8, adapter),
+        .arguments = try arguments.toOwnedSlice(allocator),
+        .configuration = configuration,
+    };
+}
+
 fn parseIndentation(value: json.Value) !?Indentation {
     const object = value.get("indentation") orelse return null;
     if (object.asObject() == null) return error.InvalidIndentation;
@@ -484,14 +562,23 @@ pub fn parseLanguage(allocator: std.mem.Allocator, text: []const u8, source_path
         if (value.asBool()) |enabled| highlight_numbers = enabled;
     }
 
-    const format_on_save = boolValue(root, "formatOnSave") orelse
+    var format_on_save = boolValue(root, "formatOnSave") orelse
         boolValue(root, "format_on_save") orelse false;
     const formatter = try parseFormatter(allocator, root, "formatter");
+    if (root.get("formatOnSave") == null and root.get("format_on_save") == null) {
+        if (root.get("formatter")) |formatter_value| {
+            if (formatter_value.asObject() != null) {
+                format_on_save = boolValue(formatter_value, "formatOnSave") orelse
+                    boolValue(formatter_value, "format_on_save") orelse false;
+            }
+        }
+    }
     var fallback_formatter = try parseFormatter(allocator, root, "fallbackFormatter");
     if (fallback_formatter == null) {
         fallback_formatter = try parseFormatter(allocator, root, "fallback_formatter");
     }
     const fallback_lsp = try parseFallbackLsp(allocator, root, id);
+    const debugger = try parseDebugger(allocator, root);
     const indentation = try parseIndentation(root);
     const auto_indent = boolValue(root, "autoIndent") orelse
         boolValue(root, "auto_indent") orelse true;
@@ -523,6 +610,7 @@ pub fn parseLanguage(allocator: std.mem.Allocator, text: []const u8, source_path
         .formatter = formatter,
         .fallback_formatter = fallback_formatter,
         .fallback_lsp = fallback_lsp,
+        .debugger = debugger,
         .format_on_save = format_on_save,
         .indentation = indentation,
         .auto_indent = auto_indent,
@@ -549,34 +637,65 @@ pub const Registry = struct {
 
     pub fn load(allocator: std.mem.Allocator, io: std.Io) !Registry {
         var registry = Registry.init(allocator);
-        const directory = findGrammarDirectory(allocator, io) orelse {
-            registry.languages = try allocator.alloc(Language, 0);
-            return registry;
-        };
-        defer allocator.free(directory);
-
-        var dir = std.Io.Dir.cwd().openDir(io, directory, .{ .iterate = true }) catch {
-            registry.languages = try allocator.alloc(Language, 0);
-            return registry;
-        };
-        defer dir.close(io);
-
         var list: std.ArrayList(Language) = .empty;
         errdefer {
             for (list.items) |*language| language.deinit();
             list.deinit(allocator);
         }
-        var iterator = dir.iterate();
-        while (try iterator.next(io)) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".hexdef")) continue;
-            const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ directory, entry.name });
-            defer allocator.free(path);
-            const text = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024)) catch continue;
-            defer allocator.free(text);
-            const language = parseLanguage(allocator, text, entry.name) catch continue;
-            try list.append(allocator, language);
+
+        var directories = try grammarDirectories(allocator, io);
+        defer {
+            for (directories.items) |directory| allocator.free(directory);
+            directories.deinit(allocator);
         }
+
+        for (directories.items) |directory| {
+            var dir = std.Io.Dir.cwd().openDir(io, directory, .{ .iterate = true }) catch continue;
+            defer dir.close(io);
+
+            var names: std.ArrayList([]u8) = .empty;
+            defer {
+                for (names.items) |name| allocator.free(name);
+                names.deinit(allocator);
+            }
+            var iterator = dir.iterate();
+            while (try iterator.next(io)) |entry| {
+                if (entry.kind != .file) continue;
+                if (!std.ascii.endsWithIgnoreCase(entry.name, ".hexdef")) continue;
+                try names.append(allocator, try allocator.dupe(u8, entry.name));
+            }
+            std.mem.sort([]u8, names.items, {}, struct {
+                fn lessThan(_: void, left: []u8, right: []u8) bool {
+                    return std.mem.lessThan(u8, left, right);
+                }
+            }.lessThan);
+
+            for (names.items) |name| {
+                const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ directory, name });
+                defer allocator.free(path);
+                const text = std.Io.Dir.cwd().readFileAlloc(
+                    io,
+                    path,
+                    allocator,
+                    .limited(4 * 1024 * 1024),
+                ) catch continue;
+                defer allocator.free(text);
+                const language = parseLanguage(allocator, text, name) catch continue;
+                // A grammar from a later directory (user overrides last)
+                // replaces a bundled definition with the same id.
+                var replaced = false;
+                for (list.items) |*existing| {
+                    if (std.ascii.eqlIgnoreCase(existing.id, language.id)) {
+                        existing.deinit();
+                        existing.* = language;
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) try list.append(allocator, language);
+            }
+        }
+
         std.mem.sort(Language, list.items, {}, struct {
             fn lessThan(_: void, left: Language, right: Language) bool {
                 return std.mem.lessThan(u8, left.id, right.id);
@@ -594,10 +713,23 @@ pub const Registry = struct {
     }
 
     pub fn findByPath(self: Registry, path: []const u8) ?*const Language {
+        const filename = std.fs.path.basename(path);
         for (self.languages) |*language| {
-            if (language.matchesExtension(path)) return language;
+            for (language.file_names) |name| {
+                if (std.ascii.eqlIgnoreCase(filename, name)) return language;
+            }
         }
-        return null;
+        var best: ?*const Language = null;
+        var best_length: usize = 0;
+        for (self.languages) |*language| {
+            for (language.extensions) |extension| {
+                if (extension.len <= best_length or extension.len > filename.len) continue;
+                if (!std.ascii.endsWithIgnoreCase(filename, extension)) continue;
+                best = language;
+                best_length = extension.len;
+            }
+        }
+        return best;
     }
 
     pub fn findById(self: Registry, id: []const u8) ?*const Language {
@@ -605,18 +737,62 @@ pub const Registry = struct {
     }
 };
 
-pub fn findGrammarDirectory(allocator: std.mem.Allocator, io: std.Io) ?[]u8 {
-    const candidates = [_][]const u8{
+pub fn grammarDirectories(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+) !std.ArrayList([]u8) {
+    var result: std.ArrayList([]u8) = .empty;
+    errdefer {
+        for (result.items) |directory| allocator.free(directory);
+        result.deinit(allocator);
+    }
+
+    const bundled = [_][]const u8{
         "data/grammars",
         "../data/grammars",
         "../../data/grammars",
     };
-    for (candidates) |candidate| {
-        var dir = std.Io.Dir.cwd().openDir(io, candidate, .{}) catch continue;
-        dir.close(io);
-        return allocator.dupe(u8, candidate) catch null;
+    for (bundled) |candidate| {
+        if (std.Io.Dir.cwd().openDir(io, candidate, .{})) |dir| {
+            dir.close(io);
+            try appendUniqueDirectory(allocator, &result, candidate);
+        } else |_| {}
     }
-    return null;
+
+    if (std.process.executableDirPathAlloc(io, allocator)) |executable_dir| {
+        defer allocator.free(executable_dir);
+        const candidate = try std.fs.path.join(allocator, &.{ executable_dir, "data/grammars" });
+        defer allocator.free(candidate);
+        if (std.Io.Dir.cwd().openDir(io, candidate, .{})) |dir| {
+            dir.close(io);
+            try appendUniqueDirectory(allocator, &result, candidate);
+        } else |_| {}
+    } else |_| {}
+
+    if (std.c.getenv("HOME")) |home_ptr| {
+        const home = std.mem.span(home_ptr);
+        for ([_][]const u8{ "grammars", "data/grammars" }) |suffix| {
+            const candidate = try std.fs.path.join(allocator, &.{ home, ".hexal", suffix });
+            defer allocator.free(candidate);
+            if (std.Io.Dir.cwd().openDir(io, candidate, .{})) |dir| {
+                dir.close(io);
+                try appendUniqueDirectory(allocator, &result, candidate);
+            } else |_| {}
+        }
+    }
+
+    return result;
+}
+
+fn appendUniqueDirectory(
+    allocator: std.mem.Allocator,
+    directories: *std.ArrayList([]u8),
+    candidate: []const u8,
+) !void {
+    for (directories.items) |existing| {
+        if (std.mem.eql(u8, existing, candidate)) return;
+    }
+    try directories.append(allocator, try allocator.dupe(u8, candidate));
 }
 
 pub const Highlighter = struct {

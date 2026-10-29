@@ -1831,7 +1831,7 @@ fn display_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{path_to_uri, Event, Manager, ServerConfig};
+    use super::{Event, Manager, ServerConfig, path_to_uri};
     use std::fs;
     use std::time::{Duration, Instant};
 

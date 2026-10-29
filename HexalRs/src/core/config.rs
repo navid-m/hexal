@@ -347,7 +347,7 @@ fn home_directory() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, Config};
+    use super::{Config, parse};
     use std::path::Path;
 
     #[test]

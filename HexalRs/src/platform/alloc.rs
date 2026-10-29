@@ -102,7 +102,10 @@ impl LargeCacheAllocator {
         if pointer == libc::MAP_FAILED {
             return std::ptr::null_mut();
         }
-        unsafe { libc::madvise(pointer, length, libc::MADV_HUGEPAGE) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            libc::madvise(pointer, length, libc::MADV_HUGEPAGE)
+        };
         pointer as *mut u8
     }
 }

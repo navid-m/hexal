@@ -699,11 +699,7 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 {
-            height - 3
-        } else {
-            1
-        }
+        if height >= 3 { height - 3 } else { 1 }
     }
 }
 
@@ -863,11 +859,13 @@ mod tests {
         wait_for_picker_search(&mut editor);
         assert_eq!(editor.picker.total, 3);
         assert_eq!(editor.picker.items.len(), 3);
-        assert!(editor
-            .picker
-            .items
-            .iter()
-            .all(|item| item.display.contains("needle here")));
+        assert!(
+            editor
+                .picker
+                .items
+                .iter()
+                .all(|item| item.display.contains("needle here"))
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

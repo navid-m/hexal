@@ -377,7 +377,7 @@ fn merge_line_highlight(
 
 #[cfg(test)]
 mod tests {
-    use super::{tokenize_line, Highlighter};
+    use super::{Highlighter, tokenize_line};
     use crate::core::document::Document;
     use crate::languages::Registry;
     use crate::ui::theme::SyntaxKind;

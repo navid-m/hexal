@@ -385,11 +385,7 @@ fn class_matches(class: &Node, byte: u8, insensitive: bool) -> bool {
             (lower >= *start && lower <= *end) || (upper >= *start && upper <= *end)
         });
     }
-    if *negated {
-        !found
-    } else {
-        found
-    }
+    if *negated { !found } else { found }
 }
 
 fn match_node(node: &Node, text: &[u8], position: usize, insensitive: bool, out: &mut Vec<usize>) {

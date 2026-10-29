@@ -7,11 +7,7 @@ use super::*;
 
 impl Editor {
     pub(super) fn status_row(&self) -> usize {
-        if self.rows >= 2 {
-            self.rows - 2
-        } else {
-            0
-        }
+        if self.rows >= 2 { self.rows - 2 } else { 0 }
     }
 
     pub(super) fn command_row(&self) -> usize {
@@ -30,11 +26,7 @@ impl Editor {
     pub(super) fn gutter_width_for(&self, width: usize) -> usize {
         let marker = usize::from(self.sidebar.show_modified);
         let gutter = util::digit_count(self.doc.line_count()) + 1 + marker;
-        if width < gutter + 10 {
-            0
-        } else {
-            gutter
-        }
+        if width < gutter + 10 { 0 } else { gutter }
     }
 
     pub(super) fn clamp_viewport(&mut self) {
@@ -714,8 +706,10 @@ impl Editor {
         if self.picker.kind == PickerKind::None {
             return;
         }
+        self.update_picker_preview();
         let available = self.status_row();
-        let height = self.picker_height();
+        let preview_height = self.picker_preview_height(available);
+        let height = self.picker_dialog_height(available);
         if height < 4 || self.cols < 20 {
             return;
         }
@@ -723,9 +717,15 @@ impl Editor {
         if width < 20 {
             return;
         }
+        let total_height = height
+            + if preview_height > 0 {
+                preview_height + 1
+            } else {
+                0
+            };
         let x = (self.cols - width) / 2;
-        let y = if available >= height {
-            (available - height) / 2
+        let y = if available >= total_height {
+            (available - total_height) / 2
         } else {
             0
         };
@@ -857,6 +857,10 @@ impl Editor {
             self.theme.accent_style(),
             width.saturating_sub(4),
         );
+
+        if preview_height > 0 {
+            self.render_picker_preview(x, y + height + 1, width, preview_height);
+        }
     }
 
     pub(super) fn render_find(&mut self) {

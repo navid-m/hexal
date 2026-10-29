@@ -10,7 +10,7 @@
 use super::lsp_ui::wrap_text;
 use super::*;
 use crate::dap::Event as DapEvent;
-use crate::ui::theme::{is_true_color, rgb, Style};
+use crate::ui::theme::{Style, is_true_color, rgb};
 
 const MOUSE_SCROLL_LINES: usize = 3;
 

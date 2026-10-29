@@ -3,7 +3,7 @@
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
 
-use std::alloc::{alloc as rust_alloc, dealloc as rust_dealloc, Layout};
+use std::alloc::{Layout, alloc as rust_alloc, dealloc as rust_dealloc};
 
 const LUA_GRAIN: usize = 16;
 const LUA_SMALL_LIMIT: usize = 1024;
@@ -984,12 +984,7 @@ impl LuaRuntime {
         document: &mut Document,
         cursor: &mut usize,
     ) -> Result<Option<(bool, HostEffects)>, String> {
-        let callback = self
-            .shared
-            .borrow()
-            .panel_handlers
-            .get(&panel_id)
-            .cloned();
+        let callback = self.shared.borrow().panel_handlers.get(&panel_id).cloned();
         let Some(callback) = callback else {
             return Ok(None);
         };
@@ -2464,11 +2459,7 @@ fn parse_segment(value: &LuaValue) -> Option<PanelSegment> {
     }
 }
 
-fn panel_table(
-    lua: &Lua,
-    host: &Rc<RefCell<HostState>>,
-    id: i64,
-) -> LuaResult<Table> {
+fn panel_table(lua: &Lua, host: &Rc<RefCell<HostState>>, id: i64) -> LuaResult<Table> {
     let table = lua.create_table()?;
     table.set("id", id)?;
     {
@@ -2478,10 +2469,7 @@ fn panel_table(
             &table,
             "set_lines",
             move |_, lines: Option<LuaValue>| {
-                let lines = lines
-                    .as_ref()
-                    .map(parse_panel_lines)
-                    .unwrap_or_default();
+                let lines = lines.as_ref().map(parse_panel_lines).unwrap_or_default();
                 if let Some(panel) = host
                     .borrow_mut()
                     .panels
@@ -2503,10 +2491,7 @@ fn panel_table(
             move |_, (start, delete_count, lines): (Option<i64>, Option<i64>, Option<LuaValue>)| {
                 let start = start.unwrap_or(1).max(1) as usize - 1;
                 let delete_count = delete_count.unwrap_or(0).max(0) as usize;
-                let replacement = lines
-                    .as_ref()
-                    .map(parse_panel_lines)
-                    .unwrap_or_default();
+                let replacement = lines.as_ref().map(parse_panel_lines).unwrap_or_default();
                 if delete_count == 0 && replacement.is_empty() {
                     return Ok(());
                 }
@@ -2826,7 +2811,11 @@ mod tests {
         assert!(effects.errors.is_empty(), "{:?}", effects.errors);
         assert_eq!(host.borrow().bytes(), document.all_text());
         assert_eq!(host.borrow().line_count(), document.line_count());
-        assert!(host.borrow().line_bytes(document.line_count() - 1).is_some());
+        assert!(
+            host.borrow()
+                .line_bytes(document.line_count() - 1)
+                .is_some()
+        );
     }
 
     #[test]

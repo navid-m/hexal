@@ -5,9 +5,6 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    // The editor is a latency-sensitive TUI. Default to an optimized build so
-    // `zig build` produces the same class of binary as the Rust editor's
-    // release profile; pass -Doptimize=Debug for a debug build.
     const optimize = b.option(
         std.builtin.Optimize,
         "optimize",
@@ -41,10 +38,15 @@ pub fn build(b: *std.Build) void {
         .flags = &.{ "-std=c99", "-DLUA_USE_POSIX" },
     });
 
+    const linkage: std.builtin.LinkMode = if (target.result.os.tag == .macos)
+        .dynamic
+    else
+        .static;
+
     const exe = b.addExecutable(.{
         .name = "hexalz",
         .root_module = mod,
-        .linkage = .static,
+        .linkage = linkage,
     });
     b.installArtifact(exe);
 

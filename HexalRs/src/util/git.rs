@@ -594,11 +594,7 @@ pub fn display_relative(root: &Path, path: &Path) -> String {
     match path.strip_prefix(root) {
         Ok(relative) => {
             let text = relative.to_string_lossy().replace('\\', "/");
-            if text.is_empty() {
-                "./".into()
-            } else {
-                text
-            }
+            if text.is_empty() { "./".into() } else { text }
         }
         Err(_) => path.to_string_lossy().into_owned(),
     }
@@ -945,14 +941,16 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let run = |arguments: &[&str]| {
-            assert!(Command::new("git")
-                .arg("-C")
-                .arg(&root)
-                .args(arguments)
-                .output()
-                .unwrap()
-                .status
-                .success());
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&root)
+                    .args(arguments)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success()
+            );
         };
         run(&["init", "-q"]);
         run(&["config", "user.name", "Hexal Test"]);

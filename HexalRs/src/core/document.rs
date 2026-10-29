@@ -119,11 +119,7 @@ impl Document {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if name.is_empty() {
-                    path.clone()
-                } else {
-                    name
-                }
+                if name.is_empty() { path.clone() } else { name }
             }
             None => "[No Name]".to_string(),
         }

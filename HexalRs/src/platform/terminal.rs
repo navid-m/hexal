@@ -460,7 +460,7 @@ fn utf8_len(first: u8) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_mouse, Key, MouseButton};
+    use super::{Key, MouseButton, decode_mouse};
 
     #[test]
     fn decodes_sgr_mouse_events() {

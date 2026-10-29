@@ -19,16 +19,17 @@ mod picker;
 mod plugin_manager;
 mod plugin_panels;
 mod plugins;
+mod preview;
 mod reload_all;
 mod render;
 mod sidebar;
 mod status;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 
 use crate::core::config::Config;
 use crate::core::diff;
@@ -38,7 +39,7 @@ use crate::languages::{FormatterConfig, Highlighter, Language, Registry, Token};
 use crate::lsp::{self, Manager as LspManager};
 use crate::platform::terminal::{Event, Key, MouseButton, Terminal};
 use crate::scripting::plugin::PluginManager;
-use crate::ui::help::{HelpLineKind, HelpState, HELP_LINES};
+use crate::ui::help::{HELP_LINES, HelpLineKind, HelpState};
 use crate::ui::renderer::Renderer;
 use crate::ui::screen::Screen;
 use crate::ui::sidebar::{self as ui_sidebar, Action as SidebarAction, Sidebar};
@@ -628,6 +629,12 @@ pub struct Editor {
 
     picker: Picker,
     picker_generation: u64,
+    picker_preview_path: String,
+    picker_preview_lines: Vec<String>,
+    picker_preview_status: String,
+    picker_preview_binary: bool,
+    picker_preview_cache: HashMap<String, preview::FilePreview>,
+    picker_preview_order: VecDeque<String>,
     picker_scan: Option<PickerScanTask>,
     picker_search: Option<PickerSearchTask>,
     diff_with_source: Option<PathBuf>,
@@ -774,6 +781,12 @@ impl Editor {
             jump_index: -1,
             picker: Picker::new(),
             picker_generation: 0,
+            picker_preview_path: String::new(),
+            picker_preview_lines: Vec::new(),
+            picker_preview_status: String::new(),
+            picker_preview_binary: false,
+            picker_preview_cache: HashMap::new(),
+            picker_preview_order: VecDeque::new(),
             picker_scan: None,
             picker_search: None,
             diff_with_source: None,

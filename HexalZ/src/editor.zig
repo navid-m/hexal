@@ -11,6 +11,7 @@ const syntax = @import("syntax.zig");
 const util = @import("util.zig");
 const files_mod = @import("files.zig");
 const lua_mod = @import("lua.zig");
+const sidebar_mod = @import("sidebar.zig");
 
 const TabWidth = 4;
 const IndentWidth = 4;
@@ -27,6 +28,47 @@ const Pending = enum {
     none,
     quit,
     open,
+    delete,
+    diff,
+};
+
+const SidebarSource = struct {
+    path: []u8,
+    is_directory: bool,
+};
+
+const SidebarPromptKind = enum {
+    new_folder,
+    new_file,
+    rename,
+    copy,
+    move,
+};
+
+const SidebarPrompt = struct {
+    label: std.ArrayList(u8) = .empty,
+    text: std.ArrayList(u8) = .empty,
+    cursor: usize = 0,
+    kind: SidebarPromptKind,
+    parent: []u8 = &.{},
+    old_path: []u8 = &.{},
+    is_directory: bool = false,
+    sources: std.ArrayList(SidebarSource) = .empty,
+
+    fn deinit(self: *SidebarPrompt, allocator: std.mem.Allocator) void {
+        self.label.deinit(allocator);
+        self.text.deinit(allocator);
+        if (self.parent.len > 0) allocator.free(self.parent);
+        if (self.old_path.len > 0) allocator.free(self.old_path);
+        for (self.sources.items) |source| allocator.free(source.path);
+        self.sources.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+const PendingDiff = struct {
+    text: []u8,
+    summary: []u8,
 };
 
 const Range = struct {
@@ -45,6 +87,31 @@ const PickerItem = struct {
     file_index: usize,
     line: usize,
     column: usize,
+};
+
+const preview_max_lines: usize = 10;
+const preview_max_line_length: usize = 400;
+const preview_max_bytes: u64 = 4 * 1024 * 1024;
+const preview_cache_entries: usize = 128;
+
+const FilePreview = struct {
+    path: []u8 = &.{},
+    lines: std.ArrayList([]u8) = .empty,
+    binary: bool = false,
+    truncated: bool = false,
+    error_message: ?[]u8 = null,
+
+    fn deinit(self: *FilePreview, allocator: std.mem.Allocator) void {
+        if (self.path.len > 0) allocator.free(self.path);
+        for (self.lines.items) |line| allocator.free(line);
+        self.lines.deinit(allocator);
+        if (self.error_message) |message| allocator.free(message);
+        self.* = .{};
+    }
+
+    fn lineCount(self: FilePreview) usize {
+        return self.lines.items.len;
+    }
 };
 
 /// Owned by `Editor` while a background picker scan is running. The worker
@@ -168,6 +235,12 @@ pub const Editor = struct {
     jump_index: isize = -1,
 
     picker: Picker = .{},
+    picker_preview: FilePreview = .{},
+    picker_preview_cache: std.ArrayList(FilePreview) = .empty,
+    sidebar: sidebar_mod.Sidebar,
+    sidebar_prompt: ?SidebarPrompt = null,
+    pending_sidebar_deletes: std.ArrayList(SidebarSource) = .empty,
+    pending_sidebar_diff: ?PendingDiff = null,
     find: FindState = .{},
     lua: ?lua_mod.Manager = null,
     workspace_root: []u8 = &.{},
@@ -196,6 +269,11 @@ pub const Editor = struct {
             theme_mod.Registry.init(allocator);
         errdefer theme_registry.deinit();
         const highlighter = syntax.Highlighter.init(allocator);
+        const workspace_root: []u8 = std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator) catch
+            (allocator.dupe(u8, ".") catch &.{});
+        errdefer if (workspace_root.len > 0) allocator.free(workspace_root);
+        var sidebar = try sidebar_mod.Sidebar.init(allocator, io, workspace_root);
+        errdefer sidebar.deinit();
 
         // Terminal.init already queried the window size; avoid a second ioctl
         // on the startup path.
@@ -210,9 +288,9 @@ pub const Editor = struct {
             .theme_registry = theme_registry,
             .syntax_registry = syntax_registry,
             .highlighter = highlighter,
+            .workspace_root = workspace_root,
+            .sidebar = sidebar,
         };
-        self.workspace_root = std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator) catch
-            (allocator.dupe(u8, ".") catch &.{});
         if (file != null) {
             self.message.clearRetainingCapacity();
             self.appendMessageFmt("Opened {s}", .{self.doc.displayName()});
@@ -252,6 +330,17 @@ pub const Editor = struct {
         self.picker.files.deinit(self.allocator);
         files_mod.clearHits(self.allocator, &self.picker.hits);
         self.picker.hits.deinit(self.allocator);
+        self.picker_preview.deinit(self.allocator);
+        for (self.picker_preview_cache.items) |*preview| preview.deinit(self.allocator);
+        self.picker_preview_cache.deinit(self.allocator);
+        if (self.sidebar_prompt) |*prompt| prompt.deinit(self.allocator);
+        for (self.pending_sidebar_deletes.items) |source| self.allocator.free(source.path);
+        self.pending_sidebar_deletes.deinit(self.allocator);
+        if (self.pending_sidebar_diff) |diff| {
+            self.allocator.free(diff.text);
+            self.allocator.free(diff.summary);
+        }
+        self.sidebar.deinit();
         self.renderer.deinit(self.allocator);
         self.screen.deinit(self.allocator);
         self.highlighter.deinit();
@@ -316,6 +405,16 @@ pub const Editor = struct {
             try self.handlePluginPanelKey(event);
             return;
         }
+        if (event.key == .character and event.ctrl and (event.ch == 'b' or event.ch == 'B')) {
+            self.toggleSidebar();
+            return;
+        }
+        if (self.sidebar.visible and event.mouse_x < self.sidebar.width(self.cols) and
+            (event.key == .mouse_down or event.key == .scroll_up or event.key == .scroll_down))
+        {
+            self.handleSidebarMouse(event);
+            return;
+        }
         if (event.key == .scroll_up) {
             const amount: usize = 3;
             self.top_line = self.top_line -| amount;
@@ -335,6 +434,10 @@ pub const Editor = struct {
             try self.handlePicker(event);
             return;
         }
+        if (self.sidebar_prompt != null) {
+            try self.handleSidebarPrompt(event);
+            return;
+        }
         if (self.find.active) {
             try self.handleFind(event);
             return;
@@ -345,6 +448,10 @@ pub const Editor = struct {
         }
         if (self.pending != .none) {
             try self.handlePrompt(event);
+            return;
+        }
+        if (self.sidebar.visible and self.sidebar.focused) {
+            try self.handleSidebar(event);
             return;
         }
         switch (self.mode) {
@@ -556,6 +663,739 @@ pub const Editor = struct {
         _ = manager.resolvePrompt(id, value);
         self.updatePluginContext();
         try self.flushPluginEffects();
+    }
+
+    // -----------------------------------------------------------------------
+    // SIDEBAR
+    // -----------------------------------------------------------------------
+
+    fn toggleSidebar(self: *Editor) void {
+        self.sidebar.setRoot(self.workspace_root) catch {};
+        const select = self.docAbsolutePath();
+        defer if (select) |path| self.allocator.free(path);
+        self.sidebar.toggle(select);
+        if (self.sidebar.visible) {
+            self.sidebar.menu_visible = false;
+            self.mode = .normal;
+            self.setMessage("Sidebar focused (Ctrl+B to close)");
+        } else {
+            self.clearMessage();
+        }
+    }
+
+    fn docAbsolutePath(self: *Editor) ?[]u8 {
+        const path = self.doc.path orelse return null;
+        return std.Io.Dir.cwd().realPathFileAlloc(self.io, path, self.allocator) catch
+            (self.allocator.dupe(u8, path) catch null);
+    }
+
+    fn handleSidebar(self: *Editor, event: term.Event) !void {
+        if (self.sidebar.menu_visible) {
+            self.handleSidebarMenu(event);
+            return;
+        }
+        if (event.key == .left and event.ctrl) {
+            self.sidebar.resize(self.cols, -2);
+            self.setMessageFmt("Sidebar width: {d}", .{self.sidebar.width(self.cols)});
+            return;
+        }
+        if (event.key == .right and event.ctrl) {
+            self.sidebar.resize(self.cols, 2);
+            self.setMessageFmt("Sidebar width: {d}", .{self.sidebar.width(self.cols)});
+            return;
+        }
+
+        const rows = self.textRows();
+        switch (event.key) {
+            .escape => {
+                if (self.sidebar.selectionCount() > 1) {
+                    self.sidebar.anchor = self.sidebar.selected;
+                } else {
+                    self.sidebar.focused = false;
+                    self.clearMessage();
+                }
+            },
+            .tab => self.sidebar.moveSelection(1, true, false),
+            .backtab => self.sidebar.moveSelection(-1, true, false),
+            .up => self.sidebar.moveSelection(-1, false, event.shift),
+            .down => self.sidebar.moveSelection(1, false, event.shift),
+            .page_up => self.sidebar.moveSelection(-@as(isize, @intCast(rows)), false, event.shift),
+            .page_down => self.sidebar.moveSelection(@intCast(rows), false, event.shift),
+            .home => self.sidebar.setSelection(0, event.shift),
+            .end => self.sidebar.setSelection(self.sidebar.nodes.items.len -| 1, event.shift),
+            .left => self.sidebar.collapseOrSelectParent(),
+            .right => self.sidebar.expandOrSelectChild(),
+            .enter => try self.activateSidebarNode(),
+            .character => {
+                if (event.ctrl or event.alt) return;
+                switch (event.ch) {
+                    'c', 'C' => self.openSidebarContextMenu(),
+                    ' ' => {
+                        self.sidebar.focused = false;
+                        self.openSpaceMenu();
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+        self.sidebar.updateTop(rows);
+    }
+
+    fn activateSidebarNode(self: *Editor) !void {
+        const node = self.sidebar.selectedNode() orelse return;
+        if (node.is_directory) {
+            self.sidebar.toggleDirectory();
+            return;
+        }
+        const path = try self.allocator.dupe(u8, node.path);
+        defer self.allocator.free(path);
+        self.sidebar.menu_visible = false;
+        try self.requestOpen(path, 0, 0, false);
+    }
+
+    fn openSidebarContextMenu(self: *Editor) void {
+        if (self.sidebar.selectedNode() == null) return;
+        self.sidebar.menu_visible = true;
+        self.sidebar.menu_selected = 0;
+        self.sidebar.focused = true;
+        self.clearMessage();
+    }
+
+    fn handleSidebarMenu(self: *Editor, event: term.Event) void {
+        const items = self.sidebar.menuItems();
+        if (items.len == 0) return;
+        switch (event.key) {
+            .escape => {
+                self.sidebar.menu_visible = false;
+                return;
+            },
+            .tab => {
+                self.sidebar.menu_selected = (self.sidebar.menu_selected + 1) % items.len;
+                return;
+            },
+            .backtab => {
+                self.sidebar.menu_selected = (self.sidebar.menu_selected + items.len - 1) % items.len;
+                return;
+            },
+            .up => {
+                self.sidebar.menu_selected -|= 1;
+                return;
+            },
+            .down => {
+                self.sidebar.menu_selected = @min(self.sidebar.menu_selected + 1, items.len - 1);
+                return;
+            },
+            .enter => {
+                self.activateSidebarMenuItem();
+                return;
+            },
+            .character => {},
+            else => return,
+        }
+        if (event.ctrl or event.alt) return;
+        if (event.ch == ' ') {
+            self.sidebar.menu_visible = false;
+            self.sidebar.focused = false;
+            self.openSpaceMenu();
+            return;
+        }
+        if (self.sidebar.menuHotkey(@intCast(event.ch))) |index| {
+            self.sidebar.menu_selected = index;
+            self.activateSidebarMenuItem();
+        } else if (event.ch == 'c' or event.ch == 'C') {
+            self.sidebar.menu_visible = false;
+        }
+    }
+
+    fn activateSidebarMenuItem(self: *Editor) void {
+        const items = self.sidebar.menuItems();
+        if (self.sidebar.menu_selected >= items.len) {
+            self.sidebar.menu_visible = false;
+            return;
+        }
+        const action = items[self.sidebar.menu_selected].action;
+        self.sidebar.menu_visible = false;
+        self.sidebar.focused = true;
+        self.runSidebarAction(action) catch |err| {
+            self.setErrorFmt("sidebar: {s}", .{@errorName(err)});
+        };
+    }
+
+    fn collectSidebarSources(self: *Editor) !std.ArrayList(SidebarSource) {
+        var nodes = try self.sidebar.effectiveSelection(self.allocator);
+        defer nodes.deinit(self.allocator);
+        var sources: std.ArrayList(SidebarSource) = .empty;
+        errdefer self.freeSidebarSources(&sources);
+        for (nodes.items) |node| {
+            try sources.append(self.allocator, .{
+                .path = try self.allocator.dupe(u8, node.path),
+                .is_directory = node.is_directory,
+            });
+        }
+        return sources;
+    }
+
+    fn freeSidebarSources(self: *Editor, sources: *std.ArrayList(SidebarSource)) void {
+        for (sources.items) |source| self.allocator.free(source.path);
+        sources.clearRetainingCapacity();
+    }
+
+    fn runSidebarAction(self: *Editor, action: sidebar_mod.Action) !void {
+        const node = self.sidebar.selectedNode() orelse return;
+        switch (action) {
+            .open => try self.activateSidebarNode(),
+            .new_folder, .new_file => {
+                const parent = if (node.is_directory)
+                    try self.allocator.dupe(u8, node.path)
+                else
+                    try self.allocator.dupe(u8, std.fs.path.dirname(node.path) orelse self.workspace_root);
+                defer self.allocator.free(parent);
+                if (action == .new_folder) {
+                    try self.startSidebarPrompt(.new_folder, "New folder name: ", "", parent, "", false);
+                } else {
+                    try self.startSidebarPrompt(.new_file, "New file name: ", "", parent, "", false);
+                }
+            },
+            .rename => {
+                var label_buf: [512]u8 = undefined;
+                const label = try std.fmt.bufPrint(&label_buf, "Rename {s}: ", .{node.name});
+                try self.startSidebarPrompt(.rename, label, node.name, "", node.path, node.is_directory);
+            },
+            .duplicate => {
+                var sources = try self.collectSidebarSources();
+                defer self.freeSidebarSources(&sources);
+                self.duplicateSidebarSources(sources.items);
+            },
+            .format => {
+                var sources = try self.collectSidebarSources();
+                defer self.freeSidebarSources(&sources);
+                self.formatSidebarSources(sources.items);
+            },
+            .diff => {
+                var sources = try self.collectSidebarSources();
+                defer self.freeSidebarSources(&sources);
+                self.beginSidebarDiff(sources.items);
+            },
+            .copy, .move => {
+                var sources = try self.collectSidebarSources();
+                errdefer self.freeSidebarSources(&sources);
+                const moving = action == .move;
+                const initial = if (!moving and sources.items.len == 1)
+                    try uniqueCopyPath(self.allocator, self.io, sources.items[0].path, sources.items[0].is_directory)
+                else
+                    try self.allocator.dupe(u8, "");
+                defer self.allocator.free(initial);
+                const label = if (moving) "Move to: " else "Copy to: ";
+                try self.startSidebarPrompt(
+                    if (moving) .move else .copy,
+                    label,
+                    initial,
+                    "",
+                    "",
+                    false,
+                );
+                if (self.sidebar_prompt) |*prompt| {
+                    prompt.sources = sources;
+                    sources = .empty;
+                }
+            },
+            .delete => {
+                var sources = try self.collectSidebarSources();
+                defer self.freeSidebarSources(&sources);
+                try self.requestDeleteSidebarSources(sources.items);
+            },
+        }
+    }
+
+    fn startSidebarPrompt(
+        self: *Editor,
+        kind: SidebarPromptKind,
+        label: []const u8,
+        initial: []const u8,
+        parent: []const u8,
+        old_path: []const u8,
+        is_directory: bool,
+    ) !void {
+        if (self.sidebar_prompt) |*existing| {
+            existing.deinit(self.allocator);
+            self.sidebar_prompt = null;
+        }
+        var prompt = SidebarPrompt{ .kind = kind, .is_directory = is_directory };
+        errdefer prompt.deinit(self.allocator);
+        try prompt.label.appendSlice(self.allocator, label);
+        try prompt.text.appendSlice(self.allocator, initial);
+        prompt.cursor = prompt.text.items.len;
+        if (parent.len > 0) prompt.parent = try self.allocator.dupe(u8, parent);
+        if (old_path.len > 0) prompt.old_path = try self.allocator.dupe(u8, old_path);
+        self.sidebar_prompt = prompt;
+        self.sidebar.focused = self.sidebar.visible;
+        self.clearMessage();
+    }
+
+    fn handleSidebarPrompt(self: *Editor, event: term.Event) !void {
+        const prompt = if (self.sidebar_prompt) |*value| value else return;
+        switch (event.key) {
+            .escape => {
+                var finished = prompt.*;
+                self.sidebar_prompt = null;
+                finished.deinit(self.allocator);
+                self.sidebar.focused = self.sidebar.visible;
+                self.setMessage("Cancelled.");
+            },
+            .enter => {
+                const text = try self.allocator.dupe(u8, std.mem.trim(u8, prompt.text.items, " \t\r\n"));
+                defer self.allocator.free(text);
+                var finished = prompt.*;
+                self.sidebar_prompt = null;
+                self.sidebar.focused = self.sidebar.visible;
+                self.completeSidebarPrompt(&finished, text);
+                finished.deinit(self.allocator);
+            },
+            .backspace => {
+                if (prompt.cursor > 0) {
+                    const previous = util.previousBoundary(prompt.text.items, prompt.cursor);
+                    std.mem.copyForwards(u8, prompt.text.items[previous..], prompt.text.items[prompt.cursor..]);
+                    const removed = prompt.cursor - previous;
+                    prompt.text.items.len -= removed;
+                    prompt.cursor = previous;
+                }
+            },
+            .delete => {
+                if (prompt.cursor < prompt.text.items.len) {
+                    const next = util.nextBoundary(prompt.text.items, prompt.cursor);
+                    std.mem.copyForwards(u8, prompt.text.items[prompt.cursor..], prompt.text.items[next..]);
+                    prompt.text.items.len -= (next - prompt.cursor);
+                }
+            },
+            .left => prompt.cursor = util.previousBoundary(prompt.text.items, prompt.cursor),
+            .right => prompt.cursor = util.nextBoundary(prompt.text.items, prompt.cursor),
+            .home => prompt.cursor = 0,
+            .end => prompt.cursor = prompt.text.items.len,
+            .character => {
+                if (event.ctrl or event.alt) return;
+                var buffer: [4]u8 = undefined;
+                const length = std.unicode.utf8Encode(event.ch, &buffer) catch return;
+                try prompt.text.insertSlice(self.allocator, prompt.cursor, buffer[0..length]);
+                prompt.cursor += length;
+            },
+            else => {},
+        }
+    }
+
+    fn completeSidebarPrompt(self: *Editor, prompt: *SidebarPrompt, text: []const u8) void {
+        switch (prompt.kind) {
+            .new_folder, .new_file => {
+                if (text.len == 0 or !validName(text)) {
+                    self.setError("Invalid name.");
+                    self.sidebar.refresh(null);
+                    return;
+                }
+                const target = std.fs.path.join(self.allocator, &.{ prompt.parent, text }) catch {
+                    self.setError("Invalid path.");
+                    return;
+                };
+                defer self.allocator.free(target);
+                if (pathExists(self.io, target)) {
+                    self.setErrorFmt("'{s}' already exists.", .{text});
+                    self.sidebar.refresh(null);
+                    return;
+                }
+                if (prompt.kind == .new_folder) {
+                    std.Io.Dir.cwd().createDir(self.io, target, .default_dir) catch |err| {
+                        self.setErrorFmt("Create folder failed: {s}", .{@errorName(err)});
+                        self.sidebar.refresh(null);
+                        return;
+                    };
+                    self.setMessageFmt("Created folder {s}", .{text});
+                } else {
+                    var file = std.Io.Dir.cwd().createFile(self.io, target, .{
+                        .exclusive = true,
+                        .truncate = false,
+                    }) catch |err| {
+                        self.setErrorFmt("Create file failed: {s}", .{@errorName(err)});
+                        self.sidebar.refresh(null);
+                        return;
+                    };
+                    file.close(self.io);
+                    self.setMessageFmt("Created file {s}", .{text});
+                }
+                self.sidebar.expandTo(target);
+                self.sidebar.refresh(target);
+            },
+            .rename => {
+                if (text.len == 0 or !validName(text)) {
+                    self.setError("Invalid file or folder name.");
+                    self.sidebar.refresh(prompt.old_path);
+                    return;
+                }
+                const parent = std.fs.path.dirname(prompt.old_path) orelse self.workspace_root;
+                const target = std.fs.path.join(self.allocator, &.{ parent, text }) catch {
+                    self.setError("Invalid path.");
+                    return;
+                };
+                defer self.allocator.free(target);
+                if (std.mem.eql(u8, target, prompt.old_path)) {
+                    self.setMessage("Name unchanged.");
+                    self.sidebar.refresh(prompt.old_path);
+                    return;
+                }
+                if (pathExists(self.io, target)) {
+                    self.setErrorFmt("'{s}' already exists.", .{text});
+                    self.sidebar.refresh(prompt.old_path);
+                    return;
+                }
+                std.Io.Dir.renameAbsolute(prompt.old_path, target, self.io) catch |err| {
+                    self.setErrorFmt("Rename failed: {s}", .{@errorName(err)});
+                    self.sidebar.refresh(prompt.old_path);
+                    return;
+                };
+                if (prompt.is_directory) {
+                    self.sidebar.updateExpandedAfterRename(prompt.old_path, target);
+                }
+                self.renameOpenDocument(prompt.old_path, target, prompt.is_directory);
+                self.sidebar.expandTo(target);
+                self.sidebar.refresh(target);
+                self.setMessageFmt("Renamed to {s}", .{text});
+            },
+            .copy, .move => {
+                if (text.len == 0) {
+                    self.setMessage("Cancelled.");
+                    self.sidebar.refresh(null);
+                    return;
+                }
+                if (prompt.sources.items.len == 0) return;
+                var destination = text;
+                const owned_destination = if (!std.fs.path.isAbsolute(destination))
+                    std.fs.path.join(self.allocator, &.{ self.workspace_root, destination }) catch null
+                else
+                    null;
+                defer if (owned_destination) |value| self.allocator.free(value);
+                if (owned_destination) |value| destination = value;
+
+                const destination_is_dir = isDirectory(self.io, destination);
+                if (!destination_is_dir and prompt.sources.items.len > 1) {
+                    self.setError("Destination folder does not exist.");
+                    self.sidebar.refresh(null);
+                    return;
+                }
+
+                var done: usize = 0;
+                var last_target: ?[]u8 = null;
+                defer if (last_target) |value| self.allocator.free(value);
+                var first_error: ?[]const u8 = null;
+                for (prompt.sources.items) |source| {
+                    const target = if (destination_is_dir or prompt.sources.items.len > 1)
+                        std.fs.path.join(self.allocator, &.{ destination, sidebar_mod.fileName(source.path) }) catch continue
+                    else
+                        self.allocator.dupe(u8, destination) catch continue;
+                    defer self.allocator.free(target);
+                    if (pathExists(self.io, target)) {
+                        if (first_error == null) first_error = "destination already exists";
+                        continue;
+                    }
+                    if (prompt.kind == .move) {
+                        if (source.is_directory and
+                            (std.mem.eql(u8, destination, source.path) or sidebar_mod.isInside(source.path, destination)))
+                        {
+                            if (first_error == null) first_error = "cannot move a folder inside itself";
+                            continue;
+                        }
+                        std.Io.Dir.renameAbsolute(source.path, target, self.io) catch |err| {
+                            if (first_error == null) first_error = @errorName(err);
+                            continue;
+                        };
+                        if (source.is_directory) self.sidebar.updateExpandedAfterRename(source.path, target);
+                        self.renameOpenDocument(source.path, target, source.is_directory);
+                    } else {
+                        copyPath(self.allocator, self.io, source.path, target, source.is_directory) catch |err| {
+                            if (first_error == null) first_error = @errorName(err);
+                            continue;
+                        };
+                    }
+                    done += 1;
+                    if (last_target) |old| self.allocator.free(old);
+                    last_target = self.allocator.dupe(u8, target) catch null;
+                }
+                if (last_target) |value| {
+                    self.sidebar.expandTo(value);
+                    self.sidebar.refresh(value);
+                } else {
+                    self.sidebar.refresh(null);
+                }
+                if (first_error) |message| {
+                    self.setErrorFmt("Completed {d} item(s); {s}", .{ done, message });
+                } else {
+                    self.setMessageFmt("Completed {d} item(s)", .{done});
+                }
+            },
+        }
+    }
+
+    fn renameOpenDocument(self: *Editor, old_path: []const u8, new_path: []const u8, is_directory: bool) void {
+        const current = self.doc.path orelse return;
+        const absolute = std.Io.Dir.cwd().realPathFileAlloc(self.io, current, self.allocator) catch
+            (self.allocator.dupe(u8, current) catch return);
+        defer self.allocator.free(absolute);
+        var updated: ?[]u8 = null;
+        if (std.mem.eql(u8, absolute, old_path)) {
+            updated = self.allocator.dupe(u8, new_path) catch null;
+        } else if (is_directory and sidebar_mod.isInside(old_path, absolute)) {
+            updated = std.fs.path.join(self.allocator, &.{
+                new_path,
+                std.mem.trimStart(u8, absolute[old_path.len..], "/\\"),
+            }) catch null;
+        }
+        if (updated) |path| {
+            self.allocator.free(current);
+            self.doc.path = path;
+            self.highlighter.clear();
+        }
+    }
+
+    fn duplicateSidebarSources(self: *Editor, sources: []const SidebarSource) void {
+        if (sources.len == 0) return;
+        var duplicated: usize = 0;
+        var first_error: ?[]const u8 = null;
+        var last_target: ?[]u8 = null;
+        defer if (last_target) |value| self.allocator.free(value);
+        for (sources) |source| {
+            const target = uniqueCopyPath(self.allocator, self.io, source.path, source.is_directory) catch continue;
+            defer self.allocator.free(target);
+            copyPath(self.allocator, self.io, source.path, target, source.is_directory) catch |err| {
+                if (first_error == null) first_error = @errorName(err);
+                continue;
+            };
+            duplicated += 1;
+            if (last_target) |old| self.allocator.free(old);
+            last_target = self.allocator.dupe(u8, target) catch null;
+        }
+        if (last_target) |value| {
+            self.sidebar.expandTo(value);
+            self.sidebar.refresh(value);
+        } else {
+            self.sidebar.refresh(null);
+        }
+        if (first_error) |message| {
+            self.setErrorFmt("Duplicated {d} of {d} items; {s}", .{ duplicated, sources.len, message });
+        } else if (duplicated == 1) {
+            self.setMessageFmt("Duplicated as {s}", .{sidebar_mod.fileName(last_target orelse "")});
+        } else {
+            self.setMessageFmt("Duplicated {d} items", .{duplicated});
+        }
+    }
+
+    fn formatSidebarSources(self: *Editor, sources: []const SidebarSource) void {
+        if (sources.len == 0) return;
+        var files: std.ArrayList([]u8) = .empty;
+        defer {
+            for (files.items) |path| self.allocator.free(path);
+            files.deinit(self.allocator);
+        }
+        for (sources) |source| {
+            if (source.is_directory) {
+                collectFiles(self.allocator, self.io, source.path, &files);
+            } else if (pathExists(self.io, source.path)) {
+                files.append(self.allocator, self.allocator.dupe(u8, source.path) catch continue) catch continue;
+            }
+        }
+        const open_path = self.docAbsolutePath();
+        defer if (open_path) |path| self.allocator.free(path);
+
+        var formatted: usize = 0;
+        var changed: usize = 0;
+        var failed: usize = 0;
+        var skipped: usize = 0;
+        var first_error: ?[]const u8 = null;
+        for (files.items) |path| {
+            if (open_path) |current| {
+                if (std.mem.eql(u8, current, path)) {
+                    skipped += 1;
+                    continue;
+                }
+            }
+            const language = self.syntax_registry.findByPath(path) orelse {
+                skipped += 1;
+                continue;
+            };
+            const formatter = language.resolveFormatter() orelse {
+                skipped += 1;
+                continue;
+            };
+            const input = std.Io.Dir.cwd().readFileAlloc(self.io, path, self.allocator, .limited(128 * 1024 * 1024)) catch {
+                failed += 1;
+                if (first_error == null) first_error = @errorName(error.ReadFailed);
+                continue;
+            };
+            defer self.allocator.free(input);
+            const output = self.runFormatter(&formatter, input, path) catch {
+                failed += 1;
+                if (first_error == null) first_error = "formatter failed";
+                continue;
+            };
+            defer self.allocator.free(output);
+            formatted += 1;
+            if (!std.mem.eql(u8, input, output)) {
+                std.Io.Dir.cwd().writeFile(self.io, .{ .sub_path = path, .data = output }) catch {
+                    failed += 1;
+                    continue;
+                };
+                changed += 1;
+            }
+        }
+        self.sidebar.refresh(null);
+        if (first_error) |message| {
+            self.setErrorFmt("Formatted {d} file(s), {d} failed: {s}", .{ formatted, failed, message });
+        } else if (formatted == 0) {
+            self.setMessage("No files were formatted.");
+        } else {
+            self.setMessageFmt("Formatted {d} file(s), {d} changed, {d} skipped", .{ formatted, changed, skipped });
+        }
+    }
+
+    fn beginSidebarDiff(self: *Editor, sources: []const SidebarSource) void {
+        if (sources.len != 2 or sources[0].is_directory or sources[1].is_directory) {
+            self.setError("Diff requires exactly two files.");
+            return;
+        }
+        const text = self.createDiff(sources[0].path, sources[1].path) catch {
+            self.setError("Cannot create diff.");
+            return;
+        };
+        const summary = std.fmt.allocPrint(self.allocator, "{s} vs {s}", .{
+            sidebar_mod.fileName(sources[0].path),
+            sidebar_mod.fileName(sources[1].path),
+        }) catch {
+            self.allocator.free(text);
+            self.setError("Out of memory.");
+            return;
+        };
+        if (self.doc.isDirty()) {
+            self.pending_sidebar_diff = .{ .text = text, .summary = summary };
+            self.pending = .diff;
+            self.clearMessage();
+            return;
+        }
+        self.showSidebarDiff(text, summary);
+    }
+
+    fn createDiff(self: *Editor, first: []const u8, second: []const u8) ![]u8 {
+        var child = try std.process.spawn(self.io, .{
+            .argv = &.{ "diff", "-u", "--label", sidebar_mod.fileName(first), "--label", sidebar_mod.fileName(second), first, second },
+            .stdout = .pipe,
+            .stderr = .pipe,
+        });
+        defer child.kill(self.io);
+        var buffer: [4096]u8 = undefined;
+        var output: []u8 = &.{};
+        if (child.stdout) |file| {
+            var reader = file.reader(self.io, &buffer);
+            output = try reader.interface.allocRemaining(self.allocator, .limited(16 * 1024 * 1024));
+            file.close(self.io);
+            child.stdout = null;
+        }
+        if (child.stderr) |file| {
+            file.close(self.io);
+            child.stderr = null;
+        }
+        _ = child.wait(self.io) catch {};
+        return output;
+    }
+
+    fn showSidebarDiff(self: *Editor, diff_text: []u8, summary: []u8) void {
+        defer self.allocator.free(summary);
+        self.sidebar.menu_visible = false;
+        self.sidebar.focused = false;
+        self.doc.deinit();
+        self.doc = document_mod.Document.init(self.allocator, self.io);
+        self.doc.replaceAllOwned(diff_text) catch {
+            self.setError("Out of memory.");
+            return;
+        };
+        if (self.language_override) |old| self.allocator.free(old);
+        self.language_override = self.allocator.dupe(u8, "diff") catch null;
+        self.highlighter.clear();
+        self.mode = .normal;
+        self.cursor = 0;
+        self.anchor = 0;
+        self.top_line = 0;
+        self.left_column = 0;
+        self.selection_linewise = false;
+        self.preferred_column = null;
+        self.find.active = false;
+        self.find.query.clearRetainingCapacity();
+        self.find.matches.clearRetainingCapacity();
+        self.find.index = -1;
+        self.doc.breakUndoGroup();
+        self.snapCursor();
+        self.setMessageFmt("Diff: {s}", .{summary});
+    }
+
+    fn requestDeleteSidebarSources(self: *Editor, sources: []const SidebarSource) !void {
+        if (sources.len == 0) return;
+        if (self.docAbsolutePath()) |document| {
+            defer self.allocator.free(document);
+            for (sources) |source| {
+                if (std.mem.eql(u8, document, source.path) or
+                    (source.is_directory and sidebar_mod.isInside(source.path, document)))
+                {
+                    self.setError("Cannot delete the open file or its parent folder.");
+                    return;
+                }
+            }
+        }
+        for (self.pending_sidebar_deletes.items) |source| self.allocator.free(source.path);
+        self.pending_sidebar_deletes.clearRetainingCapacity();
+        for (sources) |source| {
+            try self.pending_sidebar_deletes.append(self.allocator, .{
+                .path = try self.allocator.dupe(u8, source.path),
+                .is_directory = source.is_directory,
+            });
+        }
+        self.pending = .delete;
+        self.clearMessage();
+    }
+
+    fn deleteSidebarSources(self: *Editor) void {
+        const items = self.pending_sidebar_deletes.items;
+        var deleted: usize = 0;
+        var first_error: ?[]const u8 = null;
+        for (items) |source| {
+            std.Io.Dir.cwd().deleteTree(self.io, source.path) catch |err| {
+                if (first_error == null) first_error = @errorName(err);
+                continue;
+            };
+            if (source.is_directory) self.sidebar.removeExpandedUnder(source.path);
+            deleted += 1;
+        }
+        for (items) |source| self.allocator.free(source.path);
+        self.pending_sidebar_deletes.clearRetainingCapacity();
+        self.sidebar.refresh(null);
+        if (first_error) |message| {
+            self.setErrorFmt("Deleted {d} of {d} items: {s}", .{ deleted, items.len, message });
+        } else {
+            self.setMessageFmt("Deleted {d} item(s)", .{deleted});
+        }
+    }
+
+    fn handleSidebarMouse(self: *Editor, event: term.Event) void {
+        const width = self.sidebar.width(self.cols);
+        if (width == 0 or event.mouse_x >= width) return;
+        self.sidebar.focused = true;
+        self.mode = .normal;
+        self.sidebar.menu_visible = false;
+        switch (event.key) {
+            .scroll_up => self.sidebar.moveSelection(-3, false, false),
+            .scroll_down => self.sidebar.moveSelection(3, false, false),
+            .mouse_down => {
+                const index = self.sidebar.top + event.mouse_y;
+                if (index < self.sidebar.nodes.items.len) {
+                    self.sidebar.setSelection(index, false);
+                }
+            },
+            else => {},
+        }
+        self.sidebar.updateTop(self.textRows());
     }
 
     // -----------------------------------------------------------------------
@@ -1296,7 +2136,20 @@ pub const Editor = struct {
         };
         const contents = try self.doc.rangeAlloc(0, self.doc.size());
         defer self.allocator.free(contents);
+        const output = self.runFormatter(&formatter, contents, self.doc.path) catch return;
+        try self.doc.replaceAllOwned(output);
+        if (self.cursor > self.doc.size()) self.cursor = self.doc.size();
+        self.anchor = self.cursor;
+        self.snapCursor();
+        self.setMessageFmt("Formatted {s}", .{self.doc.displayName()});
+    }
 
+    fn runFormatter(
+        self: *Editor,
+        formatter: *const syntax.FormatterConfig,
+        contents: []const u8,
+        source_path: ?[]const u8,
+    ) ![]u8 {
         var temp_path: ?[]u8 = null;
         defer if (temp_path) |path| self.allocator.free(path);
         const use_file_input = std.ascii.eqlIgnoreCase(formatter.input, "file");
@@ -1304,7 +2157,10 @@ pub const Editor = struct {
             const now = std.Io.Clock.Timestamp.now(self.io, .awake).raw.nanoseconds;
             const path = try std.fmt.allocPrint(self.allocator, ".hexal-fmt-{d}.tmp", .{now});
             temp_path = path;
-            try std.Io.Dir.cwd().writeFile(self.io, .{ .sub_path = path, .data = contents });
+            std.Io.Dir.cwd().writeFile(self.io, .{ .sub_path = path, .data = contents }) catch |err| {
+                self.setErrorFmt("formatter input failed: {s}", .{@errorName(err)});
+                return error.FormatterFailed;
+            };
         }
 
         var argv: std.ArrayList([]const u8) = .empty;
@@ -1314,7 +2170,7 @@ pub const Editor = struct {
             if (std.mem.eql(u8, argument, "{file}")) {
                 if (temp_path) |path| {
                     try argv.append(self.allocator, path);
-                } else if (self.doc.path) |path| {
+                } else if (source_path) |path| {
                     try argv.append(self.allocator, path);
                 } else {
                     try argv.append(self.allocator, "-");
@@ -1331,7 +2187,7 @@ pub const Editor = struct {
             .stderr = .pipe,
         }) catch |err| {
             self.setErrorFmt("cannot start formatter '{s}': {s}", .{ formatter.command, @errorName(err) });
-            return;
+            return error.FormatterFailed;
         };
         var killed = false;
         defer if (!killed) child.kill(self.io);
@@ -1367,7 +2223,7 @@ pub const Editor = struct {
         }
         const exit_term = child.wait(self.io) catch |err| {
             self.setErrorFmt("formatter failed: {s}", .{@errorName(err)});
-            return;
+            return error.FormatterFailed;
         };
         killed = true;
 
@@ -1378,7 +2234,7 @@ pub const Editor = struct {
             } else {
                 self.setError("formatter exited with an error");
             }
-            return;
+            return error.FormatterFailed;
         }
 
         var output: []const u8 = stdout;
@@ -1387,23 +2243,19 @@ pub const Editor = struct {
         if (std.ascii.eqlIgnoreCase(formatter.output, "file")) {
             const path = temp_path orelse {
                 self.setError("formatter output=file requires an input file");
-                return;
+                return error.FormatterFailed;
             };
             file_output = std.Io.Dir.cwd().readFileAlloc(self.io, path, self.allocator, .limited(128 * 1024 * 1024)) catch {
                 self.setError("formatter did not produce output");
-                return;
+                return error.FormatterFailed;
             };
             output = file_output.?;
         }
         if (output.len == 0) {
             self.setError("formatter produced empty output");
-            return;
+            return error.FormatterFailed;
         }
-        try self.doc.replaceAllOwned(try self.allocator.dupe(u8, output));
-        if (self.cursor > self.doc.size()) self.cursor = self.doc.size();
-        self.anchor = self.cursor;
-        self.snapCursor();
-        self.setMessageFmt("Formatted {s}", .{self.doc.displayName()});
+        return self.allocator.dupe(u8, output);
     }
 
     fn saveDocument(self: *Editor, path: ?[]const u8) !bool {
@@ -1469,6 +2321,19 @@ pub const Editor = struct {
                     defer self.allocator.free(path);
                     try self.loadFile(path, line, column);
                 },
+                .delete => {
+                    self.pending = .none;
+                    self.deleteSidebarSources();
+                },
+                .diff => {
+                    const diff = self.pending_sidebar_diff orelse {
+                        self.clearPending();
+                        return;
+                    };
+                    self.pending = .none;
+                    self.pending_sidebar_diff = null;
+                    self.showSidebarDiff(diff.text, diff.summary);
+                },
                 .none => {},
             }
             return;
@@ -1485,6 +2350,13 @@ pub const Editor = struct {
         if (self.pending_path) |path| {
             self.allocator.free(path);
             self.pending_path = null;
+        }
+        for (self.pending_sidebar_deletes.items) |source| self.allocator.free(source.path);
+        self.pending_sidebar_deletes.clearRetainingCapacity();
+        if (self.pending_sidebar_diff) |diff| {
+            self.allocator.free(diff.text);
+            self.allocator.free(diff.summary);
+            self.pending_sidebar_diff = null;
         }
     }
 
@@ -1833,6 +2705,67 @@ pub const Editor = struct {
         const column = item.column;
         self.closePicker();
         try self.requestOpen(path, line, column, false);
+    }
+
+    fn pickerPreviewPath(self: *Editor) ?[]const u8 {
+        if (self.picker.kind != .files) return null;
+        if (self.picker.selected >= self.picker.items.items.len) return null;
+        const item = self.picker.items.items[self.picker.selected];
+        if (item.file_index >= self.picker.files.items.len) return null;
+        return self.picker.files.items[item.file_index];
+    }
+
+    fn cacheCurrentPreview(self: *Editor) void {
+        if (self.picker_preview.path.len == 0) return;
+        if (self.picker_preview_cache.items.len >= preview_cache_entries) {
+            var evicted = self.picker_preview_cache.orderedRemove(0);
+            evicted.deinit(self.allocator);
+        }
+        self.picker_preview_cache.append(self.allocator, self.picker_preview) catch {
+            self.picker_preview.deinit(self.allocator);
+            self.picker_preview = .{};
+            return;
+        };
+        self.picker_preview = .{};
+    }
+
+    fn takeCachedPreview(self: *Editor, path: []const u8) ?FilePreview {
+        for (self.picker_preview_cache.items, 0..) |cached, index| {
+            if (std.mem.eql(u8, cached.path, path)) {
+                return self.picker_preview_cache.swapRemove(index);
+            }
+        }
+        return null;
+    }
+
+    fn updatePickerPreview(self: *Editor) void {
+        if (self.picker.kind != .files) return;
+        const path = self.pickerPreviewPath() orelse {
+            if (self.picker_preview.path.len != 0) {
+                self.cacheCurrentPreview();
+            }
+            return;
+        };
+        if (std.mem.eql(u8, self.picker_preview.path, path)) return;
+        self.cacheCurrentPreview();
+        if (self.takeCachedPreview(path)) |cached| {
+            self.picker_preview = cached;
+            return;
+        }
+        self.picker_preview = readFilePreview(self.allocator, self.io, path);
+    }
+
+    fn pickerPreviewHeight(self: *Editor, available: usize) usize {
+        if (self.picker.kind != .files or available < 10) return 0;
+        const preview = @min(12, @max(4, if (available > 5) available - 5 else 0));
+        return if (available >= preview + 1 and available - preview - 1 >= 4) preview else 0;
+    }
+
+    fn pickerDialogHeight(self: *Editor, available: usize) usize {
+        const preview = self.pickerPreviewHeight(available);
+        if (preview == 0) return self.pickerHeight();
+        if (available < preview + 1) return self.pickerHeight();
+        return @max(4, @min(18, available - preview - 1));
     }
 
     fn pickerHeight(self: *Editor) usize {
@@ -2613,8 +3546,12 @@ pub const Editor = struct {
         return self.statusRow();
     }
 
+    fn editorLeft(self: *Editor) usize {
+        return self.sidebar.width(self.cols);
+    }
+
     fn gutterWidth(self: *Editor) usize {
-        return util.digitCount(self.doc.lineCount()) + 1;
+        return self.editorLeft() + util.digitCount(self.doc.lineCount()) + 1;
     }
 
     fn clampViewport(self: *Editor) void {
@@ -2671,9 +3608,11 @@ pub const Editor = struct {
         self.renderSelection(first_line, rows, gutter);
         self.renderFindMatches(first_line, rows, gutter);
         self.renderCursor(first_line, rows, gutter);
+        self.renderSidebar();
         self.renderStatusLine();
         self.renderBottomLine();
         self.renderSpaceMenu();
+        self.renderSidebarContextMenu();
         self.renderPicker();
         self.renderFind();
         self.renderPluginPanel();
@@ -2685,7 +3624,7 @@ pub const Editor = struct {
     fn renderLineNumber(self: *Editor, line: usize, row: usize) void {
         const digits = util.digitCount(self.doc.lineCount());
         const number = line + 1;
-        const x = digits - util.digitCount(number);
+        const x = self.editorLeft() + digits - util.digitCount(number);
         const style = if (line == self.cursorLine()) self.theme.accentStyle() else self.theme.mutedStyle();
         self.screen.putInt(@intCast(x), @intCast(row), number, style, digits);
     }
@@ -2926,6 +3865,86 @@ pub const Editor = struct {
         }
     }
 
+    fn renderSidebar(self: *Editor) void {
+        if (!self.sidebar.visible) return;
+        const width = self.sidebar.width(self.cols);
+        const rows = self.textRows();
+        if (width == 0 or rows == 0) return;
+        self.screen.fill(0, 0, width, rows, ' ', self.theme.base());
+        const border = if (self.sidebar.focused) self.theme.accentStyle() else self.theme.borderStyle();
+        var row: usize = 0;
+        while (row < rows) : (row += 1) {
+            self.screen.put(@intCast(width - 1), @intCast(row), 0x2502, border, 1);
+        }
+        if (self.sidebar.nodes.items.len == 0) {
+            self.screen.putString(1, 0, "No files", self.theme.mutedStyle(), width -| 2);
+            return;
+        }
+
+        self.sidebar.updateTop(rows);
+        const selected_style = self.theme.selectedItemStyle();
+        const folder_style = self.theme.accentStyle();
+        const file_style = self.theme.text();
+        const start = self.sidebar.selectionStart();
+        const end = self.sidebar.selectionEnd();
+        row = 0;
+        while (row < rows) : (row += 1) {
+            const index = self.sidebar.top + row;
+            if (index >= self.sidebar.nodes.items.len) break;
+            const node = self.sidebar.nodes.items[index];
+            const selected = index >= start and index <= end;
+            const style = if (selected)
+                selected_style
+            else if (node.is_directory)
+                folder_style
+            else
+                file_style;
+            if (selected) self.screen.fill(0, @intCast(row), width - 1, 1, ' ', style);
+            const indent = 1 + node.depth * 2;
+            if (indent >= width - 1) continue;
+            const marker: u21 = if (node.is_directory) (if (node.expanded) 0x25BE else 0x25B8) else ' ';
+            self.screen.put(@intCast(indent), @intCast(row), marker, style, 1);
+            const name_x = indent + 2;
+            if (name_x < width - 1) {
+                self.screen.putString(@intCast(name_x), @intCast(row), node.name, style, width - name_x - 1);
+            }
+        }
+    }
+
+    fn renderSidebarContextMenu(self: *Editor) void {
+        if (!self.sidebar.menu_visible) return;
+        const node = self.sidebar.selectedNode() orelse return;
+        const items = self.sidebar.menuItems();
+        var width: usize = 4;
+        for (items) |item| width = @max(width, item.label.len + 7);
+        const rows = self.textRows();
+        const height = items.len + 2;
+        if (rows < 3 or self.cols < 10) return;
+        width = @min(width, self.cols - 2);
+        const anchor_row = 1 + (self.sidebar.selected -| self.sidebar.top);
+        const y = @min(anchor_row, rows -| height);
+        const x: usize = 1;
+        var title_buf: [64]u8 = undefined;
+        const title = if (self.sidebar.selectionCount() > 1)
+            std.fmt.bufPrint(&title_buf, "{d} selected", .{self.sidebar.selectionCount()}) catch "Selected"
+        else if (node.is_directory)
+            "Folder"
+        else
+            "File";
+        self.drawBox(x, y, width, height, title);
+
+        const selected_style = self.theme.selectedItemStyle();
+        const item_style = self.theme.text();
+        for (items, 0..) |item, index| {
+            const screen_row = y + 1 + index;
+            const style = if (index == self.sidebar.menu_selected) selected_style else item_style;
+            self.screen.fill(@intCast(x + 1), @intCast(screen_row), width - 2, 1, ' ', style);
+            self.screen.putString(@intCast(x + 2), @intCast(screen_row), item.label, style, width -| 7);
+            var key_buf: [1]u8 = .{item.hotkey};
+            self.screen.putString(@intCast(x + width - 3), @intCast(screen_row), &key_buf, style, 2);
+        }
+    }
+
     fn renderStatusLine(self: *Editor) void {
         if (self.rows == 0) return;
         const row = self.statusRow();
@@ -2985,6 +4004,23 @@ pub const Editor = struct {
         const row = self.commandRow();
         self.screen.fill(0, @intCast(row), self.cols, 1, ' ', self.theme.base());
 
+        if (self.sidebar_prompt) |*prompt| {
+            var label_buf: [768]u8 = undefined;
+            const text = std.fmt.bufPrint(&label_buf, "{s}{s}", .{
+                prompt.label.items,
+                prompt.text.items,
+            }) catch prompt.label.items;
+            self.screen.putString(1, @intCast(row), text, self.theme.accentStyle(), if (self.cols > 1) self.cols - 1 else 0);
+            const visual = util.visualColumn(text, prompt.label.items.len + prompt.cursor, 1);
+            const x = 1 + visual;
+            if (x < self.cols) {
+                var style = self.screen.at(x, row).style;
+                style.reverse = true;
+                self.screen.applyStyle(x, row, style);
+            }
+            return;
+        }
+
         if (self.plugin_prompt_id != null) {
             const label = self.plugin_prompt_label.items;
             self.screen.putString(1, @intCast(row), label, self.theme.accentStyle(), if (self.cols > 1) self.cols - 1 else 0);
@@ -3028,6 +4064,11 @@ pub const Editor = struct {
                 .open => std.fmt.bufPrint(&buf, "Unsaved changes. Discard and open '{s}'? (y/N)", .{
                     self.pending_path orelse "",
                 }) catch "Unsaved changes. Discard? (y/N)",
+                .delete => if (self.pending_sidebar_deletes.items.len == 1)
+                    "Delete the selected item? (y/N)"
+                else
+                    "Delete the selected items? (y/N)",
+                .diff => "Unsaved changes. Discard and show diff? (y/N)",
                 .none => "",
             };
             self.screen.putString(1, @intCast(row), text, self.theme.warningStyle(), if (self.cols > 1) self.cols - 1 else 0);
@@ -3041,6 +4082,7 @@ pub const Editor = struct {
     }
 
     fn modeLabel(self: *Editor) []const u8 {
+        if (self.sidebar_prompt != null) return "PROMPT";
         if (self.plugin_prompt_id != null) return "PROMPT";
         if (self.plugin_panel_id != null) return "PANEL";
         if (self.pending != .none) return "CONFIRM";
@@ -3119,13 +4161,16 @@ pub const Editor = struct {
 
     fn renderPicker(self: *Editor) void {
         if (self.picker.kind == .none) return;
+        self.updatePickerPreview();
         const available = self.statusRow();
-        const height = self.pickerHeight();
+        const preview_height = self.pickerPreviewHeight(available);
+        const height = self.pickerDialogHeight(available);
         if (height < 4 or self.cols < 20) return;
         const width = @min(self.cols - 2, 88);
         if (width < 20) return;
         const x = (self.cols - width) / 2;
-        const y = if (available >= height) (available - height) / 2 else 0;
+        const total_height = height + if (preview_height > 0) preview_height + 1 else 0;
+        const y = if (available >= total_height) (available - total_height) / 2 else 0;
         const title = switch (self.picker.kind) {
             .files => "Open file",
             .search => "Search across files",
@@ -3189,6 +4234,128 @@ pub const Editor = struct {
         else
             std.fmt.bufPrint(&status_buf, "{d} item(s)", .{self.picker.total}) catch "items";
         self.screen.putString(@intCast(x + 2), @intCast(y + height - 1), status, self.theme.accentStyle(), width - 4);
+
+        if (preview_height > 0) {
+            self.renderPickerPreview(x, y + height + 1, width, preview_height);
+        }
+    }
+
+    fn renderPickerPreview(self: *Editor, x: usize, y: usize, width: usize, height: usize) void {
+        const preview = &self.picker_preview;
+        var title_buf: [1024]u8 = undefined;
+        var status_buf: [512]u8 = undefined;
+        const status: []const u8 = if (preview.path.len == 0)
+            "No file selected"
+        else if (preview.error_message) |message|
+            std.fmt.bufPrint(&status_buf, "E: {s}", .{message}) catch "E: preview failed"
+        else if (preview.binary)
+            "Binary file"
+        else if (preview.lines.items.len == 0)
+            "Empty file"
+        else if (preview.truncated)
+            std.fmt.bufPrint(&status_buf, "First {d} lines (truncated)", .{preview.lines.items.len}) catch "truncated"
+        else
+            std.fmt.bufPrint(&status_buf, "First {d} line{s}", .{
+                preview.lines.items.len,
+                if (preview.lines.items.len == 1) "" else "s",
+            }) catch "preview";
+
+        const title = if (preview.path.len == 0)
+            std.fmt.bufPrint(&title_buf, "Preview - {s}", .{status}) catch "Preview"
+        else
+            std.fmt.bufPrint(&title_buf, "Preview: {s} - {s}", .{ preview.path, status }) catch "Preview";
+        self.drawBox(x, y, width, height, title);
+
+        const content_rows = if (height > 2) height - 2 else 0;
+        const content_width = if (width > 4) width - 4 else 0;
+        if (preview.error_message != null) {
+            self.screen.putString(@intCast(x + 2), @intCast(y + 1), status, self.theme.errorStyle(), content_width);
+            return;
+        }
+        if (preview.binary) {
+            self.screen.putString(@intCast(x + 2), @intCast(y + 1), "Binary file", self.theme.mutedStyle(), content_width);
+            return;
+        }
+        if (preview.path.len == 0 or preview.lines.items.len == 0) {
+            self.screen.putString(@intCast(x + 2), @intCast(y + 1), status, self.theme.mutedStyle(), content_width);
+            return;
+        }
+
+        const language = if (preview.path.len > 0) self.syntax_registry.findByPath(preview.path) else null;
+        var in_block = false;
+        var row: usize = 0;
+        while (row < content_rows and row < preview.lines.items.len) : (row += 1) {
+            const expanded = self.expandPreviewLine(preview.lines.items[row]) catch continue;
+            defer self.allocator.free(expanded);
+            if (language) |lang| {
+                in_block = syntax.tokenizeLine(self.allocator, expanded, lang, in_block, &self.tokens) catch in_block;
+                self.renderPreviewHighlightedLine(x + 2, y + 1 + row, expanded, content_width);
+            } else {
+                self.screen.putString(@intCast(x + 2), @intCast(y + 1 + row), expanded, self.theme.text(), content_width);
+            }
+        }
+    }
+
+    fn expandPreviewLine(self: *Editor, line: []const u8) ![]u8 {
+        var output: std.ArrayList(u8) = .empty;
+        errdefer output.deinit(self.allocator);
+        var column: usize = 0;
+        var offset: usize = 0;
+        while (offset < line.len) {
+            const decoded = util.decodeAt(line, offset);
+            if (decoded.len == 0) break;
+            offset += decoded.len;
+            const cp = decoded.codepoint;
+            if (cp == '\t') {
+                const spaces = TabWidth - (column % TabWidth);
+                try output.appendNTimes(self.allocator, ' ', spaces);
+                column += spaces;
+            } else if (cp < 0x20 or cp == 0x7F) {
+                try output.append(self.allocator, ' ');
+                column += 1;
+            } else {
+                try output.appendSlice(self.allocator, line[offset - decoded.len .. offset]);
+                column += 1;
+            }
+        }
+        return output.toOwnedSlice(self.allocator);
+    }
+
+    fn renderPreviewHighlightedLine(self: *Editor, x: usize, y: usize, line: []const u8, width: usize) void {
+        if (width == 0) return;
+        var column: usize = 0;
+        var offset: usize = 0;
+        var token_index: usize = 0;
+        while (offset < line.len) {
+            const rune_start = offset;
+            while (token_index < self.tokens.items.len and self.tokens.items[token_index].end <= rune_start) {
+                token_index += 1;
+            }
+            const style = if (token_index < self.tokens.items.len and
+                self.tokens.items[token_index].start <= rune_start)
+                self.theme.syntaxStyle(self.tokens.items[token_index].kind)
+            else
+                self.theme.text();
+            const decoded = util.decodeAt(line, offset);
+            if (decoded.len == 0) break;
+            offset += decoded.len;
+            const rune_width = if (decoded.codepoint == '\t')
+                TabWidth - (column % TabWidth)
+            else
+                util.displayWidth(decoded.codepoint);
+            if (rune_width == 0) continue;
+            if (column >= width) break;
+            if (column + rune_width > width) break;
+            if (decoded.codepoint == '\t') {
+                var i: usize = 0;
+                while (i < rune_width) : (i += 1) {
+                    self.screen.put(@intCast(x + column + i), @intCast(y), ' ', style, 1);
+                }
+            } else {
+                self.screen.put(@intCast(x + column), @intCast(y), decoded.codepoint, style, rune_width);
+            }
+            column += rune_width;
+        }
     }
 
     fn renderFind(self: *Editor) void {
@@ -3281,6 +4448,183 @@ pub const Editor = struct {
         self.message_is_error = false;
     }
 };
+
+fn pathExists(io: std.Io, path: []const u8) bool {
+    _ = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return true;
+}
+
+fn isDirectory(io: std.Io, path: []const u8) bool {
+    const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return stat.kind == .directory;
+}
+
+fn validName(name: []const u8) bool {
+    if (name.len == 0 or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return false;
+    for (name) |byte| {
+        if (byte == '/' or byte == '\\' or byte == 0) return false;
+    }
+    return true;
+}
+
+fn uniqueCopyPath(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    source: []const u8,
+    is_directory: bool,
+) ![]u8 {
+    const parent = std.fs.path.dirname(source) orelse ".";
+    const name = sidebar_mod.fileName(source);
+    const stem = if (is_directory) name else std.fs.path.stem(name);
+    const extension = if (is_directory) "" else std.fs.path.extension(name);
+    var attempt: usize = 1;
+    while (attempt < 10_000) : (attempt += 1) {
+        const candidate_name = if (attempt == 1)
+            try std.fmt.allocPrint(allocator, "{s} copy{s}", .{ stem, extension })
+        else
+            try std.fmt.allocPrint(allocator, "{s} copy {d}{s}", .{ stem, attempt, extension });
+        defer allocator.free(candidate_name);
+        const candidate = try std.fs.path.join(allocator, &.{ parent, candidate_name });
+        if (!pathExists(io, candidate)) return candidate;
+        allocator.free(candidate);
+    }
+    const fallback = try std.fmt.allocPrint(allocator, "{s} copy{s}", .{ stem, extension });
+    defer allocator.free(fallback);
+    return std.fs.path.join(allocator, &.{ parent, fallback });
+}
+
+fn copyPath(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    source: []const u8,
+    target: []const u8,
+    is_directory: bool,
+) !void {
+    if (!is_directory) {
+        try std.Io.Dir.copyFileAbsolute(source, target, io, .{});
+        return;
+    }
+    if (sidebar_mod.isInside(source, target) or std.mem.eql(u8, source, target)) {
+        return error.InvalidDestination;
+    }
+    try std.Io.Dir.cwd().createDirPath(io, target);
+    var dir = try std.Io.Dir.cwd().openDir(io, source, .{ .iterate = true });
+    defer dir.close(io);
+    var walker = try dir.walk(allocator);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        const child_source = try std.fs.path.join(allocator, &.{ source, entry.path });
+        defer allocator.free(child_source);
+        const child_target = try std.fs.path.join(allocator, &.{ target, entry.path });
+        defer allocator.free(child_target);
+        switch (entry.kind) {
+            .directory => try std.Io.Dir.cwd().createDirPath(io, child_target),
+            .file => try std.Io.Dir.copyFileAbsolute(child_source, child_target, io, .{}),
+            else => {},
+        }
+    }
+}
+
+fn collectFiles(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    directory: []const u8,
+    files: *std.ArrayList([]u8),
+) void {
+    var dir = std.Io.Dir.cwd().openDir(io, directory, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+    var walker = dir.walk(allocator) catch return;
+    defer walker.deinit();
+    while (walker.next(io) catch null) |entry| {
+        if (entry.kind != .file) continue;
+        const path = std.fs.path.join(allocator, &.{ directory, entry.path }) catch continue;
+        files.append(allocator, path) catch allocator.free(path);
+    }
+}
+
+fn readFilePreview(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+) FilePreview {
+    var preview = FilePreview{
+        .path = allocator.dupe(u8, path) catch &.{},
+    };
+    if (preview.path.len == 0) return preview;
+
+    const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
+        if (err == error.FileNotFound) {
+            preview.error_message = allocator.dupe(u8, "file does not exist") catch null;
+        } else {
+            preview.error_message = std.fmt.allocPrint(allocator, "{s}", .{@errorName(err)}) catch null;
+        }
+        return preview;
+    };
+    if (stat.size > preview_max_bytes) {
+        preview.error_message = allocator.dupe(u8, "file is too large to preview") catch null;
+        return preview;
+    }
+
+    const bytes = std.Io.Dir.cwd().readFileAlloc(
+        io,
+        path,
+        allocator,
+        .limited(preview_max_bytes + 1),
+    ) catch |err| {
+        preview.error_message = std.fmt.allocPrint(allocator, "{s}", .{@errorName(err)}) catch null;
+        return preview;
+    };
+    defer allocator.free(bytes);
+
+    var data = bytes;
+    if (data.len >= 3 and data[0] == 0xEF and data[1] == 0xBB and data[2] == 0xBF) {
+        data = data[3..];
+    }
+    if (data.len == 0) return preview;
+
+    var newline_count: usize = 0;
+    for (data) |byte| {
+        if (byte == '\n') newline_count += 1;
+    }
+    const total_lines = newline_count + @intFromBool(data[data.len - 1] != '\n');
+    preview.truncated = total_lines > preview_max_lines;
+
+    var lines = std.mem.splitScalar(u8, data, '\n');
+    var index: usize = 0;
+    while (index < preview_max_lines) : (index += 1) {
+        const raw = lines.next() orelse break;
+        var line = raw;
+        if (line.len > 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
+        if (std.mem.indexOfScalar(u8, line, 0) != null) {
+            preview.binary = true;
+            break;
+        }
+        const copied = previewLineAlloc(allocator, line, &preview.truncated) catch break;
+        preview.lines.append(allocator, copied) catch {
+            allocator.free(copied);
+            break;
+        };
+    }
+    return preview;
+}
+
+fn previewLineAlloc(allocator: std.mem.Allocator, line: []const u8, truncated: *bool) ![]u8 {
+    var offset: usize = 0;
+    var characters: usize = 0;
+    while (offset < line.len) {
+        if (characters >= preview_max_line_length) {
+            const output = try allocator.alloc(u8, offset + 3);
+            @memcpy(output[0..offset], line[0..offset]);
+            @memcpy(output[offset..], "\u{2026}");
+            truncated.* = true;
+            return output;
+        }
+        const decoded = util.decodeAt(line, offset);
+        offset += if (decoded.len == 0) 1 else decoded.len;
+        characters += 1;
+    }
+    return allocator.dupe(u8, line);
+}
 
 fn pickerScanWorker(ctx: *PickerScanContext) void {
     files_mod.scan(ctx.allocator, ctx.io, &ctx.files, 20000, &ctx.cancel) catch {
