@@ -263,8 +263,12 @@ impl Editor {
     }
 
     pub(super) fn rebuild_picker(&mut self) {
-        self.picker.items.clear();
-        self.picker.total = 0;
+        let keep_search_results =
+            self.picker.kind == PickerKind::Search && !self.picker.query.is_empty();
+        if !keep_search_results {
+            self.picker.items.clear();
+            self.picker.total = 0;
+        }
         let diff_with_source = if self.picker.kind == PickerKind::DiffWith {
             self.diff_with_source.clone()
         } else {
@@ -689,7 +693,11 @@ impl Editor {
 
     pub(super) fn picker_list_rows(&self) -> usize {
         let height = self.picker_height();
-        if height >= 3 { height - 3 } else { 1 }
+        if height >= 3 {
+            height - 3
+        } else {
+            1
+        }
     }
 }
 
@@ -797,6 +805,32 @@ mod tests {
     }
 
     #[test]
+    fn search_keeps_previous_results_while_typing() {
+        let mut editor = Editor::new(Document::new(), 80, 24);
+        editor.picker.kind = PickerKind::Search;
+        editor.picker.files_loaded = true;
+        editor.picker.query.push('n');
+        editor.picker.total = 1;
+        editor.picker.items.push(PickerItem {
+            display: "previous result".into(),
+            file_index: 0,
+            line: 0,
+            column: 0,
+            theme_id: None,
+            target: None,
+            palette_index: None,
+            action_index: None,
+            symbol_index: None,
+            problem: None,
+        });
+
+        editor.rebuild_picker();
+        assert_eq!(editor.picker.items.len(), 1);
+        assert_eq!(editor.picker.items[0].display, "previous result");
+        editor.close_picker();
+    }
+
+    #[test]
     fn cross_file_search_runs_without_blocking_input() {
         let root =
             std::env::temp_dir().join(format!("hexal-picker-search-test-{}", std::process::id()));
@@ -823,13 +857,11 @@ mod tests {
         wait_for_picker_search(&mut editor);
         assert_eq!(editor.picker.total, 3);
         assert_eq!(editor.picker.items.len(), 3);
-        assert!(
-            editor
-                .picker
-                .items
-                .iter()
-                .all(|item| item.display.contains("needle here"))
-        );
+        assert!(editor
+            .picker
+            .items
+            .iter()
+            .all(|item| item.display.contains("needle here")));
 
         let _ = std::fs::remove_dir_all(root);
     }
