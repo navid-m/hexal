@@ -9,6 +9,8 @@ Links of note:
 
 Fundamentals of the editor, along with useful shortcuts can be learned by typing the Ex command `:help` into the editor whilst in NORMAL mode.
 
+---
+
 The primary design goal of the editor is performance on large files + searching through large sets of large files.
 
 Currently, Hexal is fitted with some less-than-stock features OOTB:
