@@ -362,6 +362,32 @@ pub fn findThemeDirectory(allocator: std.mem.Allocator, io: std.Io) ?[]u8 {
         dir.close(io);
         return allocator.dupe(u8, candidate) catch null;
     }
+
+    if (std.process.executableDirPathAlloc(io, allocator)) |executable_dir| {
+        defer allocator.free(executable_dir);
+        var current: ?[]const u8 = executable_dir;
+        var levels: usize = 0;
+        while (current) |directory| : (levels += 1) {
+            if (levels > 3) break;
+            const candidate = std.fs.path.join(allocator, &.{ directory, "data/themes" }) catch break;
+            defer allocator.free(candidate);
+            var dir = std.Io.Dir.cwd().openDir(io, candidate, .{}) catch {
+                current = std.fs.path.dirname(directory);
+                continue;
+            };
+            dir.close(io);
+            return allocator.dupe(u8, candidate) catch null;
+        }
+    } else |_| {}
+
+    if (std.c.getenv("HOME")) |home_ptr| {
+        const home = std.mem.span(home_ptr);
+        const candidate = std.fs.path.join(allocator, &.{ home, ".hexal", "data", "themes" }) catch return null;
+        defer allocator.free(candidate);
+        var dir = std.Io.Dir.cwd().openDir(io, candidate, .{}) catch return null;
+        dir.close(io);
+        return allocator.dupe(u8, candidate) catch null;
+    }
     return null;
 }
 

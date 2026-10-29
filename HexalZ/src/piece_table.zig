@@ -53,6 +53,9 @@ pub const PieceTable = struct {
     free_head: i32 = -1,
     random_state: u64 = 0x9E3779B97F4A7C15,
     eol: Eol = .lf,
+    line_starts: std.ArrayList(usize) = .empty,
+    line_index_valid: bool = false,
+    text_is_original: bool = true,
 
     pub fn init(allocator: std.mem.Allocator) PieceTable {
         return .{ .allocator = allocator };
@@ -62,6 +65,7 @@ pub const PieceTable = struct {
         if (self.original_owned and self.original.len > 0) self.allocator.free(self.original);
         self.added.deinit(self.allocator);
         self.nodes.deinit(self.allocator);
+        self.line_starts.deinit(self.allocator);
         self.* = undefined;
     }
 
@@ -76,6 +80,34 @@ pub const PieceTable = struct {
             self.original = copy;
         }
         self.original_owned = true;
+        if (self.line_index_valid) {
+            self.line_index_valid = false;
+            self.rebuildPieces();
+        }
+    }
+
+    fn rebuildPieces(self: *PieceTable) void {
+        self.nodes.clearRetainingCapacity();
+        self.root = -1;
+        self.free_head = -1;
+        var position: usize = 0;
+        while (position < self.original.len) {
+            const end = @min(position + MaxPieceSize, self.original.len);
+            const node = self.makeNode(false, position, end - position) catch return;
+            self.root = self.merge(self.root, node) catch return;
+            position = end;
+        }
+    }
+
+    fn buildLineIndex(self: *PieceTable, data: []const u8) !void {
+        self.line_starts.clearRetainingCapacity();
+        try self.line_starts.ensureTotalCapacity(self.allocator, data.len / 24 + 2);
+        try self.line_starts.append(self.allocator, 0);
+        var position: usize = 0;
+        while (std.mem.indexOfScalarPos(u8, data, position, '\n')) |index| {
+            try self.line_starts.append(self.allocator, index + 1);
+            position = index + 1;
+        }
     }
 
     /// Reserve the nodes needed for a whole-buffer replacement so the
@@ -100,10 +132,13 @@ pub const PieceTable = struct {
         self.free_head = -1;
         self.eol = detectEol(data);
         self.original = data;
+        self.line_index_valid = false;
+        self.line_starts.clearRetainingCapacity();
+        self.text_is_original = true;
 
         var position: usize = 0;
         while (position < data.len) {
-            const end = chooseEnd(data, position, data.len);
+            const end = @min(position + MaxPieceSize, data.len);
             self.root = try self.merge(self.root, try self.makeNode(false, position, end - position));
             position = end;
         }
@@ -118,6 +153,7 @@ pub const PieceTable = struct {
     }
 
     pub fn lineCount(self: PieceTable) usize {
+        if (self.line_index_valid) return self.line_starts.items.len;
         return self.newlineCount() + 1;
     }
 
@@ -131,18 +167,57 @@ pub const PieceTable = struct {
         self.root = -1;
         self.free_head = -1;
         self.eol = detectEol(data);
+        self.line_index_valid = false;
+        self.line_starts.clearRetainingCapacity();
+        self.text_is_original = true;
 
         var position: usize = 0;
         while (position < data.len) {
-            const end = chooseEnd(data, position, data.len);
+            const end = @min(position + MaxPieceSize, data.len);
             self.root = try self.merge(self.root, try self.makeNode(false, position, end - position));
             position = end;
         }
     }
 
+    /// Borrow text without taking ownership. Used for read-only file mappings;
+    /// the first edit materializes a private copy.
+    pub fn setOriginalBorrowed(self: *PieceTable, data: []u8) !void {
+        if (self.original_owned and self.original.len > 0) self.allocator.free(self.original);
+        self.original = data;
+        self.original_owned = false;
+        self.added.clearRetainingCapacity();
+        self.nodes.clearRetainingCapacity();
+        self.root = -1;
+        self.free_head = -1;
+        self.eol = detectEol(data);
+        self.line_index_valid = false;
+        self.line_starts.clearRetainingCapacity();
+        self.text_is_original = true;
+        if (data.len == 0) return;
+        const index = try self.allocNode();
+        self.nodes.items[@intCast(index)] = .{
+            .from_add = false,
+            .offset = 0,
+            .length = data.len,
+            .piece_newlines = countNewlines(data),
+            .priority = self.nextPriority(),
+        };
+        self.update(index);
+        self.root = index;
+    }
+
+    /// Build the offset-to-line table on demand. This is intentionally lazy:
+    /// the first screenful of a huge file only needs a handful of line starts.
+    pub fn ensureLineIndex(self: *PieceTable) !void {
+        if (self.line_index_valid or !self.text_is_original) return;
+        try self.buildLineIndex(self.original);
+        self.line_index_valid = true;
+    }
+
     pub fn insert(self: *PieceTable, offset: usize, text: []const u8) !void {
         if (text.len == 0) return;
         try self.ensureOwned();
+        self.text_is_original = false;
         const clamped = @min(offset, self.size());
         const start = self.added.items.len;
         try self.added.appendSlice(self.allocator, text);
@@ -166,6 +241,7 @@ pub const PieceTable = struct {
     pub fn erase(self: *PieceTable, offset: usize, length: usize) void {
         if (length == 0 or offset >= self.size()) return;
         self.ensureOwned() catch return;
+        self.text_is_original = false;
         const actual = @min(length, self.size() - offset);
         const first = self.split(self.root, offset) catch return;
         const second = self.split(first.right, actual) catch return;
@@ -212,6 +288,10 @@ pub const PieceTable = struct {
 
     /// Returns the byte offset of the first character of a zero-based line.
     pub fn lineStart(self: PieceTable, line: usize) usize {
+        if (self.line_index_valid) {
+            if (line < self.line_starts.items.len) return self.line_starts.items[line];
+            return self.original.len;
+        }
         if (line == 0 or self.root < 0) return 0;
 
         var remaining = line;
@@ -239,6 +319,20 @@ pub const PieceTable = struct {
 
     /// Returns the zero-based line containing a byte offset.
     pub fn lineOfOffset(self: PieceTable, offset: usize) usize {
+        if (self.line_index_valid) {
+            if (offset >= self.original.len) return self.line_starts.items.len - 1;
+            var low: usize = 0;
+            var high: usize = self.line_starts.items.len;
+            while (low < high) {
+                const middle = low + (high - low) / 2;
+                if (self.line_starts.items[middle] <= offset) {
+                    low = middle + 1;
+                } else {
+                    high = middle;
+                }
+            }
+            return if (low == 0) 0 else low - 1;
+        }
         if (offset >= self.size()) return self.newlineCount();
 
         var line: usize = 0;

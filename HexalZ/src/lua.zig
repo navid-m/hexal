@@ -803,8 +803,11 @@ pub const PluginEntry = struct {
     name: []u8,
     version: []u8,
     description: []u8,
+    author: []u8,
+    license: []u8,
     directory: []u8,
     entry_path: []u8,
+    manifest_path: []u8,
     language: []u8,
     lazy: bool,
     enabled: bool,
@@ -832,8 +835,11 @@ pub const Manager = struct {
             self.allocator.free(entry.name);
             self.allocator.free(entry.version);
             self.allocator.free(entry.description);
+            self.allocator.free(entry.author);
+            self.allocator.free(entry.license);
             self.allocator.free(entry.directory);
             self.allocator.free(entry.entry_path);
+            self.allocator.free(entry.manifest_path);
             self.allocator.free(entry.language);
             if (entry.error_message) |message| self.allocator.free(message);
         }
@@ -872,6 +878,19 @@ pub const Manager = struct {
     ) !void {
         const candidates = [_][]const u8{ "data/plugins", "plugins", "../data/plugins" };
         for (candidates) |candidate| try self.loadDirectory(candidate, doc, cursor);
+
+        if (std.process.executableDirPathAlloc(self.io, self.allocator)) |executable_dir| {
+            defer self.allocator.free(executable_dir);
+            var current: ?[]const u8 = executable_dir;
+            var levels: usize = 0;
+            while (current) |directory| : (levels += 1) {
+                if (levels > 3) break;
+                const candidate = std.fs.path.join(self.allocator, &.{ directory, "data/plugins" }) catch break;
+                defer self.allocator.free(candidate);
+                try self.loadDirectory(candidate, doc, cursor);
+                current = std.fs.path.dirname(directory);
+            }
+        } else |_| {}
     }
 
     pub fn loadDirectory(
@@ -924,8 +943,11 @@ pub const Manager = struct {
             .name = try self.allocator.dupe(u8, id),
             .version = try self.allocator.dupe(u8, ""),
             .description = try self.allocator.dupe(u8, ""),
+            .author = try self.allocator.dupe(u8, ""),
+            .license = try self.allocator.dupe(u8, ""),
             .directory = try self.allocator.dupe(u8, directory),
             .entry_path = try self.allocator.dupe(u8, path),
+            .manifest_path = try self.allocator.dupe(u8, ""),
             .language = try self.allocator.dupe(u8, ""),
             .lazy = false,
             .enabled = true,
@@ -942,6 +964,8 @@ pub const Manager = struct {
         var name = fallback;
         var version: []const u8 = "";
         var description: []const u8 = "";
+        var author: []const u8 = "";
+        var license: []const u8 = "";
         var entry_file: []const u8 = "init.lua";
         var language: []const u8 = "";
         var lazy = false;
@@ -970,6 +994,8 @@ pub const Manager = struct {
                     (std.ascii.eqlIgnoreCase(key, "name") and value.len > 0) name = value else if
                     (std.ascii.eqlIgnoreCase(key, "version")) version = value else if
                     (std.ascii.eqlIgnoreCase(key, "description")) description = value else if
+                    (std.ascii.eqlIgnoreCase(key, "author")) author = value else if
+                    (std.ascii.eqlIgnoreCase(key, "license")) license = value else if
                     (std.ascii.eqlIgnoreCase(key, "entry") and value.len > 0) entry_file = value else if
                     (std.ascii.eqlIgnoreCase(key, "language")) language = value else if
                     (std.ascii.eqlIgnoreCase(key, "lazy")) lazy = std.ascii.eqlIgnoreCase(value, "true") else if
@@ -986,8 +1012,11 @@ pub const Manager = struct {
             .name = self.allocator.dupe(u8, name) catch return,
             .version = self.allocator.dupe(u8, version) catch return,
             .description = self.allocator.dupe(u8, description) catch return,
+            .author = self.allocator.dupe(u8, author) catch return,
+            .license = self.allocator.dupe(u8, license) catch return,
             .directory = self.allocator.dupe(u8, directory) catch return,
             .entry_path = self.allocator.dupe(u8, entry_path) catch return,
+            .manifest_path = self.allocator.dupe(u8, manifest_path) catch return,
             .language = self.allocator.dupe(u8, language) catch return,
             .lazy = lazy,
             .enabled = enabled,
@@ -997,8 +1026,11 @@ pub const Manager = struct {
             self.allocator.free(plugin_entry.name);
             self.allocator.free(plugin_entry.version);
             self.allocator.free(plugin_entry.description);
+            self.allocator.free(plugin_entry.author);
+            self.allocator.free(plugin_entry.license);
             self.allocator.free(plugin_entry.directory);
             self.allocator.free(plugin_entry.entry_path);
+            self.allocator.free(plugin_entry.manifest_path);
             self.allocator.free(plugin_entry.language);
             return;
         };
@@ -1140,6 +1172,30 @@ pub const Manager = struct {
             if (runtime.commandRef(name) != null) return true;
         }
         return false;
+    }
+
+    pub fn commandNamesFor(
+        self: Manager,
+        index: usize,
+        allocator: std.mem.Allocator,
+    ) ![]const []const u8 {
+        if (index >= self.entries.items.len) return &.{};
+        const runtime = self.entries.items[index].runtime orelse return &.{};
+        var names: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (names.items) |name| allocator.free(name);
+            names.deinit(allocator);
+        }
+        var iterator = runtime.ctx.commands.valueIterator();
+        while (iterator.next()) |command| {
+            try names.append(allocator, try allocator.dupe(u8, command.name));
+        }
+        std.mem.sort([]const u8, names.items, {}, struct {
+            fn lessThan(_: void, left: []const u8, right: []const u8) bool {
+                return std.ascii.lessThanIgnoreCase(left, right);
+            }
+        }.lessThan);
+        return names.toOwnedSlice(allocator);
     }
 
     pub fn commandNames(self: Manager, allocator: std.mem.Allocator) ![]const []const u8 {

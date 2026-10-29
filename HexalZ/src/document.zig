@@ -35,6 +35,7 @@ pub const Document = struct {
     bom: bool = false,
     undo: std.ArrayList(Group) = .empty,
     redo: std.ArrayList(Group) = .empty,
+    mapping: ?std.Io.File.MemoryMap = null,
     group_open: bool = false,
     group_kind: GroupKind = .mixed,
     group_last_offset: usize = 0,
@@ -52,6 +53,7 @@ pub const Document = struct {
     pub fn deinit(self: *Document) void {
         if (self.path) |path| self.allocator.free(path);
         self.table.deinit();
+        if (self.mapping) |*mapping| mapping.destroy(self.io);
         self.clearGroups(&self.undo);
         self.clearGroups(&self.redo);
         self.undo.deinit(self.allocator);
@@ -65,10 +67,49 @@ pub const Document = struct {
 
         doc.path = try allocator.dupe(u8, path);
         const cwd = std.Io.Dir.cwd();
-        const read = cwd.readFileAlloc(io, path, allocator, .limited(2 * 1024 * 1024 * 1024)) catch |err| switch (err) {
+        var file = cwd.openFile(io, path, .{}) catch |err| switch (err) {
             error.FileNotFound => null,
             else => return err,
         };
+        var read: ?[]u8 = null;
+        if (file) |*handle| {
+            defer handle.close(io);
+            const stat = handle.stat(io) catch |err| return err;
+            const file_size: usize = @intCast(stat.size);
+            if (file_size > 2 * 1024 * 1024 * 1024) return error.FileTooBig;
+            if (file_size >= 4 * 1024 * 1024) {
+                if (std.Io.File.MemoryMap.create(io, handle.*, .{
+                    .len = file_size,
+                    .protection = .{ .read = true, .write = false },
+                })) |mapping| {
+                    const mapped = mapping.memory;
+                    if (mapped.len >= 3 and mapped[0] == Bom[0] and mapped[1] == Bom[1] and mapped[2] == Bom[2]) {
+                        var destroyed = mapping;
+                        destroyed.destroy(io);
+                    } else {
+                        doc.mapping = mapping;
+                        try doc.table.setOriginalBorrowed(mapped);
+                        doc.eol = doc.table.eol;
+                        return doc;
+                    }
+                } else |_| {}
+            }
+            const data = try allocator.alloc(u8, file_size);
+            errdefer allocator.free(data);
+            const count = handle.readPositionalAll(io, data, 0) catch |err| {
+                allocator.free(data);
+                return err;
+            };
+            if (count == file_size) {
+                read = data;
+            } else {
+                allocator.free(data);
+                read = cwd.readFileAlloc(io, path, allocator, .limited(2 * 1024 * 1024 * 1024)) catch |err| switch (err) {
+                    error.FileNotFound => null,
+                    else => return err,
+                };
+            }
+        }
 
         if (read) |raw| {
             var data: []u8 = undefined;
@@ -110,6 +151,10 @@ pub const Document = struct {
 
     pub fn lineCount(self: Document) usize {
         return self.table.lineCount();
+    }
+
+    pub fn ensureLineIndex(self: *Document) !void {
+        try self.table.ensureLineIndex();
     }
 
     pub fn size(self: Document) usize {

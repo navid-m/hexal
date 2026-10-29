@@ -13,6 +13,7 @@ const files_mod = @import("files.zig");
 const lua_mod = @import("lua.zig");
 const sidebar_mod = @import("sidebar.zig");
 const config_mod = @import("config.zig");
+const help_mod = @import("help.zig");
 const regex_mod = @import("regex.zig");
 
 const TabWidth = 4;
@@ -144,6 +145,7 @@ const PickerKind = enum {
     none,
     files,
     search,
+    themes,
 };
 
 const PickerItem = struct {
@@ -350,11 +352,14 @@ pub const Editor = struct {
     config: config_mod.Config,
     palette: PaletteState = .{},
     plugin_manager: PluginManagerState = .{},
+    help: help_mod.HelpState = .{},
     panes: std.ArrayList(PaneState) = .empty,
     pane_root: ?*PaneNode = null,
     active_pane: u64 = 0,
     next_pane_id: u64 = 1,
     pane_screen: scr.Screen = .{},
+    theme_before_picker: ?[]u8 = null,
+    plugins_loaded: bool = false,
     lua: ?lua_mod.Manager = null,
     workspace_root: []u8 = &.{},
     plugin_panel_id: ?i64 = null,
@@ -416,9 +421,6 @@ pub const Editor = struct {
             self.message.clearRetainingCapacity();
             self.appendMessageFmt("Opened {s}", .{self.doc.displayName()});
         }
-        self.loadPlugins() catch |err| {
-            self.setErrorFmt("lua plugin load: {s}", .{@errorName(err)});
-        };
         return self;
     }
 
@@ -461,6 +463,7 @@ pub const Editor = struct {
         if (self.pane_root) |root| freePaneNode(self.allocator, root);
         self.pane_screen.deinit(self.allocator);
         self.config.deinit();
+        if (self.theme_before_picker) |id| self.allocator.free(id);
         self.cancelPickerSearch();
         self.cancelPickerScan();
         self.pickerClearItems();
@@ -498,6 +501,16 @@ pub const Editor = struct {
         // with a 30 ms timeout to poll for terminal resizes, so reading first
         // made an idle launch wait for the full timeout before showing anything.
         try self.render();
+
+        // Load plugins after the first frame, mirroring the Rust editor. A
+        // lazy language plugin may mirror the whole buffer into Lua; that cost
+        // belongs after the visible startup, not on the first paint.
+        if (!self.plugins_loaded) {
+            self.plugins_loaded = true;
+            self.loadPlugins() catch |err| {
+                self.setErrorFmt("lua plugin load: {s}", .{@errorName(err)});
+            };
+        }
 
         while (self.running) {
             self.terminal.updateSize();
@@ -540,6 +553,10 @@ pub const Editor = struct {
         }
         if (self.plugin_manager.visible) {
             try self.handlePluginManager(event);
+            return;
+        }
+        if (self.help.visible) {
+            _ = self.help.handle(event, self.cols, self.rows, 3);
             return;
         }
         if (event.key == .character and event.ctrl and (event.ch == 'p' or event.ch == 'P')) {
@@ -1954,6 +1971,10 @@ pub const Editor = struct {
                 self.command_cursor = self.command_line.items.len;
                 return;
             },
+            .tab => {
+                try self.completeCommandLine();
+                return;
+            },
             .character => {
                 if (event.alt) return;
                 var buffer: [4]u8 = undefined;
@@ -1964,6 +1985,59 @@ pub const Editor = struct {
             },
             else => return,
         }
+    }
+
+    fn completeCommandLine(self: *Editor) !void {
+        const line = self.command_line.items;
+        if (line.len == 0) return;
+        var first_end: usize = 0;
+        while (first_end < line.len and line[first_end] != ' ' and line[first_end] != '\t') : (first_end += 1) {}
+        var lower: [64]u8 = undefined;
+        const command = if (first_end <= lower.len)
+            std.ascii.lowerString(lower[0..first_end], line[0..first_end])
+        else
+            line[0..first_end];
+        if (!std.mem.eql(u8, command, "e") and !std.mem.eql(u8, command, "edit")) return;
+
+        if (first_end >= line.len) {
+            try self.command_line.append(self.allocator, ' ');
+            self.command_cursor = self.command_line.items.len;
+            return;
+        }
+        var argument_start = first_end;
+        while (argument_start < line.len and (line[argument_start] == ' ' or line[argument_start] == '\t')) : (argument_start += 1) {}
+        const cursor = @min(self.command_cursor, line.len);
+        const prefix = line[argument_start..@max(argument_start, cursor)];
+
+        var local_files: std.ArrayList([]u8) = .empty;
+        defer {
+            files_mod.clearFiles(self.allocator, &local_files);
+            local_files.deinit(self.allocator);
+        }
+        const files: []const []u8 = if (self.picker.files_loaded)
+            self.picker.files.items
+        else blk: {
+            var cancel = std.atomic.Value(bool).init(false);
+            files_mod.scan(self.allocator, self.io, &local_files, 20_000, &cancel) catch break :blk &.{};
+            break :blk local_files.items;
+        };
+        if (files.len == 0) return;
+
+        var best: ?[]const u8 = null;
+        for (files) |path| {
+            if (prefix.len > 0 and util.indexOfIgnoreCase(path, prefix) == null) continue;
+            if (best == null or path.len < best.?.len) best = path;
+        }
+        const candidate = best orelse return;
+        self.command_line.items.len = argument_start;
+        if (std.mem.indexOfAny(u8, candidate, " \t") != null) {
+            try self.command_line.append(self.allocator, '"');
+            try self.command_line.appendSlice(self.allocator, candidate);
+            try self.command_line.append(self.allocator, '"');
+        } else {
+            try self.command_line.appendSlice(self.allocator, candidate);
+        }
+        self.command_cursor = self.command_line.items.len;
     }
 
     fn runExLine(self: *Editor, line: []const u8) !void {
@@ -1991,6 +2065,11 @@ pub const Editor = struct {
             force = true;
             name = name[0 .. name.len - 1];
         }
+        var lower_name: [256]u8 = undefined;
+        const command_name = if (name.len <= lower_name.len)
+            std.ascii.lowerString(lower_name[0..name.len], name)
+        else
+            name;
         var args = std.mem.trim(u8, line[split..], " \t");
         if (args.len >= 2 and
             ((args[0] == '"' and args[args.len - 1] == '"') or
@@ -2001,13 +2080,13 @@ pub const Editor = struct {
 
         self.doc.breakUndoGroup();
 
-        if (std.mem.eql(u8, name, "w") or std.mem.eql(u8, name, "write")) {
+        if (std.mem.eql(u8, command_name, "w") or std.mem.eql(u8, command_name, "write")) {
             _ = try self.saveDocument(if (args.len > 0) args else null);
-        } else if (std.mem.eql(u8, name, "wq")) {
+        } else if (std.mem.eql(u8, command_name, "wq")) {
             if (try self.saveDocument(if (args.len > 0) args else null)) {
                 self.running = false;
             }
-        } else if (std.mem.eql(u8, name, "q") or std.mem.eql(u8, name, "quit")) {
+        } else if (std.mem.eql(u8, command_name, "q") or std.mem.eql(u8, command_name, "quit")) {
             if (force) {
                 self.running = false;
             } else if (self.doc.isDirty() and self.config.confirm_quit_without_saving) {
@@ -2015,15 +2094,15 @@ pub const Editor = struct {
             } else {
                 self.running = false;
             }
-        } else if (std.mem.eql(u8, name, "e") or std.mem.eql(u8, name, "edit")) {
+        } else if (std.mem.eql(u8, command_name, "e") or std.mem.eql(u8, command_name, "edit")) {
             if (args.len == 0) {
                 self.setError("usage: :e <filename>");
             } else {
                 try self.requestOpen(args, 0, 0, force);
             }
-        } else if (std.mem.eql(u8, name, "path")) {
+        } else if (std.mem.eql(u8, command_name, "path")) {
             if (self.doc.path) |path| self.setMessage(path) else self.setMessage("[No Name]");
-        } else if (std.mem.eql(u8, name, "lang")) {
+        } else if (std.mem.eql(u8, command_name, "lang")) {
             if (args.len == 0) {
                 self.setError("usage: :lang <language>");
             } else if (self.syntax_registry.find(args)) |language| {
@@ -2035,9 +2114,9 @@ pub const Editor = struct {
             } else {
                 self.setErrorFmt("unknown language: {s}", .{args});
             }
-        } else if (std.mem.eql(u8, name, "theme")) {
+        } else if (std.mem.eql(u8, command_name, "theme") or std.mem.eql(u8, command_name, "themes")) {
             if (args.len == 0) {
-                self.setMessageFmt("Theme: {s}", .{self.theme.name});
+                try self.openThemePicker();
             } else if (self.theme_registry.setActive(args)) {
                 self.theme = self.theme_registry.active;
                 self.renderer.reset(self.allocator);
@@ -2045,46 +2124,51 @@ pub const Editor = struct {
             } else {
                 self.setErrorFmt("unknown theme: {s}", .{args});
             }
-        } else if (std.mem.eql(u8, name, "cw")) {
+        } else if (std.mem.eql(u8, command_name, "cw")) {
             try self.trimTrailingWhitespace();
-        } else if (std.mem.eql(u8, name, "lua")) {
+        } else if (std.mem.eql(u8, command_name, "lua")) {
             if (args.len == 0) {
                 self.setError("usage: :lua <plugin.lua>");
             } else {
                 self.loadLuaPlugin(args);
             }
-        } else if (std.mem.eql(u8, name, "plugins")) {
+        } else if (std.mem.eql(u8, command_name, "plugins")) {
             self.listLuaCommands() catch |err| self.setErrorFmt("lua: {s}", .{@errorName(err)});
-        } else if (std.mem.eql(u8, name, "vs")) {
+        } else if (std.mem.eql(u8, command_name, "vs")) {
             try self.splitPane(.vertical);
-        } else if (std.mem.eql(u8, name, "hs")) {
+        } else if (std.mem.eql(u8, command_name, "hs")) {
             try self.splitPane(.horizontal);
-        } else if (std.mem.eql(u8, name, "cb")) {
+        } else if (std.mem.eql(u8, command_name, "cb")) {
             self.closeCurrentBuffer();
-        } else if (std.mem.eql(u8, name, "tc")) {
+        } else if (std.mem.eql(u8, command_name, "tc")) {
             self.toggleComment();
-        } else if (std.mem.eql(u8, name, "sb")) {
+        } else if (std.mem.eql(u8, command_name, "sb")) {
             self.toggleSidebar();
-        } else if (std.mem.eql(u8, name, "pm")) {
+        } else if (std.mem.eql(u8, command_name, "pm")) {
             self.openPluginManager();
-        } else if (std.mem.eql(u8, name, "files")) {
+        } else if (std.mem.eql(u8, command_name, "files")) {
             try self.openPicker(.files);
-        } else if (std.mem.eql(u8, name, "search")) {
+        } else if (std.mem.eql(u8, command_name, "search")) {
             try self.openPicker(.search);
-        } else if (std.mem.eql(u8, name, "regex")) {
+        } else if (std.mem.eql(u8, command_name, "regex")) {
             try self.openRegexPicker(true);
-        } else if (std.mem.eql(u8, name, "cfg")) {
+        } else if (std.mem.eql(u8, command_name, "cfg")) {
             try self.openConfigFile();
-        } else if (std.mem.eql(u8, name, "rcfg")) {
+        } else if (std.mem.eql(u8, command_name, "rcfg")) {
             try self.reloadConfiguration();
-        } else if (std.mem.eql(u8, name, "help")) {
-            self.setMessage("Ctrl+P palette  Ctrl+C comment  Ctrl+B sidebar  C add cursor  Space menu  :vs :hs :cb :cfg :rcfg :pm");
-        } else if (std.mem.eql(u8, name, "about")) {
+        } else if (std.mem.eql(u8, command_name, "help")) {
+            self.help.open();
+            self.clearMessage();
+        } else if (std.mem.eql(u8, command_name, "rla")) {
+            self.reloadAllFiles(force);
+        } else if (std.mem.eql(u8, command_name, "open-log") or std.mem.eql(u8, command_name, "ol")) {
+            self.openLogFile();
+        } else if (std.mem.eql(u8, command_name, "about")) {
             self.setMessage("HexalZ 0.1.0 - a modal text editor written in Zig 0.17.0.");
-        } else if (std.mem.eql(u8, name, "fmt")) {
+        } else if (std.mem.eql(u8, command_name, "fmt")) {
             try self.formatDocument();
         } else {
-            if (self.tryLuaCommand(name)) return;
+            if (self.tryLuaCommand(command_name)) return;
             self.setErrorFmt("unknown command: {s}", .{name});
         }
     }
@@ -2603,13 +2687,21 @@ pub const Editor = struct {
         self.picker.status = null;
         self.pickerClearItems();
 
-        if (!self.picker.files_loaded) {
+        if (kind == .themes or kind == .none) {
+            try self.rebuildPicker();
+        } else if (!self.picker.files_loaded) {
             try self.startPickerScan();
         } else {
             try self.rebuildPicker();
         }
         self.doc.breakUndoGroup();
         self.clearMessage();
+    }
+
+    fn openThemePicker(self: *Editor) !void {
+        if (self.theme_before_picker) |old| self.allocator.free(old);
+        self.theme_before_picker = self.allocator.dupe(u8, self.theme.id) catch null;
+        try self.openPicker(.themes);
     }
 
     fn openRegexPicker(self: *Editor, replace: bool) !void {
@@ -2621,6 +2713,13 @@ pub const Editor = struct {
     }
 
     fn closePicker(self: *Editor) void {
+        if (self.picker.kind == .themes) {
+            if (self.theme_before_picker) |id| {
+                if (self.theme_registry.setActive(id)) self.theme = self.theme_registry.active;
+                self.allocator.free(id);
+                self.theme_before_picker = null;
+            }
+        }
         self.cancelPickerSearch();
         self.cancelPickerScan();
         self.picker.kind = .none;
@@ -2793,6 +2892,25 @@ pub const Editor = struct {
                     });
                 }
             },
+            .themes => {
+                for (self.theme_registry.themes, 0..) |theme, index| {
+                    if (query.len > 0 and
+                        util.indexOfIgnoreCase(theme.name, query) == null and
+                        util.indexOfIgnoreCase(theme.description, query) == null)
+                    {
+                        continue;
+                    }
+                    self.picker.total += 1;
+                    const display = try self.allocator.dupe(u8, theme.name);
+                    errdefer self.allocator.free(display);
+                    try self.picker.items.append(self.allocator, .{
+                        .display = display,
+                        .file_index = index,
+                        .line = 0,
+                        .column = 0,
+                    });
+                }
+            },
             .search => {
                 if (query.len == 0) {
                     self.cancelPickerSearch();
@@ -2812,6 +2930,15 @@ pub const Editor = struct {
             self.picker.selected = if (self.picker.items.items.len == 0) 0 else self.picker.items.items.len - 1;
         }
         if (self.picker.top > self.picker.selected) self.picker.top = self.picker.selected;
+    }
+
+    fn previewThemeSelection(self: *Editor) void {
+        if (self.picker.kind != .themes) return;
+        if (self.picker.selected >= self.picker.items.items.len) return;
+        const item = self.picker.items.items[self.picker.selected];
+        if (item.file_index >= self.theme_registry.themes.len) return;
+        const id = self.theme_registry.themes[item.file_index].id;
+        if (self.theme_registry.setActive(id)) self.theme = self.theme_registry.active;
     }
 
     fn handlePicker(self: *Editor, event: term.Event) !void {
@@ -2874,12 +3001,14 @@ pub const Editor = struct {
                 if (self.picker.items.items.len > 0 and self.picker.selected > 0) {
                     self.picker.selected -= 1;
                 }
+                self.previewThemeSelection();
                 return;
             },
             .down => {
                 if (self.picker.selected + 1 < self.picker.items.items.len) {
                     self.picker.selected += 1;
                 }
+                self.previewThemeSelection();
                 return;
             },
             .page_up => {
@@ -2951,6 +3080,22 @@ pub const Editor = struct {
         if (self.picker.items.items.len == 0) return;
         if (self.picker.selected >= self.picker.items.items.len) return;
         const item = self.picker.items.items[self.picker.selected];
+        if (self.picker.kind == .themes) {
+            if (item.file_index < self.theme_registry.themes.len) {
+                const id = self.theme_registry.themes[item.file_index].id;
+                if (self.theme_registry.setActive(id)) {
+                    self.theme = self.theme_registry.active;
+                    self.renderer.reset(self.allocator);
+                    if (self.theme_before_picker) |old| {
+                        self.allocator.free(old);
+                        self.theme_before_picker = null;
+                    }
+                    self.setMessageFmt("Theme: {s}", .{self.theme.name});
+                }
+            }
+            self.closePicker();
+            return;
+        }
         const path = self.picker.files.items[item.file_index];
         const line = item.line;
         const column = item.column;
@@ -3922,6 +4067,75 @@ pub const Editor = struct {
         }
     }
 
+    fn reloadAllFiles(self: *Editor, force: bool) void {
+        const path = self.doc.path orelse {
+            self.setMessage("No file-backed buffers to reload.");
+            return;
+        };
+        if (!force and self.doc.isDirty()) {
+            self.setMessage("Kept 1 modified file; nothing reloaded.");
+            return;
+        }
+        const cursor_line = self.doc.lineOfOffset(self.cursor);
+        const cursor_column = self.cursor - self.doc.lineStart(cursor_line);
+        const anchor_line = self.doc.lineOfOffset(self.anchor);
+        const anchor_column = self.anchor - self.doc.lineStart(anchor_line);
+        const top_line = self.top_line;
+        const left_column = self.left_column;
+
+        const loaded = document_mod.Document.open(self.allocator, self.io, path) catch |err| {
+            self.setErrorFmt("Reloaded 0 file(s); cannot open '{s}': {s}.", .{ path, @errorName(err) });
+            return;
+        };
+        self.doc.deinit();
+        self.doc = loaded;
+        if (self.language_override) |old| self.allocator.free(old);
+        self.language_override = null;
+        self.find.active = false;
+        self.find.editing = false;
+        self.find.query.clearRetainingCapacity();
+        self.find.replacement.clearRetainingCapacity();
+        self.clearFindMatches();
+        self.find.index = -1;
+        self.extra_selections.clearRetainingCapacity();
+        self.preferred_column = null;
+
+        const line = @min(cursor_line, self.doc.lineCount() - 1);
+        self.cursor = @min(self.doc.lineStart(line) + cursor_column, self.doc.size());
+        const anchor = @min(anchor_line, self.doc.lineCount() - 1);
+        self.anchor = @min(self.doc.lineStart(anchor) + anchor_column, self.doc.size());
+        self.top_line = @min(top_line, self.doc.lineCount() - 1);
+        self.left_column = left_column;
+        self.renderer.reset(self.allocator);
+        self.screen.clear(self.theme.base());
+        self.snapCursor();
+        self.ensureCursorVisible();
+        self.setMessage("Reloaded 1 file.");
+        self.firePluginEvent("buffer_opened");
+    }
+
+    fn openLogFile(self: *Editor) void {
+        const config_dir = std.fs.path.dirname(self.config.source_path) orelse {
+            self.setError("cannot open Hexal log: configuration path is unavailable");
+            return;
+        };
+        std.Io.Dir.cwd().createDirPath(self.io, config_dir) catch |err| {
+            self.setErrorFmt("cannot open Hexal log: {s}", .{@errorName(err)});
+            return;
+        };
+        const path = std.fs.path.join(self.allocator, &.{ config_dir, "hexal.log" }) catch return;
+        defer self.allocator.free(path);
+        if (!fileExists(self.io, path)) {
+            std.Io.Dir.cwd().writeFile(self.io, .{ .sub_path = path, .data = "" }) catch |err| {
+                self.setErrorFmt("cannot open Hexal log: {s}", .{@errorName(err)});
+                return;
+            };
+        }
+        self.requestOpen(path, 0, 0, false) catch |err| {
+            self.setErrorFmt("cannot open Hexal log: {s}", .{@errorName(err)});
+        };
+    }
+
     // -----------------------------------------------------------------------
     // CONFIGURATION
     // -----------------------------------------------------------------------
@@ -3982,6 +4196,7 @@ pub const Editor = struct {
 
         const builtins = [_]struct { title: []const u8, command: []const u8 }{
             .{ .title = "Open file picker", .command = "files" },
+            .{ .title = "Open theme selector", .command = "themes" },
             .{ .title = "Search across files", .command = "search" },
             .{ .title = "Regex find/replace across files", .command = "regex" },
             .{ .title = "Split pane vertically", .command = "vs" },
@@ -3994,6 +4209,9 @@ pub const Editor = struct {
             .{ .title = "Format document", .command = "fmt" },
             .{ .title = "Clean trailing whitespace", .command = "cw" },
             .{ .title = "Toggle comment", .command = "tc" },
+            .{ .title = "Show key help", .command = "help" },
+            .{ .title = "Reload all files", .command = "rla" },
+            .{ .title = "Open Hexal log", .command = "ol" },
             .{ .title = "Save file", .command = "w" },
             .{ .title = "Save and quit", .command = "wq" },
             .{ .title = "Quit", .command = "q" },
@@ -4095,8 +4313,10 @@ pub const Editor = struct {
 
     fn renderPalette(self: *Editor) void {
         if (!self.palette.visible) return;
-        const width = @min(self.cols -| 4, 88);
-        const height = @min(self.rows -| 2, 22);
+        const available = self.statusRow();
+        if (available < 2) return;
+        const width = @min(self.cols -| 2, 88);
+        const height = @min(available - 1, 18);
         if (width < 24 or height < 5) return;
         const x = (self.cols - width) / 2;
         const y = (self.rows - height) / 2;
@@ -4291,34 +4511,93 @@ pub const Editor = struct {
         }
     }
 
+    fn putDetailLine(
+        self: *Editor,
+        x: usize,
+        row: *usize,
+        bottom: usize,
+        width: usize,
+        text: []const u8,
+        style: theme_mod.Style,
+    ) void {
+        if (row.* >= bottom or width == 0) return;
+        self.screen.putString(@intCast(x), @intCast(row.*), text, style, width);
+        row.* += 1;
+    }
+
+    fn putDetailWrapped(
+        self: *Editor,
+        x: usize,
+        row: *usize,
+        bottom: usize,
+        width: usize,
+        text: []const u8,
+        style: theme_mod.Style,
+    ) void {
+        var remaining = text;
+        while (remaining.len > 0 and row.* < bottom) {
+            const newline = std.mem.indexOfScalar(u8, remaining, '\n') orelse remaining.len;
+            var chunk = remaining[0..newline];
+            var consumed = newline;
+            if (util.displayWidthString(chunk) > width) {
+                var cut = displayPrefixBytes(chunk, width);
+                if (std.mem.lastIndexOfScalar(u8, chunk[0..cut], ' ')) |space| {
+                    if (space > 0) cut = space;
+                }
+                chunk = chunk[0..cut];
+                consumed = cut;
+            }
+            self.screen.putString(@intCast(x), @intCast(row.*), chunk, style, width);
+            row.* += 1;
+            remaining = remaining[consumed..];
+            while (remaining.len > 0 and (remaining[0] == ' ' or remaining[0] == '\r')) remaining = remaining[1..];
+            if (remaining.len > 0 and remaining[0] == '\n') remaining = remaining[1..];
+        }
+    }
+
     fn renderPluginManager(self: *Editor) void {
         if (!self.plugin_manager.visible) return;
-        const width = @min(self.cols -| 4, 100);
-        const height = @min(self.rows -| 2, 24);
-        if (width < 24 or height < 5) return;
-        const x = (self.cols - width) / 2;
-        const y = (self.rows - height) / 2;
+        const width = std.math.clamp(self.cols -| 4, 20, 100);
+        const height = std.math.clamp(self.rows -| 2, 5, 24);
+        if (width < 24 or height < 5 or width > self.cols or height > self.rows) return;
+        const x = (self.cols -| width) / 2;
+        const y = (self.rows -| height) / 2;
+        var title_buf: [512]u8 = undefined;
         const title = if (self.plugin_manager.filter.items.len > 0 or self.plugin_manager.filtering)
-            std.fmt.allocPrint(self.allocator, " Plugins · /{s} ", .{self.plugin_manager.filter.items}) catch " Plugins "
+            std.fmt.bufPrint(&title_buf, " Plugins · /{s}{s} ", .{
+                self.plugin_manager.filter.items,
+                if (self.plugin_manager.filtering) "▏" else " ",
+            }) catch " Plugins "
         else
             " Plugins ";
-        defer if (self.plugin_manager.filter.items.len > 0 or self.plugin_manager.filtering)
-            self.allocator.free(title);
         self.drawBox(x, y, width, height, title);
-        const rows = height - 3;
-        const count = self.pluginVisibleCount();
-        const max_top = count -| rows;
-        if (self.plugin_manager.top > max_top) self.plugin_manager.top = max_top;
-        if (self.plugin_manager.selected < self.plugin_manager.top) self.plugin_manager.top = self.plugin_manager.selected;
-        if (self.plugin_manager.selected >= self.plugin_manager.top + rows) {
-            self.plugin_manager.top = self.plugin_manager.selected + 1 - rows;
+
+        const content_rows = @max(height -| 3, 1);
+        const list_width = std.math.clamp(width / 3, 14, 34);
+        const detail_x = x + 2 + list_width;
+        const detail_width = width -| (list_width + 4);
+        const border_style = self.theme.borderStyle();
+        var divider_row: usize = 0;
+        while (divider_row < content_rows) : (divider_row += 1) {
+            self.screen.put(@intCast(x + 1 + list_width), @intCast(y + 1 + divider_row), 0x2502, border_style, 1);
         }
+
+        const count = self.pluginVisibleCount();
         if (count == 0) {
-            const message = if (self.plugin_manager.filter.items.len > 0) "No matching plugins." else "No plugins discovered.";
-            self.screen.putString(@intCast(x + 2), @intCast(y + 2), message, self.theme.mutedStyle(), width -| 4);
+            const message = if (self.plugin_manager.filter.items.len > 0)
+                "No matching plugins."
+            else
+                "No plugins discovered.";
+            self.screen.putString(@intCast(x + 2), @intCast(y + 1), message, self.theme.mutedStyle(), detail_width);
         } else {
+            const max_top = count -| content_rows;
+            if (self.plugin_manager.top > max_top) self.plugin_manager.top = max_top;
+            if (self.plugin_manager.selected < self.plugin_manager.top) self.plugin_manager.top = self.plugin_manager.selected;
+            if (self.plugin_manager.selected >= self.plugin_manager.top + content_rows) {
+                self.plugin_manager.top = self.plugin_manager.selected + 1 - content_rows;
+            }
             var row: usize = 0;
-            while (row < rows) : (row += 1) {
+            while (row < content_rows) : (row += 1) {
                 const ordinal = self.plugin_manager.top + row;
                 const index = self.pluginIndexAt(ordinal) orelse break;
                 const manager = if (self.lua) |*value| value else break;
@@ -4330,42 +4609,80 @@ pub const Editor = struct {
                 else
                     self.theme.mutedStyle();
                 if (ordinal == self.plugin_manager.selected) {
-                    self.screen.fill(@intCast(x + 1), @intCast(y + 2 + row), width - 2, 1, ' ', style);
+                    self.screen.fill(@intCast(x + 1), @intCast(y + 1 + row), list_width, 1, ' ', style);
                 }
-                const line = std.fmt.allocPrint(self.allocator, "{s} [{s}]  {s}", .{
+                var label_buf: [512]u8 = undefined;
+                const label = std.fmt.bufPrint(&label_buf, "{s} [{s}]", .{
                     entry.name,
                     if (entry.enabled) "on" else "off",
-                    entry.version,
-                }) catch continue;
-                defer self.allocator.free(line);
-                self.screen.putString(@intCast(x + 2), @intCast(y + 2 + row), line, style, width -| 4);
+                }) catch entry.name;
+                self.screen.putString(@intCast(x + 2), @intCast(y + 1 + row), label, style, list_width -| 1);
             }
-            const selected_index = self.pluginIndexAt(self.plugin_manager.selected);
-            if (selected_index) |index| {
+
+            if (self.pluginIndexAt(self.plugin_manager.selected)) |index| {
                 const manager = if (self.lua) |*value| value else return;
                 const entry = manager.entries.items[index];
-                const detail = std.fmt.allocPrint(
-                    self.allocator,
-                    "{s}  {s}",
-                    .{ entry.description, entry.entry_path },
-                ) catch return;
-                defer self.allocator.free(detail);
-                self.screen.putString(
-                    @intCast(x + 2),
-                    @intCast(y + height - 3),
-                    detail,
-                    self.theme.mutedStyle(),
-                    width -| 4,
-                );
+                var detail_row = y + 1;
+                const bottom = y + height - 2;
+                const accent = self.theme.accentStyle();
+                const text_style = self.theme.text();
+                const muted = self.theme.mutedStyle();
+                var buf: [1024]u8 = undefined;
+                self.putDetailLine(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Name: {s}", .{entry.name}) catch "Name", accent);
+                self.putDetailLine(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Id: {s}", .{entry.id}) catch "Id", text_style);
+                if (entry.version.len > 0) {
+                    self.putDetailLine(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Version: {s}", .{entry.version}) catch "Version", text_style);
+                }
+                const status = if (entry.lazy and entry.runtime == null)
+                    "Status: enabled (loads when its language is opened)"
+                else if (entry.enabled)
+                    "Status: enabled"
+                else
+                    "Status: disabled";
+                self.putDetailLine(detail_x, &detail_row, bottom, detail_width, status, if (entry.enabled) text_style else muted);
+                if (entry.author.len > 0) {
+                    self.putDetailLine(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Author: {s}", .{entry.author}) catch "Author", text_style);
+                }
+                if (entry.license.len > 0) {
+                    self.putDetailLine(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "License: {s}", .{entry.license}) catch "License", text_style);
+                }
+                if (entry.description.len > 0) {
+                    self.putDetailWrapped(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Description: {s}", .{entry.description}) catch "Description", text_style);
+                }
+                const commands = manager.commandNamesFor(index, self.allocator) catch &.{};
+                defer {
+                    for (commands) |command| self.allocator.free(command);
+                    if (commands.len > 0) self.allocator.free(commands);
+                }
+                if (commands.len == 0) {
+                    self.putDetailLine(detail_x, &detail_row, bottom, detail_width, "Commands: none", text_style);
+                } else {
+                    var commands_buf: std.ArrayList(u8) = .empty;
+                    defer commands_buf.deinit(self.allocator);
+                    commands_buf.appendSlice(self.allocator, "Commands: ") catch {};
+                    for (commands, 0..) |command, command_index| {
+                        if (command_index > 0) commands_buf.appendSlice(self.allocator, ", ") catch {};
+                        commands_buf.appendSlice(self.allocator, command) catch {};
+                    }
+                    self.putDetailWrapped(detail_x, &detail_row, bottom, detail_width, commands_buf.items, text_style);
+                }
+                if (entry.error_message) |message| {
+                    self.putDetailWrapped(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Error: {s}", .{message}) catch "Error", self.theme.errorStyle());
+                }
+                if (entry.entry_path.len > 0) {
+                    self.putDetailWrapped(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Entry: {s}", .{entry.entry_path}) catch "Entry", muted);
+                }
+                if (entry.manifest_path.len > 0) {
+                    self.putDetailWrapped(detail_x, &detail_row, bottom, detail_width, std.fmt.bufPrint(&buf, "Manifest: {s}", .{entry.manifest_path}) catch "Manifest", muted);
+                }
             }
         }
-        self.screen.putString(
-            @intCast(x + 2),
-            @intCast(y + height - 2),
-            "j/k move · Enter toggle · s source · r reload · / filter · Esc close",
-            self.theme.mutedStyle(),
-            width -| 4,
-        );
+
+        const footer = if (self.plugin_manager.filtering)
+            "type to filter · ↑↓ move · Enter apply · Esc clear"
+        else
+            "j/k move · Enter toggle · s source · r reload · R all · / search · Esc close";
+        self.screen.putString(@intCast(x + 2), @intCast(y + height - 2), footer, self.theme.mutedStyle(), width -| 4);
     }
 
     // -----------------------------------------------------------------------
@@ -4976,10 +5293,9 @@ pub const Editor = struct {
 
     fn moveVertical(self: *Editor, delta: isize) void {
         const line = self.cursorLine();
-        const target_signed: isize = @as(isize, @intCast(line)) + delta;
-        if (target_signed < 0) return;
+        const last_line: isize = @intCast(self.doc.lineCount() - 1);
+        const target_signed = std.math.clamp(@as(isize, @intCast(line)) + delta, 0, last_line);
         const target: usize = @intCast(target_signed);
-        if (target >= self.doc.lineCount()) return;
 
         if (self.preferred_column == null) self.preferred_column = self.cursorVisualColumn();
         const target_start = self.doc.lineStart(target);
@@ -4991,7 +5307,7 @@ pub const Editor = struct {
     }
 
     fn movePage(self: *Editor, direction: isize) void {
-        const visible = if (self.rows > 3) self.rows - 3 else 1;
+        const visible = @max(1, self.textRows());
         self.moveVertical(direction * @as(isize, @intCast(visible)));
     }
 
@@ -5187,6 +5503,7 @@ pub const Editor = struct {
             self.ensureCursorVisible();
 
             const rows = self.textRows();
+            if (self.top_line + rows > 2048) self.doc.ensureLineIndex() catch {};
             const gutter = self.gutterWidth();
             const first_line = self.top_line;
             const language = self.activeLanguage();
@@ -5215,6 +5532,7 @@ pub const Editor = struct {
         self.renderPluginPanel();
         self.renderPalette();
         self.renderPluginManager();
+        self.renderHelp();
 
         const output = try self.renderer.render(self.allocator, self.screen, false);
         try self.terminal.write(output);
@@ -5772,6 +6090,7 @@ pub const Editor = struct {
         const y = if (available >= total_height) (available - total_height) / 2 else 0;
         const title = switch (self.picker.kind) {
             .files => "Open file",
+            .themes => "Select theme",
             .search => if (self.picker.replace)
                 (if (self.picker.regex) "Regex replace across files" else "Replace across files")
             else if (self.picker.regex)
@@ -6053,6 +6372,103 @@ pub const Editor = struct {
         );
     }
 
+    fn renderHelp(self: *Editor) void {
+        if (!self.help.visible) return;
+        self.screen.clear(self.theme.base());
+        const layout = self.help.layout(self.cols, self.rows);
+        self.drawBox(layout.x, layout.y, layout.width, layout.height, " Help ");
+        self.help.top = @min(self.help.top, self.help.maxTop(self.cols, self.rows));
+
+        const section_style = self.theme.accentStyle();
+        var key_style = self.theme.syntaxStyle(.default);
+        key_style.fg = self.theme.accent;
+        const text_style = self.theme.text();
+        const muted_style = self.theme.mutedStyle();
+        const key_width = @min(
+            std.math.clamp(layout.width / 3, 8, 30),
+            @max(layout.width -| 8, 4),
+        );
+
+        var row: usize = 0;
+        while (row < layout.rows) : (row += 1) {
+            const index = self.help.top + row;
+            if (index >= help_mod.LINES.len) break;
+            const line = help_mod.LINES[index];
+            const screen_row = layout.y + 1 + row;
+            switch (line.kind) {
+                .section => self.screen.putString(
+                    @intCast(layout.x + 2),
+                    @intCast(screen_row),
+                    line.left,
+                    section_style,
+                    layout.width -| 4,
+                ),
+                .entry => {
+                    self.screen.putString(
+                        @intCast(layout.x + 2),
+                        @intCast(screen_row),
+                        line.left,
+                        key_style,
+                        key_width,
+                    );
+                    self.screen.putString(
+                        @intCast(layout.x + 2 + key_width),
+                        @intCast(screen_row),
+                        line.right,
+                        text_style,
+                        layout.width -| (key_width + 4),
+                    );
+                },
+                .text => self.screen.putString(
+                    @intCast(layout.x + 2),
+                    @intCast(screen_row),
+                    line.left,
+                    muted_style,
+                    layout.width -| 4,
+                ),
+                .blank => {},
+            }
+        }
+
+        const max_top = self.help.maxTop(self.cols, self.rows);
+        if (max_top > 0 and layout.height > 2) {
+            const track_height = @max(layout.height -| 2, 1);
+            const thumb_height = @max(
+                1,
+                @as(usize, @intFromFloat(@round(
+                    (@as(f64, @floatFromInt(track_height)) * @as(f64, @floatFromInt(layout.rows))) /
+                        @as(f64, @floatFromInt(help_mod.LINES.len)),
+                ))),
+            );
+            const thumb_top = (track_height - thumb_height) * self.help.top / max_top;
+            var track_row: usize = 0;
+            while (track_row < track_height) : (track_row += 1) {
+                const thumb = track_row >= thumb_top and track_row < thumb_top + thumb_height;
+                self.screen.put(
+                    @intCast(layout.x + layout.width - 2),
+                    @intCast(layout.y + 1 + track_row),
+                    if (thumb) 0x2588 else 0x2502,
+                    if (thumb) key_style else muted_style,
+                    1,
+                );
+            }
+        }
+
+        const hint_row = layout.y + layout.height;
+        if (hint_row < self.rows) {
+            const hint = "Esc / q close    Up/Down scroll    PgUp/PgDn page    Home/End";
+            const width = util.displayWidthString(hint);
+            const col = (self.cols -| width) / 2;
+            self.screen.putString(
+                @intCast(col),
+                @intCast(hint_row),
+                hint,
+                muted_style,
+                self.cols -| col,
+            );
+        }
+    }
+
     // -----------------------------------------------------------------------
     // SMALL HELPERS
     // -----------------------------------------------------------------------
@@ -6110,6 +6526,20 @@ fn previousScalarIn(doc: *document_mod.Document, offset: usize) usize {
         value -= 1;
     }
     return value;
+}
+
+fn displayPrefixBytes(text: []const u8, max_width: usize) usize {
+    var offset: usize = 0;
+    var width: usize = 0;
+    while (offset < text.len) {
+        const decoded = util.decodeAt(text, offset);
+        if (decoded.len == 0) break;
+        const cell_width = util.displayWidth(decoded.codepoint);
+        if (width + cell_width > max_width) break;
+        width += cell_width;
+        offset += decoded.len;
+    }
+    return offset;
 }
 
 fn indentLength(text: []const u8) usize {

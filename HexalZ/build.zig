@@ -61,6 +61,14 @@ pub fn build(b: *std.Build) void {
         .install_dir = .prefix,
         .install_subdir = "data",
     });
+    // Keep the portable data directory next to the executable as well, so a
+    // binary copied out of `zig-out/bin` still finds grammars, themes and
+    // plugins without depending on the current working directory.
+    b.installDirectory(.{
+        .source_dir = b.path("data"),
+        .install_dir = .bin,
+        .install_subdir = "data",
+    });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
