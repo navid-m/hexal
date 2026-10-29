@@ -227,7 +227,6 @@ fn run_lua_bench(args: &[String]) -> Result<(), String> {
         .map_err(|error| format!("cannot load '{plugin}': {error}"))?;
     let init_ns = start.elapsed().as_nanos();
 
-    // Warm up the document snapshot; timed invocations are steady-state.
     runtime
         .invoke(command, &mut document, &mut cursor)
         .map_err(|error| format!("warm-up failed: {error}"))?;

@@ -43,8 +43,6 @@ public sealed partial class Editor
         if (!_sidebarPrewarmed)
         {
             _sidebarPrewarmed = true;
-            // Warm the sidebar snapshot after the first frame so the first
-            // Ctrl+B has a tree ready even on slow filesystems.
             ExpandSidebarToPath(_document.Path);
             RefreshSidebar(_document.Path);
         }
