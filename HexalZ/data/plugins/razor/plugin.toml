@@ -1,0 +1,6 @@
+name = "Razor"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Razor and Blazor templates"
+lazy = true
+language = "razor"

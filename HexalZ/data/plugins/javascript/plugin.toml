@@ -1,0 +1,6 @@
+name = "JavaScript"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for JavaScript"
+lazy = true
+language = "javascript"

@@ -1,0 +1,6 @@
+name = "Vue"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Vue"
+lazy = true
+language = "vue"

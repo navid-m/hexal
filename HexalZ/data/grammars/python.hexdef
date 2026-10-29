@@ -1,0 +1,114 @@
+{
+  "id": "python",
+  "name": "Python",
+  "indentation": { "style": "spaces", "width": 4, "tabWidth": 4 },
+  "autoIndent": true,
+  "autoClose": true,
+  "indentAfter": [":"],
+  "unindentBefore": ["elif", "else:", "except", "except:", "finally:", "case"],
+  "extensions": [".py"],
+  "keywords": [
+    "and",
+    "as",
+    "assert",
+    "async",
+    "await",
+    "class",
+    "def",
+    "del",
+    "from",
+    "global",
+    "import",
+    "in",
+    "is",
+    "lambda",
+    "nonlocal",
+    "not",
+    "or",
+    "pass",
+    "with"
+  ],
+  "controlStatements": [
+    "break",
+    "case",
+    "continue",
+    "elif",
+    "else",
+    "except",
+    "finally",
+    "for",
+    "if",
+    "match",
+    "raise",
+    "return",
+    "try",
+    "while",
+    "yield"
+  ],
+  "types": [
+    "Any",
+    "bool",
+    "bytearray",
+    "bytes",
+    "Callable",
+    "complex",
+    "dict",
+    "Dict",
+    "float",
+    "frozenset",
+    "int",
+    "Iterable",
+    "list",
+    "List",
+    "object",
+    "Optional",
+    "Sequence",
+    "set",
+    "Set",
+    "str",
+    "tuple",
+    "Tuple",
+    "type",
+    "Union"
+  ],
+  "constants": [
+    "True",
+    "False",
+    "None",
+    "NotImplemented",
+    "Ellipsis",
+    "__file__",
+    "__name__"
+  ],
+  "comments": {
+    "line": "#"
+  },
+  "strings": {
+    "quoteCharacters": ["\"", "'"],
+    "escapeCharacter": "\\"
+  },
+  "numbers": true,
+  "formatter": {
+    "command": "black",
+    "arguments": ["-"],
+    "input": "stdin",
+    "output": "stdout"
+  },
+  "debugger": {
+    "adapter": "python3",
+    "arguments": ["-m", "debugpy.adapter"],
+    "configuration": {
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspace}",
+      "justMyCode": true
+    }
+  },
+  "fallbackFormatter": {
+    "command": "ruff",
+    "arguments": ["format", "-"],
+    "input": "stdin",
+    "output": "stdout",
+    "timeout": 15000
+  }
+}

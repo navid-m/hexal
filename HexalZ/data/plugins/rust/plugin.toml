@@ -1,0 +1,6 @@
+name = "Rust"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Rust"
+lazy = true
+language = "rust"

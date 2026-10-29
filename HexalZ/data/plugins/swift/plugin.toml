@@ -1,0 +1,6 @@
+name = "Swift"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Swift"
+lazy = true
+language = "swift"

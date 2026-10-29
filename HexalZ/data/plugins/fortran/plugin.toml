@@ -1,0 +1,6 @@
+name = "Fortran"
+version = "1.0"
+entry = "init.lua"
+description = "Language server association for Fortran"
+lazy = true
+language = "fortran"
