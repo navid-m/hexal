@@ -25,6 +25,19 @@ impl DiffLineState {
 }
 
 impl Editor {
+    /// Recompute gutter markers for every pane, not just the active one.
+    pub(super) fn refresh_all_pane_diff_lines(&mut self) {
+        let active = self.active_pane;
+        self.capture_pane_state(active);
+        let panes: Vec<PaneId> = self.panes.iter().map(|pane| pane.id).collect();
+        for pane in panes {
+            self.load_pane_state(pane);
+            self.refresh_git_diff();
+            self.capture_pane_state(pane);
+        }
+        self.load_pane_state(active);
+    }
+
     pub(super) fn refresh_git_diff(&mut self) {
         if !self.sidebar.show_modified {
             self.git_diff.path.clear();

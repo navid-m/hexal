@@ -23,6 +23,14 @@ impl Renderer {
         }
     }
 
+    /// Forget the previous frame so the next render repaints every cell.
+    pub fn reset(&mut self) {
+        self.previous.clear();
+        self.previous_width = 0;
+        self.previous_height = 0;
+        self.output.clear();
+    }
+
     pub fn render(&mut self, screen: &Screen, force_full: bool) -> &[u8] {
         self.output.clear();
         let width = screen.width;

@@ -558,6 +558,13 @@ impl Editor {
                     self.set_error("usage: :rcfg");
                 }
             }
+            "rla" => {
+                if args.is_empty() {
+                    self.reload_all(force);
+                } else {
+                    self.set_error("usage: :rla[!]");
+                }
+            }
             "a" | "about" => {
                 if args.is_empty() {
                     self.open_about();

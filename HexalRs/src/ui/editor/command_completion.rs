@@ -19,6 +19,7 @@ const BUILTIN_COMMANDS: &[&str] = &[
     "themes",
     "cfg",
     "rcfg",
+    "rla",
     "a",
     "about",
     "cw",

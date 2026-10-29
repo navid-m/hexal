@@ -19,6 +19,7 @@ mod picker;
 mod plugin_manager;
 mod plugin_panels;
 mod plugins;
+mod reload_all;
 mod render;
 mod sidebar;
 mod status;
