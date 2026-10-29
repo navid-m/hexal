@@ -4,7 +4,8 @@ A general purpose modal text editor with powerful Lua scripting capabilities bui
 
 Links of note:
 
-- [Documentation](https://hexal.pages.dev)
+- [Site](https://hexal.pages.dev)
+- [Documentation](https://hexal.pages.dev/docs/site/)
 - [Community Plugins](https://github.com/navid-m/hexal-plugins)
 
 Fundamentals of the editor, along with useful shortcuts can be learned by typing the Ex command `:help` into the editor whilst in NORMAL mode.
