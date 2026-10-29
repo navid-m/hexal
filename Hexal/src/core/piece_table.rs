@@ -107,6 +107,15 @@ impl PieceTable {
         }
     }
 
+    /// A borrowed view of the whole visible text when it is contiguous.
+    pub fn borrowed_slice(&self) -> Option<&[u8]> {
+        if self.text_is_original && self.size() == self.original.len() {
+            Some(&self.original)
+        } else {
+            None
+        }
+    }
+
     pub fn newline_count(&self) -> usize {
         self.newlines_of(self.root)
     }

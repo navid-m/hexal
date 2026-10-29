@@ -266,6 +266,10 @@ impl Document {
         self.table.borrowed_view()
     }
 
+    pub fn borrowed_slice(&self) -> Option<&[u8]> {
+        self.table.borrowed_slice()
+    }
+
     pub fn range(&self, offset: usize, length: usize) -> Vec<u8> {
         self.table.range_alloc(offset, length)
     }

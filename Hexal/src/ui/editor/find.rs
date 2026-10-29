@@ -114,6 +114,13 @@ impl Editor {
         candidate.is_some_and(|index| end <= scope[index].1)
     }
 
+    fn find_text(&self) -> std::borrow::Cow<'_, [u8]> {
+        match self.doc.borrowed_slice() {
+            Some(text) => std::borrow::Cow::Borrowed(text),
+            None => std::borrow::Cow::Owned(self.doc.all_text()),
+        }
+    }
+
     fn active_find_field(&self) -> &String {
         if self.find.replace && self.find.editing_replacement {
             &self.find.replacement
@@ -327,38 +334,50 @@ impl Editor {
         }
         let needle = query.as_bytes();
         let match_case = self.search_match_case;
-        for line in 0..self.doc.line_count() {
-            let text = self.doc.line_text(line);
-            if text.is_empty() {
-                continue;
-            }
-            let line_start = self.doc.line_start(line);
+        let text = self.find_text();
+        let line_count = self.doc.line_count();
+        let mut matches = Vec::new();
+        let mut line = 0usize;
+        let mut line_start = 0usize;
+
+        'lines: for raw_line in text.split(|&byte| byte == b'\n') {
+            let line_text = if line + 1 < line_count && raw_line.last() == Some(&b'\r') {
+                &raw_line[..raw_line.len() - 1]
+            } else {
+                raw_line
+            };
             let mut search_start = 0usize;
-            while search_start < text.len() {
-                let Some(relative) = util::index_of(&text[search_start..], needle, match_case)
+            while search_start < line_text.len() {
+                let Some(relative) =
+                    util::index_of(&line_text[search_start..], needle, match_case)
                 else {
                     break;
                 };
                 let index = search_start + relative;
-                let match_length = needle.len().min(text.len() - index);
+                let match_length = needle.len().min(line_text.len() - index);
                 let start = line_start + index;
                 let end = start + match_length;
 
                 if self.in_find_scope(start, end) {
-                    self.find.matches.push(FindMatch {
+                    matches.push(FindMatch {
                         start,
                         end,
                         line,
                         replacement: String::new(),
                     });
-                    if self.find.matches.len() >= MAX_FIND_MATCHES {
-                        return;
+                    if matches.len() >= MAX_FIND_MATCHES {
+                        break 'lines;
                     }
                 }
 
                 search_start = index + match_length.max(1);
             }
+
+            line += 1;
+            line_start += raw_line.len() + 1;
         }
+
+        self.find.matches = matches;
     }
 
     fn rebuild_regex_find_matches(&mut self, pattern: &str) {
@@ -375,12 +394,23 @@ impl Editor {
         };
 
         let replacement_pattern = self.find.replacement.clone();
-        for line in 0..self.doc.line_count() {
-            let text = self.doc.line_text(line);
-            let Ok(line_text) = std::str::from_utf8(&text) else {
+        let text = self.find_text();
+        let line_count = self.doc.line_count();
+        let mut matches = Vec::new();
+        let mut line = 0usize;
+        let mut line_start = 0usize;
+
+        'lines: for raw_line in text.split(|&byte| byte == b'\n') {
+            let line_text = if line + 1 < line_count && raw_line.last() == Some(&b'\r') {
+                &raw_line[..raw_line.len() - 1]
+            } else {
+                raw_line
+            };
+            let Ok(line_text) = std::str::from_utf8(line_text) else {
+                line += 1;
+                line_start += raw_line.len() + 1;
                 continue;
             };
-            let line_start = self.doc.line_start(line);
 
             for captures in regex.captures_iter(line_text) {
                 let Some(match_) = captures.get(0) else {
@@ -400,17 +430,22 @@ impl Editor {
                     continue;
                 }
 
-                self.find.matches.push(FindMatch {
+                matches.push(FindMatch {
                     start,
                     end,
                     line,
                     replacement,
                 });
-                if self.find.matches.len() >= MAX_FIND_MATCHES {
-                    return;
+                if matches.len() >= MAX_FIND_MATCHES {
+                    break 'lines;
                 }
             }
+
+            line += 1;
+            line_start += raw_line.len() + 1;
         }
+
+        self.find.matches = matches;
     }
 
     fn replace_current_find_match(&mut self) {
