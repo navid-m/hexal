@@ -4,6 +4,7 @@
 //! (C) Navid Momtahen - 2026
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -143,6 +144,8 @@ fn walk(
     }
 }
 
+const MAX_SEARCH_FILE_BYTES: u64 = 4 * 1024 * 1024;
+
 pub fn search(
     root: &Path,
     files: &[String],
@@ -161,14 +164,37 @@ pub fn search(
         if hits.len() >= max_hits || cancel.load(Ordering::Relaxed) {
             break;
         }
-        let data = match fs::read(root.join(path)) {
-            Ok(data) if data.len() <= 4 * 1024 * 1024 => data,
-            _ => continue,
+        let full_path = root.join(path);
+        // Check the size before reading. Ignored build directories can contain
+        // multi-gigabyte artifacts; reading them only to discard the bytes made
+        // search across a large workspace needlessly slow.
+        let Ok(metadata) = fs::metadata(&full_path) else {
+            continue;
         };
-        if data.iter().take(8192).any(|&byte| byte == 0) {
+        if !metadata.is_file() || metadata.len() > MAX_SEARCH_FILE_BYTES {
             continue;
         }
-
+        let mut file = match fs::File::open(&full_path) {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
+        let mut prefix = [0u8; 8192];
+        let prefix_len = match file.read(&mut prefix) {
+            Ok(length) => length,
+            Err(_) => continue,
+        };
+        if prefix[..prefix_len].contains(&0) {
+            continue;
+        }
+        let mut data = Vec::with_capacity(metadata.len() as usize);
+        data.extend_from_slice(&prefix[..prefix_len]);
+        let remaining = MAX_SEARCH_FILE_BYTES.saturating_sub(prefix_len as u64);
+        if file.take(remaining).read_to_end(&mut data).is_err() {
+            continue;
+        }
+        if data.len() > MAX_SEARCH_FILE_BYTES as usize {
+            continue;
+        }
         let mut line = 0usize;
         let mut line_start = 0usize;
         while line_start <= data.len() {
@@ -240,6 +266,36 @@ mod tests {
         assert!(shown.contains(&"target/debug/app".to_string()));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn search_skips_binary_and_oversized_files() {
+        let root =
+            std::env::temp_dir().join(format!("hexal-search-limits-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("text.txt"), b"before needle after\n").unwrap();
+        fs::write(root.join("binary.bin"), b"needle\0binary\n").unwrap();
+        let oversized = fs::File::create(root.join("oversized.txt")).unwrap();
+        oversized.set_len(4 * 1024 * 1024 + 1).unwrap();
+        drop(oversized);
+
+        let hits = search(
+            &root,
+            &[
+                "text.txt".to_string(),
+                "binary.bin".to_string(),
+                "oversized.txt".to_string(),
+            ],
+            "needle",
+            10,
+            true,
+            &AtomicBool::new(false),
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].file_index, 0);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
