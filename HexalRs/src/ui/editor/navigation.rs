@@ -543,12 +543,16 @@ impl Editor {
             return None;
         }
         let left = bounds.x;
-        let line = self.top_line + (y - bounds.y);
+        let local_x = x.saturating_sub(left);
+        let local_y = y.saturating_sub(bounds.y);
+        if self.word_wrap {
+            return self.wrapped_offset_at_screen(local_x, local_y, bounds.width, bounds.height);
+        }
+        let line = self.top_line + local_y;
         if line >= self.doc.line_count() {
             return Some(self.doc.size());
         }
         let gutter = self.gutter_width_for(bounds.width);
-        let local_x = x.saturating_sub(left);
         let visual = if local_x > gutter {
             self.left_column + (local_x - gutter)
         } else {

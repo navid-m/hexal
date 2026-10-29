@@ -30,14 +30,49 @@ impl Editor {
             PaletteAction::OpenConfig,
         );
         self.add_palette_command(
+            "Open Hexal log",
+            "Open ~/.hexal/hexal.log to inspect startup, plugin, LSP and formatter messages.",
+            PaletteAction::OpenLog,
+        );
+        self.add_palette_command(
+            "Open ~/.hexal directory",
+            "Browse the Hexal home directory in the file picker.",
+            PaletteAction::OpenHexalHome,
+        );
+        self.add_palette_command(
+            "Open installation directory",
+            "Browse the directory containing the Hexal executable.",
+            PaletteAction::OpenInstallationDirectory,
+        );
+        self.add_palette_command(
+            "Open themes directory",
+            "Browse the active theme directory.",
+            PaletteAction::OpenThemesDirectory,
+        );
+        self.add_palette_command(
             "Go to line",
             "Jump to a line number in the current buffer.",
             PaletteAction::GotoLine,
         );
         self.add_palette_command(
+            "Detect document indentation",
+            "Infer tabs or spaces and the indent width from the current buffer.",
+            PaletteAction::DetectIndentation,
+        );
+        self.add_palette_command(
             "Open theme selector",
             "Search and preview installed themes.",
             PaletteAction::OpenThemes,
+        );
+        self.add_palette_command(
+            "Reload configuration",
+            "Reload .hexcfg, grammars, themes and language servers.",
+            PaletteAction::ReloadConfiguration,
+        );
+        self.add_palette_command(
+            "Reload all files",
+            "Reload open files from disk and hard-refresh the interface.",
+            PaletteAction::ReloadAllFiles,
         );
         self.add_palette_command(
             "Toggle sidebar",
@@ -134,6 +169,13 @@ impl Editor {
             "Enable or disable installed plugins and inspect their details.",
             PaletteAction::ManagePlugins,
         );
+        if self.config.startup_benchmarker {
+            self.add_palette_command(
+                "Show startup benchmark",
+                "Inspect startup and plugin load/unload timings.",
+                PaletteAction::ShowStartupBenchmark,
+            );
+        }
         self.add_palette_command(
             "Show key help",
             "Show a short reminder of the available keys.",
@@ -201,8 +243,15 @@ impl Editor {
             PaletteAction::OpenFiles => self.open_picker(PickerKind::Files),
             PaletteAction::SearchFiles => self.open_picker(PickerKind::Search),
             PaletteAction::OpenConfig => self.open_config_file(),
+            PaletteAction::OpenLog => self.open_log_file(),
+            PaletteAction::OpenHexalHome => self.open_hexal_home_directory(),
+            PaletteAction::OpenInstallationDirectory => self.open_installation_directory(),
+            PaletteAction::OpenThemesDirectory => self.open_themes_directory(),
             PaletteAction::GotoLine => self.open_goto_prompt(),
             PaletteAction::OpenThemes => self.open_picker(PickerKind::Themes),
+            PaletteAction::DetectIndentation => self.auto_detect_indentation(true),
+            PaletteAction::ReloadConfiguration => self.reload_configuration(),
+            PaletteAction::ReloadAllFiles => self.reload_all(false),
             PaletteAction::ToggleSidebar => self.toggle_sidebar(),
             PaletteAction::ToggleGitIgnored => self.toggle_git_ignored(),
             PaletteAction::ToggleDiffLines => self.toggle_diff_lines(),
@@ -228,6 +277,7 @@ impl Editor {
             }
             PaletteAction::ReloadThemes => self.reload_themes(),
             PaletteAction::ManagePlugins => self.open_plugin_manager(),
+            PaletteAction::ShowStartupBenchmark => self.open_startup_benchmark(),
             PaletteAction::ShowHelp => {
                 self.help.open();
                 self.force_full_redraw = true;
@@ -285,6 +335,13 @@ impl Editor {
         self.config = config;
         self.sidebar.show_modified = self.config.show_diff_lines;
         self.sidebar.show_git_ignored = self.config.show_git_ignored;
+        self.word_wrap = self.config.word_wrap;
+        self.left_column = 0;
+        crate::util::startup_benchmark::set_enabled(self.config.startup_benchmarker);
+        if !self.config.startup_benchmarker {
+            self.benchmark_visible = false;
+            self.benchmark_top = 0;
+        }
         self.refresh_git_diff();
         self.command_files = None;
         self.cancel_picker_work();
@@ -319,6 +376,48 @@ impl Editor {
                 self.request_open(&path.to_string_lossy(), 0, 0, false);
             }
             Err(error) => self.set_error(&format!("config: {error}")),
+        }
+    }
+
+    pub(super) fn open_log_file(&mut self) {
+        let directory = crate::core::config::hexal_home_directory();
+        if let Err(error) = std::fs::create_dir_all(&directory) {
+            self.set_error(&format!("cannot open Hexal log: {error}"));
+            return;
+        }
+        let path = crate::util::log::path();
+        if !path.exists() {
+            if let Err(error) = std::fs::write(&path, b"") {
+                self.set_error(&format!("cannot open Hexal log: {error}"));
+                return;
+            }
+        }
+        self.request_open(&path.to_string_lossy(), 0, 0, false);
+    }
+
+    fn open_hexal_home_directory(&mut self) {
+        let directory = crate::core::config::hexal_home_directory();
+        if let Err(error) = std::fs::create_dir_all(&directory) {
+            self.set_error(&format!("cannot open ~/.hexal: {error}"));
+            return;
+        }
+        self.open_file_picker_at(directory);
+    }
+
+    fn open_installation_directory(&mut self) {
+        match std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+        {
+            Some(directory) => self.open_file_picker_at(directory),
+            None => self.set_error("cannot resolve the installation directory"),
+        }
+    }
+
+    fn open_themes_directory(&mut self) {
+        match crate::ui::theme::theme_directory() {
+            Some(directory) => self.open_file_picker_at(directory),
+            None => self.set_error("cannot resolve the themes directory"),
         }
     }
 

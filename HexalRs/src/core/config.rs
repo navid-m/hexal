@@ -46,7 +46,6 @@ pub struct Config {
     pub trim_trailing_whitespace_on_save: bool,
     pub smart_backspace: bool,
     pub auto_detect_indentation_on_startup: bool,
-    #[allow(dead_code)]
     pub startup_benchmarker: bool,
     #[allow(dead_code)]
     pub syntax_highlight_picker_preview: bool,
@@ -155,7 +154,6 @@ impl Config {
         )
     }
 
-    #[allow(dead_code)]
     pub fn update_word_wrap(path: &Path, word_wrap: bool) -> Result<(), String> {
         update_settings(path, None, None, None).and_then(|_| {
             let mut root = read_root(path)?;

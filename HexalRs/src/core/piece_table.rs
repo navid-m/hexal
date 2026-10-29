@@ -628,23 +628,7 @@ fn choose_end(source: &[u8], start: usize, limit: usize) -> usize {
 }
 
 pub fn count_newlines(source: &[u8]) -> usize {
-    let mut count = 0usize;
-    let mut position = 0usize;
-    while position < source.len() {
-        let found = unsafe {
-            libc::memchr(
-                source[position..].as_ptr() as *const std::os::raw::c_void,
-                b'\n' as std::os::raw::c_int,
-                source.len() - position,
-            )
-        };
-        if found.is_null() {
-            break;
-        }
-        count += 1;
-        position = found as usize - source.as_ptr() as usize + 1;
-    }
-    count
+    source.iter().filter(|&&byte| byte == b'\n').count()
 }
 
 fn detect_eol(source: &[u8]) -> Eol {

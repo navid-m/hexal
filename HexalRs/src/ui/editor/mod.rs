@@ -25,7 +25,9 @@ mod reload_all;
 mod render;
 mod search_nav;
 mod sidebar;
+mod startup_benchmark;
 mod status;
+mod wrap;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io;
@@ -108,8 +110,16 @@ enum PaletteAction {
     OpenFiles,
     SearchFiles,
     OpenConfig,
+    OpenLog,
+    OpenHexalHome,
+    OpenInstallationDirectory,
+    OpenThemesDirectory,
     GotoLine,
     OpenThemes,
+    DetectIndentation,
+    ReloadConfiguration,
+    ReloadAllFiles,
+    ShowStartupBenchmark,
     ToggleSidebar,
     ToggleGitIgnored,
     ToggleDiffLines,
@@ -640,6 +650,9 @@ pub struct Editor {
     preferred_column: Option<usize>,
     top_line: usize,
     left_column: usize,
+    word_wrap: bool,
+    benchmark_visible: bool,
+    benchmark_top: usize,
 
     panes: Vec<PaneState>,
     pane_root: PaneNode,
@@ -689,6 +702,7 @@ pub struct Editor {
     picker_preview_cache: HashMap<String, preview::FilePreview>,
     picker_preview_order: VecDeque<String>,
     picker_scan: Option<PickerScanTask>,
+    picker_scan_root: Option<PathBuf>,
     picker_search: Option<PickerSearchTask>,
     diff_with_source: Option<PathBuf>,
     palette_commands: Vec<PaletteCommand>,
@@ -774,15 +788,24 @@ impl Editor {
         workspace_root: Option<PathBuf>,
         open_file_picker: bool,
     ) -> Editor {
+        let benchmark_started = std::time::Instant::now();
         let message = if doc.path.is_some() {
             format!("Opened {}", doc.display_name())
         } else {
             String::new()
         };
+        let themes_started = std::time::Instant::now();
         let themes = ThemeRegistry::load_default();
+        let themes_ms = themes_started.elapsed().as_secs_f64() * 1000.0;
         let theme = themes.active().clone();
+        let languages_started = std::time::Instant::now();
         let languages = Registry::load();
+        let languages_ms = languages_started.elapsed().as_secs_f64() * 1000.0;
+        let config_started = std::time::Instant::now();
         let (config, config_error) = Config::load_default();
+        let config_ms = config_started.elapsed().as_secs_f64() * 1000.0;
+        let word_wrap = config.word_wrap;
+        let startup_benchmarker = config.startup_benchmarker;
         let mut editor = Editor {
             doc,
             config,
@@ -802,6 +825,9 @@ impl Editor {
             preferred_column: None,
             top_line: 0,
             left_column: 0,
+            word_wrap,
+            benchmark_visible: false,
+            benchmark_top: 0,
             panes: Vec::new(),
             pane_root: PaneNode::Leaf(1),
             active_pane: 1,
@@ -843,6 +869,7 @@ impl Editor {
             picker_preview_cache: HashMap::new(),
             picker_preview_order: VecDeque::new(),
             picker_scan: None,
+            picker_scan_root: None,
             picker_search: None,
             diff_with_source: None,
             palette_commands: Vec::new(),
@@ -907,6 +934,21 @@ impl Editor {
             plugin_panel: None,
             plugin_panel_dismissed: -1,
         };
+        crate::util::startup_benchmark::set_enabled(startup_benchmarker);
+        crate::util::startup_benchmark::add("Startup", "Theme registry", themes_ms, "");
+        crate::util::startup_benchmark::add(
+            "Internal",
+            "Grammar registry",
+            languages_ms,
+            &format!("{} definitions", editor.languages.languages().len()),
+        );
+        crate::util::startup_benchmark::add("Internal", "Configuration", config_ms, "");
+        crate::util::startup_benchmark::add_since(
+            "Startup",
+            "Editor initialization",
+            Some(benchmark_started),
+            "",
+        );
         editor.last_revision = editor.doc.revision();
         editor.sidebar.show_modified = editor.config.show_diff_lines;
         editor.sidebar.show_git_ignored = editor.config.show_git_ignored;
@@ -931,9 +973,29 @@ impl Editor {
             self.open_picker(PickerKind::Files);
         }
 
+        let first_render_started = crate::util::trace::timestamp();
+        let benchmark_render_started = std::time::Instant::now();
         self.render(terminal)?;
+        crate::util::startup_benchmark::add_since(
+            "Startup",
+            "UI first render",
+            Some(benchmark_render_started),
+            "",
+        );
+        crate::util::trace::mark("UI first render", first_render_started, "");
+        let deferred_started = crate::util::trace::timestamp();
+        let benchmark_deferred_started = std::time::Instant::now();
         self.run_deferred_startup();
+        crate::util::startup_benchmark::add_since(
+            "Startup",
+            "Deferred startup work",
+            Some(benchmark_deferred_started),
+            "",
+        );
+        crate::util::trace::mark("Deferred startup work", deferred_started, "");
+        let second_render_started = crate::util::trace::timestamp();
         self.render(terminal)?;
+        crate::util::trace::mark("UI second render", second_render_started, "");
         self.poll_background();
 
         while self.running {
@@ -1056,6 +1118,10 @@ impl Editor {
         }
         if self.hover.visible {
             self.handle_hover_input(event);
+            return;
+        }
+        if self.benchmark_visible {
+            self.handle_startup_benchmark_input(event);
             return;
         }
         if self.about.visible {

@@ -66,7 +66,21 @@ impl Editor {
     }
 
     pub(super) fn open_picker(&mut self, kind: PickerKind) {
+        self.open_picker_with_root(kind, None);
+    }
+
+    pub(super) fn open_file_picker_at(&mut self, root: PathBuf) {
+        self.open_picker_with_root(PickerKind::Files, Some(root));
+    }
+
+    fn open_picker_with_root(&mut self, kind: PickerKind, root: Option<PathBuf>) {
         self.cancel_picker_work();
+        let root_changed = self.picker_scan_root != root;
+        self.picker_scan_root = root;
+        if root_changed {
+            self.picker.files_loaded = false;
+            self.picker.files = Arc::new(Vec::new());
+        }
         if kind != PickerKind::DiffWith {
             self.diff_with_source = None;
         }
@@ -93,6 +107,12 @@ impl Editor {
         }
         self.doc.break_undo_group();
         self.clear_message();
+    }
+
+    pub(super) fn picker_root(&self) -> PathBuf {
+        self.picker_scan_root
+            .clone()
+            .unwrap_or_else(|| self.sidebar.root.clone())
     }
 
     fn picker_needs_files(kind: PickerKind) -> bool {
@@ -127,7 +147,7 @@ impl Editor {
         let generation = self.next_picker_generation();
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
-        let root = self.sidebar.root.clone();
+        let root = self.picker_root();
         let show_ignored = self.sidebar.show_git_ignored;
         let (sender, receiver) = mpsc::channel();
         let handle = std::thread::spawn(move || {
@@ -157,7 +177,7 @@ impl Editor {
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
         let files = self.picker.files.clone();
-        let root = self.sidebar.root.clone();
+        let root = self.picker_root();
         let query = self.picker.query.clone();
         let match_case = self.search_match_case;
         let max_file_bytes = match self.config.search_skip_files_over_size_mb {
@@ -278,6 +298,7 @@ impl Editor {
         }
         self.cancel_picker_work();
         self.picker.kind = PickerKind::None;
+        self.picker_scan_root = None;
         self.picker.query.clear();
         self.picker.selected = 0;
         self.picker.top = 0;
@@ -669,9 +690,8 @@ impl Editor {
             self.begin_workspace_search_session();
         }
         let item = &self.picker.items[self.picker.selected];
-        let path = self
-            .sidebar
-            .root
+        let root = self.picker_root();
+        let path = root
             .join(&self.picker.files[item.file_index])
             .to_string_lossy()
             .into_owned();

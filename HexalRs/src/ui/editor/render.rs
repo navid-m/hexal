@@ -48,6 +48,10 @@ impl Editor {
             return;
         }
         let line = self.cursor_line();
+        if self.word_wrap {
+            self.ensure_wrapped_cursor_visible(line, rows, bounds.width);
+            return;
+        }
         if line < self.top_line {
             self.top_line = line;
         }
@@ -105,6 +109,7 @@ impl Editor {
         self.render_plugin_panel();
         self.render_plugin_manager();
         self.render_about();
+        self.render_startup_benchmark();
         self.render_help();
 
         let force = self.force_full_redraw;

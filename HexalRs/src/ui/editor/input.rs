@@ -627,6 +627,13 @@ impl Editor {
                     self.set_error("usage: :rla[!]");
                 }
             }
+            "open-log" | "ol" => {
+                if args.is_empty() {
+                    self.open_log_file();
+                } else {
+                    self.set_error(&format!("usage: :{command_name}"));
+                }
+            }
             "a" | "about" => {
                 if args.is_empty() {
                     self.open_about();
@@ -737,6 +744,27 @@ impl Editor {
             },
             "gi" => self.toggle_git_ignored(),
             "gdl" => self.toggle_diff_lines(),
+            "gj" => {
+                if args.is_empty() {
+                    self.jump_to_diff_line(true);
+                } else {
+                    self.set_error("usage: :gj");
+                }
+            }
+            "gjp" => {
+                if args.is_empty() {
+                    self.jump_to_diff_line(false);
+                } else {
+                    self.set_error("usage: :gjp");
+                }
+            }
+            "ww" => {
+                if args.is_empty() {
+                    self.toggle_word_wrap();
+                } else {
+                    self.set_error("usage: :ww");
+                }
+            }
             "smc" => {
                 if args.is_empty() {
                     self.toggle_search_match_case();
@@ -898,4 +926,45 @@ fn strip_quotes(text: &str) -> String {
         }
     }
     text.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn editor() -> Editor {
+        let mut editor = Editor::new(Document::new(), 80, 24);
+        let directory =
+            std::env::temp_dir().join(format!("hexal-command-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        editor.config.source_path = directory.join(".hexcfg");
+        editor
+    }
+
+    #[test]
+    fn word_wrap_command_toggles_the_setting() {
+        let mut editor = editor();
+        let before = editor.word_wrap;
+        editor.command_line = "ww".into();
+        editor.submit_command();
+        assert_ne!(editor.word_wrap, before);
+        assert!(!editor.message.is_empty());
+    }
+
+    #[test]
+    fn git_diff_and_log_commands_are_recognized() {
+        let mut editor = editor();
+        for command in ["gj", "gjp"] {
+            editor.command_line = command.into();
+            editor.submit_command();
+            assert!(
+                !editor.message.contains("unknown command"),
+                "{command}: {}",
+                editor.message
+            );
+        }
+        editor.command_line = "open-log --bad".into();
+        editor.submit_command();
+        assert!(editor.message.contains("usage: :open-log"));
+    }
 }

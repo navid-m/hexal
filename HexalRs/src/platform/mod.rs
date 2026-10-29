@@ -1,3 +1,4 @@
+#[cfg(unix)]
 pub mod alloc;
 pub mod clipboard;
 pub mod desktop;

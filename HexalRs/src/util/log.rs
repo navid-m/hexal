@@ -6,9 +6,9 @@
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::config::hexal_home_directory;
+use crate::util::time;
 
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
@@ -34,22 +34,5 @@ pub fn write(message: &str) {
 }
 
 fn timestamp() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let seconds = now.as_secs() as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::gmtime_r(&seconds, &mut tm);
-    }
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min,
-        tm.tm_sec,
-        now.subsec_millis()
-    )
+    time::format_utc(time::now_utc())
 }

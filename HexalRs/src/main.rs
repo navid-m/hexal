@@ -12,6 +12,7 @@ mod scripting;
 mod ui;
 mod util;
 
+#[cfg(unix)]
 #[global_allocator]
 static GLOBAL: platform::alloc::LargeCacheAllocator = platform::alloc::LargeCacheAllocator::new();
 
@@ -40,13 +41,16 @@ const HELP_TEXT: &str = concat!(
     "  hexal install-plugin <name>\n",
     "\n",
     "Options:\n",
-    "  -h, --help       Print this help and exit\n",
-    "  -v, --version    Print the version and exit\n",
-    "  --               Treat remaining arguments as file names\n",
+    "  -h, --help          Print this help and exit\n",
+    "  -v, --version       Print the version and exit\n",
+    "  -vv, --verbose      Write a verbose startup trace to ~/.hexal/hexal.log\n",
+    "  --health [lang]     Show language support health and exit\n",
+    "  --                  Treat remaining arguments as file names\n",
 );
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    util::trace::begin(&args);
     if args.get(1).map(String::as_str) == Some("--lua-bench") {
         if let Err(error) = run_lua_bench(&args[2..]) {
             eprintln!("hexal: lua bench: {error}");
@@ -61,9 +65,12 @@ fn main() {
         std::process::exit(run_install_plugin(&args[1..]));
     }
 
+    let parse_started = util::trace::timestamp();
     let mut file: Option<String> = None;
     let mut directory: Option<String> = None;
     let mut options_ended = false;
+    let mut health = false;
+    let mut health_language: Option<String> = None;
 
     for arg in args.iter().skip(1) {
         if !options_ended && arg == "--" {
@@ -77,6 +84,21 @@ fn main() {
         if !options_ended && (arg == "-v" || arg == "--version") {
             println!("hexal {VERSION} ({COMMIT_HASH})");
             return;
+        }
+        if !options_ended && (arg == "-vv" || arg == "--verbose") {
+            continue;
+        }
+        if !options_ended && arg == "--health" {
+            health = true;
+            continue;
+        }
+        if health {
+            if health_language.is_some() {
+                eprintln!("hexal: --health accepts at most one language");
+                std::process::exit(2);
+            }
+            health_language = Some(arg.clone());
+            continue;
         }
         if !options_ended && arg.len() > 1 && arg.starts_with('-') {
             eprintln!("hexal: unknown option '{arg}'\n\n{HELP_TEXT}");
@@ -116,6 +138,31 @@ fn main() {
         }
     }
 
+    if health {
+        match languages::health::print_report(health_language.as_deref()) {
+            Ok(()) => return,
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
+                eprintln!("hexal: {error}");
+                std::process::exit(2);
+            }
+            Err(error) => {
+                eprintln!("hexal: health check failed: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+    util::trace::mark(
+        "argument parsing",
+        parse_started,
+        &format!(
+            "{} argument(s), file='{}', directory='{}'",
+            args.len().saturating_sub(1),
+            file.as_deref().unwrap_or(""),
+            directory.as_deref().unwrap_or("")
+        ),
+    );
+
+    let terminal_started = util::trace::timestamp();
     let mut terminal = match Terminal::init() {
         Ok(terminal) => terminal,
         Err(error) => {
@@ -123,9 +170,11 @@ fn main() {
             std::process::exit(1);
         }
     };
+    util::trace::mark("terminal initialization", terminal_started, "");
 
     std::thread::spawn(platform::desktop::ensure_launcher);
 
+    let document_started = util::trace::timestamp();
     let document = match file.as_deref() {
         Some(path) => match Document::open(path) {
             Ok(document) => document,
@@ -137,7 +186,9 @@ fn main() {
         },
         None => Document::new(),
     };
+    util::trace::mark("document open", document_started, "");
 
+    let editor_started = util::trace::timestamp();
     let open_file_picker = directory.is_some();
     let workspace_root = directory.as_deref().map(PathBuf::from);
     let mut editor = Editor::with_options(
@@ -147,6 +198,9 @@ fn main() {
         workspace_root,
         open_file_picker,
     );
+    util::trace::mark("editor initialization", editor_started, "");
+    util::trace::note("startup work handed to the editor loop");
+
     let result = editor.run(&mut terminal);
     drop(terminal);
     if let Err(error) = result {

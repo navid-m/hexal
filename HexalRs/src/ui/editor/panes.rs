@@ -741,24 +741,44 @@ impl Editor {
         self.rows = view.height + 2;
         self.editor_left_override = Some(0);
 
-        let max_top = self.doc.line_count().saturating_sub(view.height);
+        let max_top = if self.word_wrap {
+            self.doc.line_count().saturating_sub(1)
+        } else {
+            self.doc.line_count().saturating_sub(view.height)
+        };
         if self.top_line > max_top {
             self.top_line = max_top;
         }
         let gutter = self.editor_left() + self.gutter_width();
         let language = self.active_language();
-        for row in 0..view.height {
-            let line = self.top_line + row;
-            if line >= self.doc.line_count() {
-                break;
+        if self.word_wrap {
+            let text_width = view.width.saturating_sub(gutter).max(1);
+            let wrap_rows = self.build_wrap_rows(self.top_line, view.height, text_width);
+            for (row, wrapped) in wrap_rows.iter().enumerate() {
+                if wrapped.first_segment {
+                    self.render_wrapped_line_number(wrapped.line, row, gutter);
+                }
             }
-            self.render_line_number(line, row);
-            self.render_line_text(line, row, gutter, language.as_deref());
-        }
-        self.render_selection(self.top_line, view.height, gutter);
-        self.render_find_matches(self.top_line, view.height, gutter);
-        if focused {
-            self.render_cursor(self.top_line, view.height, gutter);
+            self.render_wrapped_text_lines(self.top_line, view.height, gutter, language.as_deref());
+            self.render_wrapped_selection(self.top_line, view.height, gutter);
+            self.render_wrapped_find_matches(self.top_line, view.height, gutter);
+            if focused {
+                self.render_wrapped_cursor(self.top_line, view.height, gutter);
+            }
+        } else {
+            for row in 0..view.height {
+                let line = self.top_line + row;
+                if line >= self.doc.line_count() {
+                    break;
+                }
+                self.render_line_number(line, row);
+                self.render_line_text(line, row, gutter, language.as_deref());
+            }
+            self.render_selection(self.top_line, view.height, gutter);
+            self.render_find_matches(self.top_line, view.height, gutter);
+            if focused {
+                self.render_cursor(self.top_line, view.height, gutter);
+            }
         }
 
         self.cols = previous_cols;

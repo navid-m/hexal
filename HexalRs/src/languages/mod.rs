@@ -1,4 +1,5 @@
 pub mod definition;
+pub mod health;
 pub mod highlight;
 pub mod regex;
 pub mod registry;

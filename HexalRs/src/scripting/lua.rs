@@ -112,7 +112,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
-use std::os::raw::{c_int, c_void};
+use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -305,21 +305,10 @@ impl HostState {
         let mut starts = vec![0usize];
         {
             let bytes = self.bytes();
-            let mut position = 0usize;
-            while position < bytes.len() {
-                let found = unsafe {
-                    libc::memchr(
-                        bytes[position..].as_ptr() as *const c_void,
-                        b'\n' as c_int,
-                        bytes.len() - position,
-                    )
-                };
-                if found.is_null() {
-                    break;
+            for (index, &byte) in bytes.iter().enumerate() {
+                if byte == b'\n' {
+                    starts.push(index + 1);
                 }
-                let index = found as usize - bytes.as_ptr() as usize;
-                starts.push(index + 1);
-                position = index + 1;
             }
         }
         self.line_starts = starts;

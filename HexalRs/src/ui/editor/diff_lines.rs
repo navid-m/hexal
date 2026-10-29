@@ -53,6 +53,51 @@ impl Editor {
         self.git_diff.lines = git::load_diff_lines(Path::new(&path), self.doc.line_count());
     }
 
+    pub(super) fn jump_to_diff_line(&mut self, forward: bool) {
+        self.refresh_git_diff();
+        if !self.sidebar.show_modified {
+            self.set_message("Git diff lines are hidden.");
+            return;
+        }
+        if self.git_diff.lines.is_empty() {
+            self.set_message("No git diff lines.");
+            return;
+        }
+        let current = self.cursor_line();
+        let target = if forward {
+            self.git_diff
+                .lines
+                .keys()
+                .copied()
+                .filter(|line| *line > current)
+                .min()
+        } else {
+            self.git_diff
+                .lines
+                .keys()
+                .copied()
+                .filter(|line| *line < current)
+                .max()
+        };
+        let Some(target) = target else {
+            self.set_message(if forward {
+                "No next git diff line."
+            } else {
+                "No previous git diff line."
+            });
+            return;
+        };
+        let target = target.min(self.doc.line_count().saturating_sub(1));
+        self.cursor = self.doc.line_start(target);
+        self.anchor = self.cursor;
+        self.selection_linewise = false;
+        self.extra_selections.clear();
+        self.preferred_column = None;
+        self.snap_cursor();
+        self.ensure_cursor_visible();
+        self.set_message(&format!("Git diff line {}", target + 1));
+    }
+
     pub(super) fn git_diff_marker(&self, line: usize) -> Option<(char, Style)> {
         if !self.sidebar.show_modified {
             return None;

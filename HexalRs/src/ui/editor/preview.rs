@@ -108,7 +108,7 @@ impl Editor {
             .picker
             .files
             .get(item.file_index)
-            .map(|relative| self.sidebar.root.join(relative))
+            .map(|relative| self.picker_root().join(relative))
             .unwrap_or_else(|| PathBuf::from(&item.display));
         Some(path.to_string_lossy().into_owned())
     }
@@ -235,7 +235,7 @@ impl Editor {
         let mut relative = self.picker_preview_path.clone();
         if !relative.is_empty() {
             let path = Path::new(&relative);
-            if let Ok(stripped) = path.strip_prefix(&self.sidebar.root) {
+            if let Ok(stripped) = path.strip_prefix(self.picker_root()) {
                 relative = stripped.to_string_lossy().into_owned();
             }
         }

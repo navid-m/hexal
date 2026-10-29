@@ -13,7 +13,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::util::json::{self, Value};
 
@@ -1325,64 +1324,24 @@ fn file_log(message: &str) {
 // Time stamps
 // ---------------------------------------------------------------------------
 
-fn local_time() -> (libc::tm, u32) {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let seconds = now.as_secs() as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::localtime_r(&seconds, &mut tm);
-    }
-    (tm, now.subsec_millis())
-}
-
-fn utc_time() -> (libc::tm, u32) {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let seconds = now.as_secs() as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::gmtime_r(&seconds, &mut tm);
-    }
-    (tm, now.subsec_millis())
-}
-
 fn timestamp_time() -> String {
-    let (tm, millis) = local_time();
+    let now = crate::util::time::now_local();
     format!(
         "{:02}:{:02}:{:02}.{:03}",
-        tm.tm_hour, tm.tm_min, tm.tm_sec, millis
+        now.hour, now.minute, now.second, now.millis
     )
 }
 
 fn timestamp_date_time() -> String {
-    let (tm, millis) = local_time();
+    let now = crate::util::time::now_local();
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min,
-        tm.tm_sec,
-        millis
+        now.year, now.month, now.day, now.hour, now.minute, now.second, now.millis
     )
 }
 
 fn timestamp_utc() -> String {
-    let (tm, millis) = utc_time();
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min,
-        tm.tm_sec,
-        millis
-    )
+    crate::util::time::format_utc(crate::util::time::now_utc())
 }
 
 // ---------------------------------------------------------------------------
