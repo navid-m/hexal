@@ -599,6 +599,10 @@ pub struct Editor {
     message_is_error: bool,
     command_line: String,
     command_cursor: usize,
+    /// True while the command line was opened from a visual selection. The
+    /// selection stays visible and is restored if the command is cancelled,
+    /// so selection-aware Ex commands such as `:rc` keep working.
+    command_selection: bool,
     command_completion: CommandCompletion,
     command_files: Option<Vec<String>>,
     command_files_show_ignored: bool,
@@ -652,6 +656,10 @@ pub struct Editor {
     lsp_dirty_since: std::time::Instant,
     lsp_fallback_blocked: bool,
     startup_work_pending: bool,
+    /// Git markers and plugins are loaded once the first frame is on screen.
+    /// Both used to run before the initial paint, which dominated startup time
+    /// (plugin discovery/Lua setup and an external `git diff` invocation).
+    startup_deferred_pending: bool,
     last_revision: u64,
     hover_request_pending: bool,
     definition_request_pending: bool,
@@ -743,6 +751,7 @@ impl Editor {
             message_is_error: false,
             command_line: String::new(),
             command_cursor: 0,
+            command_selection: false,
             command_completion: CommandCompletion::new(),
             command_files: None,
             command_files_show_ignored: false,
@@ -792,6 +801,7 @@ impl Editor {
             lsp_dirty_since: std::time::Instant::now(),
             lsp_fallback_blocked: false,
             startup_work_pending: true,
+            startup_deferred_pending: true,
             last_revision: 0,
             hover_request_pending: false,
             definition_request_pending: false,
@@ -837,8 +847,6 @@ impl Editor {
         }
         editor.initialize_panes();
         editor.refresh_language();
-        editor.refresh_git_diff();
-        editor.load_plugins();
         if !config_error.is_empty() {
             editor.set_error(&format!("config: {config_error}"));
         }
@@ -854,8 +862,8 @@ impl Editor {
             self.open_picker(PickerKind::Files);
         }
 
-        // Paint before polling input. A slow event wait must never delay the
-        // first frame, which is also what the startup benchmark measures.
+        self.render(terminal)?;
+        self.run_deferred_startup();
         self.render(terminal)?;
         self.poll_background();
 
@@ -945,6 +953,15 @@ impl Editor {
             crate::util::json::Value::Object(Vec::new()),
         );
         Ok(())
+    }
+
+    fn run_deferred_startup(&mut self) {
+        if !self.startup_deferred_pending {
+            return;
+        }
+        self.startup_deferred_pending = false;
+        self.refresh_git_diff();
+        self.load_plugins();
     }
 
     fn handle_event(&mut self, event: Event) {

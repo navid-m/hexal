@@ -424,8 +424,8 @@ mod tests {
         for language in registry.languages() {
             let mut tokens = Vec::new();
             for line in lines {
-                tokenize_line(language, line, false, &mut tokens);
-                tokenize_line(language, line, true, &mut tokens);
+                tokenize_line(&language, line, false, &mut tokens);
+                tokenize_line(&language, line, true, &mut tokens);
             }
         }
     }

@@ -304,7 +304,7 @@ impl Editor {
     }
 
     pub(super) fn render_selection(&mut self, first_line: usize, rows: usize, gutter: usize) {
-        if self.mode != Mode::Select || rows == 0 {
+        if (self.mode != Mode::Select && !self.command_selection) || rows == 0 {
             return;
         }
         let (range_start, range_end) = self.selection_range();

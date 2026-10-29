@@ -103,6 +103,7 @@ impl Editor {
             ' ' => self.open_space_menu(),
             ':' => {
                 self.mode = Mode::Command;
+                self.command_selection = false;
                 self.command_line.clear();
                 self.command_cursor = 0;
                 self.command_completion.close();
@@ -302,6 +303,7 @@ impl Editor {
             ' ' => self.open_space_menu(),
             ':' => {
                 self.mode = Mode::Command;
+                self.command_selection = true;
                 self.command_line.clear();
                 self.command_cursor = 0;
                 self.command_completion.close();
@@ -387,7 +389,12 @@ impl Editor {
                     self.command_completion.close();
                     return;
                 }
-                self.mode = Mode::Normal;
+                self.mode = if self.command_selection {
+                    Mode::Select
+                } else {
+                    Mode::Normal
+                };
+                self.command_selection = false;
                 self.command_line.clear();
                 self.command_cursor = 0;
             }
@@ -476,7 +483,13 @@ impl Editor {
     pub(super) fn submit_command(&mut self) {
         self.command_completion.close();
         let line = self.command_line.trim().to_string();
-        self.mode = Mode::Normal;
+        let restore_selection = self.command_selection;
+        self.command_selection = false;
+        self.mode = if restore_selection {
+            Mode::Select
+        } else {
+            Mode::Normal
+        };
         self.command_line.clear();
         self.command_cursor = 0;
         if line.is_empty() {

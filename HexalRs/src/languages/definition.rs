@@ -214,6 +214,364 @@ fn read_set(element: &Value, key: &str, builder: &mut Builder, kind: SyntaxKind)
     }
 }
 
+/// The small subset of a grammar that must be known before the full language
+/// definition is needed. Startup indexes grammars with this metadata and only
+/// parses the definitions that are actually used, which keeps the first frame
+/// independent of the size of the bundled grammar set.
+pub(super) struct GrammarMetadata {
+    pub id: String,
+    pub extensions: Vec<String>,
+    pub file_names: Vec<String>,
+}
+
+impl GrammarMetadata {
+    pub(super) fn parse(json_text: &str, source_path: &str) -> Result<GrammarMetadata, String> {
+        let fallback_id = std::path::Path::new(source_path)
+            .file_stem()
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut id = String::new();
+        let mut extensions = Vec::new();
+        let mut file_names = Vec::new();
+        let mut scanner = MetadataScanner {
+            bytes: json_text.as_bytes(),
+            position: 0,
+        };
+        scanner.skip_ignored();
+        if scanner.bump() != Some(b'{') {
+            return Err(scanner.error("expected a JSON object"));
+        }
+        loop {
+            scanner.skip_ignored();
+            if scanner.peek() == Some(b'}') {
+                scanner.bump();
+                break;
+            }
+            let key = scanner.parse_string()?;
+            scanner.skip_ignored();
+            if scanner.bump() != Some(b':') {
+                return Err(scanner.error("expected ':'"));
+            }
+            match key.as_str() {
+                "id" => {
+                    scanner.skip_ignored();
+                    if scanner.peek() == Some(b'"') {
+                        id = scanner.parse_string()?;
+                    } else {
+                        scanner.skip_value()?;
+                    }
+                }
+                "extensions" => extensions = scanner.parse_string_list()?,
+                "fileNames" | "file_names" => file_names = scanner.parse_string_list()?,
+                _ => scanner.skip_value()?,
+            }
+            scanner.skip_ignored();
+            match scanner.bump() {
+                Some(b',') => {
+                    scanner.skip_ignored();
+                    if scanner.peek() == Some(b'}') {
+                        scanner.bump();
+                        break;
+                    }
+                }
+                Some(b'}') => break,
+                _ => return Err(scanner.error("expected ',' or '}'")),
+            }
+        }
+        scanner.skip_ignored();
+        if scanner.position != scanner.bytes.len() {
+            return Err(scanner.error("trailing characters"));
+        }
+
+        let mut id = id.trim().to_string();
+        if id.is_empty() {
+            id = fallback_id;
+        }
+        if id.is_empty() {
+            return Err("missing language id".into());
+        }
+        Ok(GrammarMetadata {
+            id,
+            extensions: normalize_extensions(extensions),
+            file_names: normalize_file_names(file_names),
+        })
+    }
+}
+
+fn normalize_extensions(values: Vec<String>) -> Vec<String> {
+    let mut extensions = Vec::new();
+    for extension in values {
+        let mut value = extension.trim().to_string();
+        if value.is_empty() {
+            continue;
+        }
+        if !value.starts_with('.') {
+            value.insert(0, '.');
+        }
+        let lower = value.to_ascii_lowercase();
+        if !extensions.contains(&lower) {
+            extensions.push(lower);
+        }
+    }
+    extensions
+}
+
+fn normalize_file_names(values: Vec<String>) -> Vec<String> {
+    let mut file_names = Vec::new();
+    for file_name in values {
+        let value = file_name.trim().to_string();
+        if !value.is_empty()
+            && !file_names
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(&value))
+        {
+            file_names.push(value);
+        }
+    }
+    file_names
+}
+
+struct MetadataScanner<'a> {
+    bytes: &'a [u8],
+    position: usize,
+}
+
+impl MetadataScanner<'_> {
+    fn error(&self, message: &str) -> String {
+        format!("{message} at byte {}", self.position)
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.position).copied()
+    }
+
+    fn bump(&mut self) -> Option<u8> {
+        let value = self.peek();
+        if value.is_some() {
+            self.position += 1;
+        }
+        value
+    }
+
+    fn skip_ignored(&mut self) {
+        loop {
+            while matches!(self.peek(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+                self.position += 1;
+            }
+            if self.peek() != Some(b'/') {
+                return;
+            }
+            match self.bytes.get(self.position + 1).copied() {
+                Some(b'/') => {
+                    self.position += 2;
+                    while let Some(byte) = self.bump() {
+                        if byte == b'\n' {
+                            break;
+                        }
+                    }
+                }
+                Some(b'*') => {
+                    self.position += 2;
+                    while self.position + 1 < self.bytes.len() {
+                        if self.bytes[self.position] == b'*'
+                            && self.bytes[self.position + 1] == b'/'
+                        {
+                            self.position += 2;
+                            break;
+                        }
+                        self.position += 1;
+                    }
+                }
+                _ => return,
+            }
+        }
+    }
+
+    fn parse_string(&mut self) -> Result<String, String> {
+        if self.bump() != Some(b'"') {
+            return Err(self.error("expected a string"));
+        }
+        let mut output = String::new();
+        loop {
+            let Some(byte) = self.bump() else {
+                return Err(self.error("unterminated string"));
+            };
+            match byte {
+                b'"' => return Ok(output),
+                b'\\' => {
+                    let Some(escape) = self.bump() else {
+                        return Err(self.error("unterminated escape"));
+                    };
+                    match escape {
+                        b'"' => output.push('"'),
+                        b'\\' => output.push('\\'),
+                        b'/' => output.push('/'),
+                        b'b' => output.push('\u{8}'),
+                        b'f' => output.push('\u{c}'),
+                        b'n' => output.push('\n'),
+                        b'r' => output.push('\r'),
+                        b't' => output.push('\t'),
+                        b'u' => {
+                            let mut scalar = 0u32;
+                            for _ in 0..4 {
+                                let Some(digit) = self.bump() else {
+                                    return Err(self.error("short unicode escape"));
+                                };
+                                scalar = scalar * 16
+                                    + (digit as char)
+                                        .to_digit(16)
+                                        .ok_or_else(|| self.error("invalid unicode escape"))?;
+                            }
+                            output.push(char::from_u32(scalar).unwrap_or('\u{FFFD}'));
+                        }
+                        _ => return Err(self.error("unknown escape")),
+                    }
+                }
+                _ => {
+                    let length = match byte {
+                        0x00..=0x7F => 1,
+                        0xC0..=0xDF => 2,
+                        0xE0..=0xEF => 3,
+                        0xF0..=0xF7 => 4,
+                        _ => 1,
+                    };
+                    if length == 1 {
+                        output.push(byte as char);
+                    } else {
+                        let end = self.position - 1 + length;
+                        if end > self.bytes.len() {
+                            return Err(self.error("invalid utf-8"));
+                        }
+                        let slice = &self.bytes[self.position - 1..end];
+                        self.position = end;
+                        let text =
+                            std::str::from_utf8(slice).map_err(|_| self.error("invalid utf-8"))?;
+                        output.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_string_list(&mut self) -> Result<Vec<String>, String> {
+        self.skip_ignored();
+        let mut values = Vec::new();
+        match self.peek() {
+            Some(b'"') => values.push(self.parse_string()?),
+            Some(b'[') => {
+                self.bump();
+                loop {
+                    self.skip_ignored();
+                    if self.peek() == Some(b']') {
+                        self.bump();
+                        break;
+                    }
+                    if self.peek() == Some(b'"') {
+                        values.push(self.parse_string()?);
+                    } else {
+                        self.skip_value()?;
+                    }
+                    self.skip_ignored();
+                    match self.bump() {
+                        Some(b',') => {
+                            self.skip_ignored();
+                            if self.peek() == Some(b']') {
+                                self.bump();
+                                break;
+                            }
+                        }
+                        Some(b']') => break,
+                        _ => return Err(self.error("expected ',' or ']'")),
+                    }
+                }
+            }
+            _ => self.skip_value()?,
+        }
+        Ok(values)
+    }
+
+    fn skip_value(&mut self) -> Result<(), String> {
+        self.skip_ignored();
+        match self.peek() {
+            Some(b'"') => self.parse_string().map(|_| ()),
+            Some(b'{') => {
+                self.bump();
+                loop {
+                    self.skip_ignored();
+                    if self.peek() == Some(b'}') {
+                        self.bump();
+                        return Ok(());
+                    }
+                    self.parse_string()?;
+                    self.skip_ignored();
+                    if self.bump() != Some(b':') {
+                        return Err(self.error("expected ':'"));
+                    }
+                    self.skip_value()?;
+                    self.skip_ignored();
+                    match self.bump() {
+                        Some(b',') => {
+                            self.skip_ignored();
+                            if self.peek() == Some(b'}') {
+                                self.bump();
+                                return Ok(());
+                            }
+                        }
+                        Some(b'}') => return Ok(()),
+                        _ => return Err(self.error("expected ',' or '}'")),
+                    }
+                }
+            }
+            Some(b'[') => {
+                self.bump();
+                loop {
+                    self.skip_ignored();
+                    if self.peek() == Some(b']') {
+                        self.bump();
+                        return Ok(());
+                    }
+                    self.skip_value()?;
+                    self.skip_ignored();
+                    match self.bump() {
+                        Some(b',') => {
+                            self.skip_ignored();
+                            if self.peek() == Some(b']') {
+                                self.bump();
+                                return Ok(());
+                            }
+                        }
+                        Some(b']') => return Ok(()),
+                        _ => return Err(self.error("expected ',' or ']'")),
+                    }
+                }
+            }
+            Some(b't') => self.expect_word(b"true"),
+            Some(b'f') => self.expect_word(b"false"),
+            Some(b'n') => self.expect_word(b"null"),
+            Some(b'-' | b'0'..=b'9') => {
+                while matches!(
+                    self.peek(),
+                    Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                ) {
+                    self.position += 1;
+                }
+                Ok(())
+            }
+            Some(_) => Err(self.error("expected a value")),
+            None => Err(self.error("unexpected end of input")),
+        }
+    }
+
+    fn expect_word(&mut self, word: &[u8]) -> Result<(), String> {
+        if self.bytes.get(self.position..self.position + word.len()) == Some(word) {
+            self.position += word.len();
+            Ok(())
+        } else {
+            Err(self.error("invalid literal"))
+        }
+    }
+}
+
 fn parse_formatter(
     element: &Value,
     field: &str,
@@ -425,35 +783,13 @@ impl Language {
             name = id.clone();
         }
 
-        let mut extensions = Vec::new();
-        for extension in string_array(&root, "extensions") {
-            let mut value = extension.trim().to_string();
-            if value.is_empty() {
-                continue;
-            }
-            if !value.starts_with('.') {
-                value.insert(0, '.');
-            }
-            let lower = value.to_ascii_lowercase();
-            if !extensions.contains(&lower) {
-                extensions.push(lower);
-            }
-        }
-
-        let mut file_names = Vec::new();
-        for file_name in string_array(&root, "fileNames")
-            .into_iter()
-            .chain(string_array(&root, "file_names"))
-        {
-            let value = file_name.trim().to_string();
-            if !value.is_empty()
-                && !file_names
-                    .iter()
-                    .any(|existing: &String| existing.eq_ignore_ascii_case(&value))
-            {
-                file_names.push(value);
-            }
-        }
+        let extensions = normalize_extensions(string_array(&root, "extensions"));
+        let file_names = normalize_file_names(
+            string_array(&root, "fileNames")
+                .into_iter()
+                .chain(string_array(&root, "file_names"))
+                .collect(),
+        );
 
         let mut line_highlights = Vec::new();
         if let Some(value) = root.get("linePatterns") {

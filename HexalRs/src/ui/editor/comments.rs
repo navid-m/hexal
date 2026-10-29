@@ -520,6 +520,21 @@ mod tests {
     }
 
     #[test]
+    fn removes_comments_after_opening_command_from_a_selection() {
+        let mut editor = editor("test.rs", b"// one\n// two\nlet x = 1;\n");
+        editor.mode = Mode::Select;
+        editor.anchor = 0;
+        editor.cursor = editor.doc.size();
+        editor.command_selection = true;
+        editor.mode = Mode::Command;
+        editor.command_line = "rc".into();
+        editor.command_cursor = 2;
+        editor.submit_command();
+        assert_eq!(editor.doc.all_text(), b"let x = 1;\n");
+        assert!(editor.mode == Mode::Select);
+    }
+
+    #[test]
     fn uses_grammar_line_comment_marker() {
         let mut editor = editor("test.lua", b"--[[ note ]]\n");
         // Lua prefers line comments; this verifies the marker used is the
