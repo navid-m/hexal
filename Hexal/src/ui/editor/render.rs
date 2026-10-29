@@ -40,9 +40,19 @@ impl Editor {
         }
     }
 
+    pub(super) fn pane_rows_above_find(&self, bounds: &PaneView) -> usize {
+        let find_height = self.find_dialog_height();
+        if find_height == 0 {
+            return bounds.height;
+        }
+        let find_top = self.status_row().saturating_sub(find_height);
+        let pane_bottom = bounds.y.saturating_add(bounds.height);
+        pane_bottom.min(find_top).saturating_sub(bounds.y)
+    }
+
     pub(super) fn ensure_cursor_visible(&mut self) {
         let bounds = self.active_pane_bounds();
-        let rows = bounds.height;
+        let rows = self.pane_rows_above_find(&bounds);
         if rows == 0 {
             self.top_line = self.cursor_line();
             return;
@@ -898,16 +908,26 @@ impl Editor {
         }
     }
 
-    pub(super) fn render_find(&mut self) {
+    pub(super) fn find_dialog_height(&self) -> usize {
         if !self.find.active {
-            return;
+            return 0;
         }
         let available = self.status_row();
         let height = if self.find.replace { 6usize } else { 4usize };
         let width = self.cols.saturating_sub(2).min(72);
         if available < height + 1 || self.cols < 20 || width < 20 {
+            return 0;
+        }
+        height
+    }
+
+    pub(super) fn render_find(&mut self) {
+        let height = self.find_dialog_height();
+        if height == 0 {
             return;
         }
+        let available = self.status_row();
+        let width = self.cols.saturating_sub(2).min(72);
         let x = (self.cols - width) / 2;
         let y = available - height;
         let title = if self.find.replace {

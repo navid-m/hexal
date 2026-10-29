@@ -729,6 +729,11 @@ impl Editor {
         if view.width == 0 || view.height == 0 {
             return;
         }
+        let visible_height = if focused {
+            self.pane_rows_above_find(&view).max(1)
+        } else {
+            view.height
+        };
 
         self.pane_screen.resize(view.width, view.height);
         self.pane_screen.clear(self.theme.base());
@@ -744,7 +749,7 @@ impl Editor {
         let max_top = if self.word_wrap {
             self.doc.line_count().saturating_sub(1)
         } else {
-            self.doc.line_count().saturating_sub(view.height)
+            self.doc.line_count().saturating_sub(visible_height)
         };
         if self.top_line > max_top {
             self.top_line = max_top;

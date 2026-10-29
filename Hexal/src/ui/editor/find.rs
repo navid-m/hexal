@@ -580,4 +580,57 @@ mod tests {
         assert_eq!(editor.find.matches.len(), 1);
         assert_eq!(editor.find.matches[0].line, 1);
     }
+
+    #[test]
+    fn find_scrolls_the_match_above_the_dialog() {
+        let text = (0..60)
+            .map(|line| {
+                if line == 30 {
+                    "needle".to_string()
+                } else {
+                    format!("line {line}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut editor = editor(text.as_bytes());
+        editor.open_find(false, false, false);
+        editor.find.query = "needle".into();
+        editor.rebuild_find_matches();
+        assert_eq!(editor.find.index, Some(0));
+        assert_eq!(editor.cursor_line(), 30);
+
+        editor.ensure_cursor_visible();
+        let find_top = editor.status_row() - editor.find_dialog_height();
+        assert!(editor.top_line > 0);
+        assert!(editor.cursor_line() >= editor.top_line);
+        assert!(editor.cursor_line() - editor.top_line < find_top);
+    }
+
+    #[test]
+    fn find_keeps_the_last_line_above_the_dialog_after_rendering() {
+        let text = (0..20)
+            .map(|line| {
+                if line == 19 {
+                    "needle".to_string()
+                } else {
+                    format!("line {line}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut editor = editor(text.as_bytes());
+        editor.screen.resize(editor.cols, editor.rows);
+        editor.open_find(false, false, false);
+        editor.find.query = "needle".into();
+        editor.rebuild_find_matches();
+        editor.ensure_cursor_visible();
+        let top_line = editor.top_line;
+        editor.render_panes();
+
+        let find_top = editor.status_row() - editor.find_dialog_height();
+        assert_eq!(editor.top_line, top_line);
+        assert!(editor.cursor_line() >= editor.top_line);
+        assert!(editor.cursor_line() - editor.top_line < find_top);
+    }
 }
