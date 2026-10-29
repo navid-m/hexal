@@ -1,7 +1,7 @@
 {
   "id": "hexal-dark",
   "name": "Hexal Dark",
-  "description": "Balanced dark theme with vivid Tokyo Night accents.",
+  "description": "Balanced dark theme with vivid accents.",
   "colors": {
     "foreground": "#d7dae0",
     "background": "#17191c",
