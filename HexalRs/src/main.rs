@@ -83,7 +83,7 @@ fn main() {
             std::process::exit(2);
         }
         if file.is_some() || directory.is_some() {
-            eprintln!("hexal: this prototype opens one file or one directory at a time");
+            eprintln!("hexal: open one file or one directory at a time");
             std::process::exit(2);
         }
         match std::fs::metadata(arg) {
