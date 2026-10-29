@@ -484,8 +484,16 @@ impl Editor {
         let current_style = self.theme.current_match_style();
         let text_width = self.cols.saturating_sub(gutter).max(1);
         let wrap_rows = self.build_wrap_rows(first_line, rows, text_width);
+        let first_visible_line = wrap_rows.first().map(|row| row.line).unwrap_or(first_line);
+        let last_visible_line = wrap_rows.last().map(|row| row.line).unwrap_or(first_line);
 
         for (match_index, match_) in self.find.matches.iter().enumerate() {
+            if match_.line < first_visible_line {
+                continue;
+            }
+            if match_.line > last_visible_line {
+                break;
+            }
             let text = self.doc.line_text(match_.line);
             let line_start = self.doc.line_start(match_.line);
             let style = if self.find.index == Some(match_index) {
