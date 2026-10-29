@@ -60,12 +60,9 @@ pub fn scan_root_with_cancel(
         ignore.as_ref(),
         cancel,
     );
-    eprintln!("IGNORE_NS={}", IGNORE_NS.swap(0, Ordering::Relaxed));
     files.sort();
     files
 }
-
-static IGNORE_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[allow(clippy::too_many_arguments)]
 fn walk(
@@ -128,11 +125,7 @@ fn walk(
                 if git::is_built_in_ignored_directory(&name) {
                     continue;
                 }
-                let t = std::time::Instant::now();
-                let ignored =
-                    ignore.is_some_and(|ignore| ignore.is_ignored_relative(&child_relative, true));
-                IGNORE_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                if ignored {
+                if ignore.is_some_and(|ignore| ignore.is_ignored_relative(&child_relative, true)) {
                     continue;
                 }
             }
@@ -149,14 +142,10 @@ fn walk(
                 cancel,
             );
         } else if file_type.is_file() {
-            if !show_ignored {
-                let t = std::time::Instant::now();
-                let ignored =
-                    ignore.is_some_and(|ignore| ignore.is_ignored_relative(&child_relative, false));
-                IGNORE_NS.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
-                if ignored {
-                    continue;
-                }
+            if !show_ignored
+                && ignore.is_some_and(|ignore| ignore.is_ignored_relative(&child_relative, false))
+            {
+                continue;
             }
             files.push(child_relative);
         }

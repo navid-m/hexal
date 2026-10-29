@@ -1,4 +1,4 @@
-//! `.gitignore` matching and workspace Git status for the sidebar.
+//! Gitignore matching and workspace Git status for the sidebar.
 //!
 //! SPDX-License-Identifier: GPL-3.0-only
 //! (C) Navid Momtahen - 2026
@@ -130,7 +130,6 @@ impl GitIgnore {
                 self.rules.push(rule);
             }
         }
-        eprintln!("LOADED {} -> {} rules", path.display(), self.rules.len());
     }
 
     pub fn is_ignored(&self, path: &Path, is_directory: bool) -> bool {
