@@ -6,6 +6,7 @@
 mod about;
 mod command_completion;
 mod comments;
+mod cross_find;
 mod debug;
 mod diff_lines;
 mod editing;
@@ -290,6 +291,46 @@ impl FindState {
     }
 }
 
+struct CrossFindState {
+    active: bool,
+    regex: bool,
+    field: usize,
+    pattern: String,
+    pattern_cursor: usize,
+    query: String,
+    query_cursor: usize,
+    replacement: String,
+    replacement_cursor: usize,
+    matched_files: usize,
+    pattern_error: String,
+    query_error: String,
+    cached_files: Option<Vec<String>>,
+    cached_root: PathBuf,
+    cached_show_ignored: bool,
+}
+
+impl CrossFindState {
+    fn new() -> CrossFindState {
+        CrossFindState {
+            active: false,
+            regex: false,
+            field: 0,
+            pattern: String::new(),
+            pattern_cursor: 0,
+            query: String::new(),
+            query_cursor: 0,
+            replacement: String::new(),
+            replacement_cursor: 0,
+            matched_files: 0,
+            pattern_error: String::new(),
+            query_error: String::new(),
+            cached_files: None,
+            cached_root: PathBuf::new(),
+            cached_show_ignored: false,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct WorkspaceSearchHit {
     path: String,
@@ -383,6 +424,14 @@ const SPACE_ITEMS: &[SpaceItem] = &[
     SpaceItem {
         key: '/',
         label: "Search across files",
+    },
+    SpaceItem {
+        key: '.',
+        label: "Find/replace across files",
+    },
+    SpaceItem {
+        key: '\\',
+        label: "Regex find/replace across files",
     },
     SpaceItem {
         key: 'f',
@@ -701,6 +750,7 @@ pub struct Editor {
     diff_with_source: Option<PathBuf>,
     palette_commands: Vec<PaletteCommand>,
     find: FindState,
+    cross_find: CrossFindState,
     workspace_search: Option<WorkspaceSearchState>,
     search_match_case: bool,
     plugins: Option<PluginManager>,
@@ -868,6 +918,7 @@ impl Editor {
             diff_with_source: None,
             palette_commands: Vec::new(),
             find: FindState::new(),
+            cross_find: CrossFindState::new(),
             workspace_search: None,
             search_match_case: false,
             plugins: None,
@@ -1126,6 +1177,10 @@ impl Editor {
             if self.help.handle(event, self.cols, self.rows, 3) {
                 self.force_full_redraw = true;
             }
+            return;
+        }
+        if self.cross_find.active {
+            self.handle_cross_find(event);
             return;
         }
         if self.picker.kind != PickerKind::None {

@@ -115,8 +115,8 @@ impl Editor {
                 self.clear_message();
             }
             '/' => self.open_find(false, false, false),
-            '\\' => self.open_find(false, true, false),
-            '\'' => self.open_find(false, true, true),
+            '\\' => self.open_find(true, true, false),
+            '\'' => self.open_find(false, true, false),
             '.' => self.open_find(true, false, false),
             'i' | 'I' => {
                 if event.ch == 'I' {
@@ -346,6 +346,7 @@ impl Editor {
             }
             '%' => self.select_all(),
             '.' => self.open_find(true, false, false),
+            '\\' => self.open_find(true, true, false),
             'x' | 'X' => self.for_each_selection(|editor| editor.extend_line_selection(), false),
             'd' | 'D' => self.for_each_selection(|editor| editor.delete_selection(), true),
             '<' => self.indent_selection(true),
@@ -402,6 +403,8 @@ impl Editor {
         self.space_menu_open = false;
         match event.ch {
             '/' => self.open_picker(PickerKind::Search),
+            '.' => self.open_cross_find(false),
+            '\\' => self.open_cross_find(true),
             'f' | 'F' => self.open_picker(PickerKind::Files),
             'g' | 'G' => self.open_goto_prompt(),
             'y' | 'Y' => self.yank_selection(),
@@ -938,6 +941,40 @@ mod tests {
         let _ = std::fs::create_dir_all(&directory);
         editor.config.source_path = directory.join(".hexcfg");
         editor
+    }
+
+    fn character(ch: char) -> Event {
+        Event {
+            key: Key::Char,
+            ch,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: MouseButton::None,
+        }
+    }
+
+    #[test]
+    fn search_keys_pick_the_expected_find_modes() {
+        let mut single_regex = editor();
+        single_regex.handle_normal(character('\''));
+        assert!(single_regex.find.active);
+        assert!(single_regex.find.regex);
+        assert!(!single_regex.find.multi_cursor);
+
+        let mut multi_regex = editor();
+        multi_regex.handle_normal(character('\\'));
+        assert!(multi_regex.find.active);
+        assert!(multi_regex.find.regex);
+        assert!(multi_regex.find.multi_cursor);
+
+        let mut multi_literal = editor();
+        multi_literal.handle_normal(character('.'));
+        assert!(multi_literal.find.active);
+        assert!(!multi_literal.find.regex);
+        assert!(multi_literal.find.multi_cursor);
     }
 
     #[test]

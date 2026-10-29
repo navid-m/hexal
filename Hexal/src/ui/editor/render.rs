@@ -7,7 +7,11 @@ use super::*;
 
 impl Editor {
     pub(super) fn status_row(&self) -> usize {
-        if self.rows >= 2 { self.rows - 2 } else { 0 }
+        if self.rows >= 2 {
+            self.rows - 2
+        } else {
+            0
+        }
     }
 
     pub(super) fn command_row(&self) -> usize {
@@ -26,7 +30,11 @@ impl Editor {
     pub(super) fn gutter_width_for(&self, width: usize) -> usize {
         let marker = usize::from(self.sidebar.show_modified);
         let gutter = util::digit_count(self.doc.line_count()) + 1 + marker;
-        if width < gutter + 10 { 0 } else { gutter }
+        if width < gutter + 10 {
+            0
+        } else {
+            gutter
+        }
     }
 
     pub(super) fn clamp_viewport(&mut self) {
@@ -110,6 +118,7 @@ impl Editor {
         self.render_sidebar_context_menu();
         self.render_picker();
         self.render_find();
+        self.render_cross_find();
         self.render_hover();
         self.render_completion();
         command_completion::render_command_completion(self);
@@ -932,14 +941,20 @@ impl Editor {
         let y = available - height;
         let title = if self.find.replace {
             "Regex replace"
-        } else if self.find.regex {
-            "Regex find"
         } else if self.find.multi_cursor {
-            if self.find.scope.is_empty() {
+            if self.find.regex {
+                if self.find.scope.is_empty() {
+                    "Regex find (multi-cursor)"
+                } else {
+                    "Regex find in selection (multi-cursor)"
+                }
+            } else if self.find.scope.is_empty() {
                 "Find (multi-cursor)"
             } else {
                 "Find in selection (multi-cursor)"
             }
+        } else if self.find.regex {
+            "Regex find"
         } else {
             "Find"
         };
@@ -1097,7 +1112,14 @@ impl Editor {
         }
     }
 
-    fn render_find_cursor(&mut self, x: usize, y: usize, text: &str, cursor: usize, width: usize) {
+    pub(super) fn render_find_cursor(
+        &mut self,
+        x: usize,
+        y: usize,
+        text: &str,
+        cursor: usize,
+        width: usize,
+    ) {
         if width == 0 {
             return;
         }

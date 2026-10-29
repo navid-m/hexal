@@ -592,6 +592,39 @@ mod tests {
     }
 
     #[test]
+    fn regex_find_steps_through_matches_without_multi_cursor() {
+        let mut editor = editor(b"a1\nb\nc3\n");
+        editor.open_find(false, true, false);
+        editor.find.query = r"[a-z]\d".into();
+        editor.rebuild_find_matches();
+        assert_eq!(editor.find.matches.len(), 2);
+        assert_eq!(editor.cursor, 0);
+
+        editor.find_step(1);
+        assert_eq!(editor.cursor, editor.doc.line_start(2));
+        assert!(editor.extra_selections.is_empty());
+
+        editor.find_step(-1);
+        assert_eq!(editor.cursor, 0);
+        assert!(editor.extra_selections.is_empty());
+    }
+
+    #[test]
+    fn multi_cursor_regex_find_selects_every_match() {
+        let mut editor = editor(b"let one = 1;\nlet two = 2;\n");
+        editor.open_find(true, true, false);
+        editor.find.query = r"let (\w+) = (\d+);".into();
+        editor.rebuild_find_matches();
+        assert_eq!(editor.find.matches.len(), 2);
+        editor.apply_multi_cursor_find();
+
+        assert!(matches!(editor.mode, Mode::Select));
+        assert_eq!(editor.extra_selections.len(), 1);
+        editor.for_each_selection(|editor| editor.delete_selection(), true);
+        assert_eq!(editor.doc.all_text(), b"\n\n");
+    }
+
+    #[test]
     fn regex_find_and_replace_expands_capture_groups() {
         let mut editor = editor(b"let one = 1;\nlet two = 2;\n");
         editor.open_find(false, true, true);
