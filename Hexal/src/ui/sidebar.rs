@@ -10,6 +10,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use crate::util::git;
 
@@ -212,6 +213,11 @@ pub struct Node {
     pub expanded: bool,
 }
 
+struct GitStatusTask {
+    receiver: mpsc::Receiver<git::GitStatus>,
+    generation: u64,
+}
+
 pub struct Sidebar {
     pub visible: bool,
     pub focused: bool,
@@ -230,6 +236,9 @@ pub struct Sidebar {
     pub git_modified_directories: HashSet<PathBuf>,
     pub git_untracked_files: HashSet<PathBuf>,
     pub git_untracked_directories: HashSet<PathBuf>,
+    git_status_task: Option<GitStatusTask>,
+    git_status_generation: u64,
+    git_status_stale: bool,
 }
 
 impl Sidebar {
@@ -252,6 +261,9 @@ impl Sidebar {
             git_modified_directories: HashSet::new(),
             git_untracked_files: HashSet::new(),
             git_untracked_directories: HashSet::new(),
+            git_status_task: None,
+            git_status_generation: 0,
+            git_status_stale: false,
         }
     }
 
@@ -303,10 +315,10 @@ impl Sidebar {
         self.selected = 0;
         self.anchor = 0;
         self.top = 0;
-        self.git_modified_files.clear();
-        self.git_modified_directories.clear();
-        self.git_untracked_files.clear();
-        self.git_untracked_directories.clear();
+        self.git_status_generation = self.git_status_generation.wrapping_add(1);
+        self.git_status_task = None;
+        self.git_status_stale = false;
+        self.clear_git_status();
     }
 
     pub fn refresh(&mut self, select_path: Option<&Path>) {
@@ -332,19 +344,83 @@ impl Sidebar {
     /// Refresh only the Git marker sets. Formatting changes file contents but
     /// not the tree, so this avoids rescanning the whole workspace when a bulk
     /// format operation completes.
+    ///
+    /// Git status can take seconds on large or network-backed Windows
+    /// checkouts, so it is always computed on a worker thread and applied by
+    /// [`Sidebar::poll_git_status`].
     pub fn refresh_git_status(&mut self) {
-        if self.show_modified {
-            let status = git::load_git_status(&self.root);
-            self.git_modified_files = status.modified_files;
-            self.git_modified_directories = status.modified_directories;
-            self.git_untracked_files = status.untracked_files;
-            self.git_untracked_directories = status.untracked_directories;
-        } else {
-            self.git_modified_files.clear();
-            self.git_modified_directories.clear();
-            self.git_untracked_files.clear();
-            self.git_untracked_directories.clear();
+        self.git_status_generation = self.git_status_generation.wrapping_add(1);
+        if !self.show_modified {
+            self.git_status_stale = false;
+            self.clear_git_status();
+            return;
         }
+        if self.git_status_task.is_some() {
+            self.git_status_stale = true;
+            return;
+        }
+        self.start_git_status();
+    }
+
+    fn start_git_status(&mut self) {
+        let root = self.root.clone();
+        let generation = self.git_status_generation;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let status = git::load_git_status(&root);
+            let _ = sender.send(status);
+        });
+        self.git_status_task = Some(GitStatusTask {
+            receiver,
+            generation,
+        });
+        self.git_status_stale = false;
+    }
+
+    pub fn poll_git_status(&mut self) {
+        let Some((generation, received)) = self
+            .git_status_task
+            .as_ref()
+            .map(|task| (task.generation, task.receiver.try_recv()))
+        else {
+            return;
+        };
+        match received {
+            Ok(status) => {
+                self.git_status_task = None;
+                if generation == self.git_status_generation {
+                    if self.show_modified {
+                        self.git_modified_files = status.modified_files;
+                        self.git_modified_directories = status.modified_directories;
+                        self.git_untracked_files = status.untracked_files;
+                        self.git_untracked_directories = status.untracked_directories;
+                    } else {
+                        self.clear_git_status();
+                    }
+                    self.git_status_stale = false;
+                    return;
+                }
+                if self.git_status_stale {
+                    self.git_status_stale = false;
+                    self.refresh_git_status();
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.git_status_task = None;
+                if self.git_status_stale {
+                    self.git_status_stale = false;
+                    self.refresh_git_status();
+                }
+            }
+        }
+    }
+
+    fn clear_git_status(&mut self) {
+        self.git_modified_files.clear();
+        self.git_modified_directories.clear();
+        self.git_untracked_files.clear();
+        self.git_untracked_directories.clear();
     }
 
     fn scan_directory(&mut self, directory: &Path, depth: usize, ignore: Option<&git::GitIgnore>) {

@@ -313,12 +313,12 @@ impl Manager {
             self.stop();
         }
 
-        if !crate::util::git::command_exists(&config.command) {
+        let Some(program) = crate::util::git::command_path(&config.command) else {
             return Err(format!(
                 "language server not found in PATH: {}",
                 config.command
             ));
-        }
+        };
 
         self.root_path = working_directory.to_string_lossy().into_owned();
         self.root_uri = path_to_uri(&self.root_path, true).unwrap_or_default();
@@ -336,7 +336,7 @@ impl Manager {
         self.initialize_id = self.allocate_id();
         self.pending.insert(self.initialize_id, "initialize".into());
 
-        let mut command = Command::new(&config.command);
+        let mut command = Command::new(&program);
         command
             .args(&config.arguments)
             .current_dir(&self.root_path)

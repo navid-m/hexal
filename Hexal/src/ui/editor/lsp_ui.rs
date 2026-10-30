@@ -99,6 +99,8 @@ impl Editor {
         }
         self.poll_sidebar_format();
         self.poll_picker_work();
+        self.poll_git_diff();
+        self.sidebar.poll_git_status();
         self.lsp.poll(std::time::Duration::ZERO);
         let events = self.lsp.take_events();
         for event in events {

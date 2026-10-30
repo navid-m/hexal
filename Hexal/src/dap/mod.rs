@@ -1404,17 +1404,8 @@ fn find_adapter(adapter: &str) -> Option<String> {
 }
 
 fn find_executable(command: &str) -> Option<String> {
-    if command.is_empty() {
-        return None;
-    }
-    if command.contains('/') || command.contains('\\') {
-        return Path::new(command).is_file().then(|| command.to_string());
-    }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|directory| directory.join(command))
-        .find(|candidate| candidate.is_file())
-        .map(|candidate| candidate.to_string_lossy().into_owned())
+    crate::util::git::command_path(command)
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 fn normalize_path(path: &str) -> String {

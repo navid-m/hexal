@@ -94,7 +94,7 @@ local function repository_info(file)
         return nil, nil, error_message
     end
 
-    top = trim(top)
+    top = hexal.fs.realpath(trim(top))
     local normalized_file = file:gsub("\\", "/")
     local normalized_top = top:gsub("\\", "/")
     if normalized_top:sub(-1) ~= "/" then

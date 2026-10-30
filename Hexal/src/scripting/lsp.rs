@@ -5164,6 +5164,34 @@ fn bind_json(lua: &Lua, module: &Table, coordinator: &Rc<RefCell<Coordinator>>) 
     Ok(())
 }
 
+/// Resolve a path to its real filesystem location. Unlike
+/// `std::path::absolute`, this follows symbolic links, so `/var/...` and
+/// `/private/var/...` (macOS) compare equal. Windows canonicalization returns
+/// an extended-length `\\?\` path; strip that prefix so it matches the paths
+/// Git and the rest of the editor use.
+fn real_path(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical = fs::canonicalize(&absolute).unwrap_or(absolute);
+    strip_verbatim_prefix(canonical)
+}
+
+#[cfg(windows)]
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(rest) = text.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{rest}"));
+    }
+    if let Some(rest) = text.strip_prefix("\\\\?\\") {
+        return PathBuf::from(rest);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
 fn bind_fs(lua: &Lua, module: &Table, coordinator: &Rc<RefCell<Coordinator>>) -> LuaResult<()> {
     set_fn(lua, module, "read_file", |lua, path: String| {
         Ok(match fs::read_to_string(path) {
@@ -5228,9 +5256,7 @@ fn bind_fs(lua: &Lua, module: &Table, coordinator: &Rc<RefCell<Coordinator>>) ->
         })?;
     }
     set_fn(lua, module, "realpath", |_, path: String| {
-        Ok(std::path::absolute(&path)
-            .map(|path| path.to_string_lossy().to_string())
-            .unwrap_or(path))
+        Ok(real_path(Path::new(&path)).to_string_lossy().to_string())
     })?;
     set_fn(lua, module, "dirname", |_, path: String| {
         Ok(Path::new(&path)

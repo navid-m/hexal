@@ -844,8 +844,10 @@ pub fn has_utf8_bom(data: &[u8]) -> bool {
 
 /// Locate an executable named by a formatter, language server or debug
 /// adapter. Bare names are searched for in `PATH`; relative paths are resolved
-/// against the editor's working directory. Symbolic links must resolve to a
-/// real file so a dangling link cannot be mistaken for a usable command.
+/// against the editor's working directory. On Windows the `PATHEXT`
+/// extensions are tried as well, since `zls` on disk is `zls.exe`.
+/// Symbolic links must resolve to a real file so a dangling link cannot be
+/// mistaken for a usable command.
 pub fn command_path(command: &str) -> Option<PathBuf> {
     if command.trim().is_empty() {
         return None;
@@ -857,28 +859,91 @@ pub fn command_path(command: &str) -> Option<PathBuf> {
         } else {
             std::env::current_dir().ok()?.join(path)
         };
-        return is_usable_executable(&candidate).then_some(candidate);
+        return executable_candidates(candidate)
+            .into_iter()
+            .find(|candidate| is_usable_executable(candidate));
     }
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .filter_map(|directory| {
-            let directory = if directory.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                directory
-            };
-            let candidate = directory.join(command);
-            if candidate.is_absolute() {
-                Some(candidate)
-            } else {
-                std::env::current_dir().ok().map(|cwd| cwd.join(candidate))
-            }
-        })
-        .find(|candidate| is_usable_executable(candidate))
+    let cwd = std::env::current_dir().ok();
+    for directory in std::env::split_paths(&path) {
+        let directory = if directory.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            directory
+        };
+        let candidate = directory.join(command);
+        let candidate = if candidate.is_absolute() {
+            candidate
+        } else if let Some(cwd) = &cwd {
+            cwd.join(candidate)
+        } else {
+            continue;
+        };
+        if let Some(found) = executable_candidates(candidate)
+            .into_iter()
+            .find(|candidate| is_usable_executable(candidate))
+        {
+            return Some(found);
+        }
+    }
+    None
 }
 
 pub fn command_exists(command: &str) -> bool {
     command_path(command).is_some()
+}
+
+/// Expand a base path into the names the operating system would consider when
+/// launching a command. On Windows a bare `zls` can refer to `zls.exe`,
+/// `zls.cmd` and the other `PATHEXT` entries.
+fn executable_candidates(base: PathBuf) -> Vec<PathBuf> {
+    let has_extension = base.extension().is_some();
+    let mut candidates = Vec::new();
+    // Windows resolves a bare name only through `PATHEXT`; on other systems
+    // the exact name is the executable.
+    if has_extension || !cfg!(windows) {
+        candidates.push(base.clone());
+    }
+    if has_extension {
+        return candidates;
+    }
+    for extension in executable_extensions() {
+        let mut name = base.as_os_str().to_os_string();
+        name.push(extension);
+        candidates.push(PathBuf::from(name));
+    }
+    candidates
+}
+
+fn executable_extensions() -> Vec<String> {
+    let extensions: Vec<String> = std::env::var_os("PATHEXT")
+        .map(|configured| {
+            configured
+                .to_string_lossy()
+                .split(';')
+                .map(str::trim)
+                .filter(|extension| !extension.is_empty())
+                .map(|extension| {
+                    if extension.starts_with('.') {
+                        extension.to_string()
+                    } else {
+                        format!(".{extension}")
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    #[cfg(windows)]
+    let extensions = if extensions.is_empty() {
+        [".COM", ".EXE", ".BAT", ".CMD"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    } else {
+        extensions
+    };
+    extensions
 }
 
 fn is_usable_executable(path: &Path) -> bool {
