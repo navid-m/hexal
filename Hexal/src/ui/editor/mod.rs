@@ -685,6 +685,7 @@ pub struct Editor {
     mode: Mode,
     running: bool,
     open_file_picker_on_start: bool,
+    workspace_root: Option<PathBuf>,
     cols: usize,
     rows: usize,
 
@@ -711,9 +712,6 @@ pub struct Editor {
     message_is_error: bool,
     command_line: String,
     command_cursor: usize,
-    /// True while the command line was opened from a visual selection. The
-    /// selection stays visible and is restored if the command is cancelled,
-    /// so selection-aware Ex commands such as `:rc` keep working.
     command_selection: bool,
     command_completion: CommandCompletion,
     command_files: Option<Vec<String>>,
@@ -778,9 +776,7 @@ pub struct Editor {
     lsp_dirty_since: std::time::Instant,
     lsp_fallback_blocked: bool,
     startup_work_pending: bool,
-    /// Git markers and plugins are loaded once the first frame is on screen.
-    /// Both used to run before the initial paint, which dominated startup time
-    /// (plugin discovery/Lua setup and an external `git diff` invocation).
+
     startup_deferred_pending: bool,
     last_revision: u64,
     hover_request_pending: bool,
@@ -864,6 +860,7 @@ impl Editor {
             mode: Mode::Normal,
             running: true,
             open_file_picker_on_start: open_file_picker,
+            workspace_root: workspace_root.as_deref().map(git::absolute),
             cols,
             rows,
             cursor: 0,

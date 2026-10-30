@@ -291,6 +291,9 @@ impl Editor {
     }
 
     fn save_document_inner(&mut self, path: Option<&str>, skip_format: bool) -> bool {
+        let resolved_path = path.map(|path| self.resolve_workspace_path(path));
+        let path = resolved_path.as_deref();
+
         let language_format = self
             .active_language()
             .and_then(|language| language.format_on_save);
@@ -342,6 +345,23 @@ impl Editor {
                 false
             }
         }
+    }
+
+    /// Resolves a user-supplied path for commands such as `:w`. When Hexal
+    /// was launched with a directory, relative paths belong to that directory
+    /// instead of whatever directory the process happened to start in.
+    fn resolve_workspace_path(&self, path: &str) -> String {
+        if path.is_empty() {
+            return String::new();
+        }
+        let expanded = util::expand_home(path);
+        if Path::new(&expanded).is_absolute() {
+            return expanded;
+        }
+        self.workspace_root
+            .as_deref()
+            .map(|root| root.join(&expanded).to_string_lossy().into_owned())
+            .unwrap_or(expanded)
     }
 
     pub(super) fn trim_trailing_whitespace(&mut self) {

@@ -1047,6 +1047,28 @@ mod tests {
     }
 
     #[test]
+    fn write_and_quit_resolves_paths_against_the_opened_folder() {
+        let directory =
+            std::env::temp_dir().join(format!("hexal-write-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let name = format!("created-{}.txt", std::process::id());
+
+        let mut editor =
+            Editor::with_options(Document::new(), 80, 24, Some(directory.clone()), false);
+        editor.doc.insert(0, b"hello\n");
+        editor.command_line = format!("wq {name}");
+        editor.submit_command();
+
+        assert!(!editor.running);
+        assert_eq!(
+            std::fs::read(directory.join(&name)).unwrap(),
+            b"hello\n".to_vec()
+        );
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
     fn word_wrap_command_toggles_the_setting() {
         let mut editor = editor();
         let before = editor.word_wrap;
