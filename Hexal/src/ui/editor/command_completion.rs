@@ -233,7 +233,9 @@ impl Editor {
             let items = if is_path_completion_token(&filter) {
                 path_completion_items(&filter)
             } else {
-                self.filter_file_completion_items(&filter)
+                let show_ignored =
+                    completion_show_ignored(command_name, self.sidebar.show_git_ignored);
+                self.filter_file_completion_items(&filter, show_ignored)
             };
             let mut prefix = line[..token_start].to_string();
             if token_start == first_end && first_end == line.len() {
@@ -388,8 +390,7 @@ impl Editor {
         Self::filter_candidates(names, filter, self.search_match_case)
     }
 
-    fn filter_file_completion_items(&mut self, filter: &str) -> Vec<String> {
-        let show_ignored = self.sidebar.show_git_ignored;
+    fn filter_file_completion_items(&mut self, filter: &str, show_ignored: bool) -> Vec<String> {
         if self.command_files.is_none() || self.command_files_show_ignored != show_ignored {
             self.command_files = Some(files::scan_with_ignored(20_000, show_ignored));
             self.command_files_show_ignored = show_ignored;
@@ -415,6 +416,13 @@ impl Editor {
             .map(|(_, candidate)| candidate)
             .collect()
     }
+}
+
+/// Debugging usually targets executables, which are commonly gitignored.
+/// `:debug`/`:dbg` therefore include ignored files even when the sidebar
+/// setting hides them elsewhere.
+fn completion_show_ignored(command: &str, sidebar_show_ignored: bool) -> bool {
+    sidebar_show_ignored || matches!(command, "debug" | "dbg")
 }
 
 fn is_path_separator(character: char) -> bool {
@@ -880,6 +888,31 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn debug_completion_includes_gitignored_files_by_default() {
+        assert!(completion_show_ignored("debug", false));
+        assert!(completion_show_ignored("dbg", false));
+        assert!(!completion_show_ignored("e", false));
+        assert!(completion_show_ignored("e", true));
+
+        let mut editor = Editor::new(Document::new(), 100, 30);
+        editor.sidebar.show_git_ignored = false;
+        editor.command_files = Some(vec![
+            "target/debug/app".to_string(),
+            "src/main.rs".to_string(),
+        ]);
+        editor.command_files_show_ignored = true;
+        editor.command_line = "dbg app".into();
+        editor.command_cursor = editor.command_line.len();
+        assert!(editor.try_open_command_completion());
+        assert!(
+            editor
+                .command_completion
+                .items
+                .contains(&"target/debug/app".to_string())
+        );
     }
 
     #[test]
