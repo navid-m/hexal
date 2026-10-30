@@ -15,6 +15,7 @@
     "restrict",
     "static",
     "struct",
+    "constexpr",
     "typedef",
     "union",
     "volatile",
