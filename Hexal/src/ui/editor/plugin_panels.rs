@@ -359,6 +359,7 @@ impl Editor {
             self.anchor = self.cursor;
             self.selection_linewise = false;
             self.preferred_column = None;
+            self.mode = Mode::Normal;
             self.snap_cursor();
             self.doc.break_undo_group();
         }

@@ -70,14 +70,19 @@ impl Editor {
             return false;
         }
         self.sync_plugin_context(&mut manager);
+        let revision = self.doc.revision();
+        let selecting = self.mode == Mode::Select;
+        let has_selection = self.anchor != self.cursor || self.selection_linewise;
         let result = manager.execute_command(name, &[], &mut self.doc, &mut self.cursor);
         self.plugins = Some(manager);
         match result {
             Ok(true) => {
-                self.anchor = self.cursor;
-                self.selection_linewise = false;
-                self.preferred_column = None;
-                self.mode = Mode::Normal;
+                if self.doc.revision() != revision || !selecting || !has_selection {
+                    self.anchor = self.cursor;
+                    self.selection_linewise = false;
+                    self.preferred_column = None;
+                    self.mode = Mode::Normal;
+                }
                 self.snap_cursor();
                 self.doc.break_undo_group();
                 self.apply_plugin_effects();
@@ -98,11 +103,10 @@ impl Editor {
             .active_language()
             .map(|language| language.id.clone())
             .unwrap_or_default();
-        // The workspace root is the project root, not the parent directory of
-        // the current file. It must remain available even for scratch buffers,
-        // otherwise plugins such as projtree report "no workspace root".
         let workspace_root = Some(self.sidebar.root.to_string_lossy().into_owned());
-        let selection = if self.anchor == self.cursor {
+        let selection = if self.anchor == self.cursor
+            && !(self.selection_linewise && self.mode == Mode::Select)
+        {
             None
         } else {
             let (start, end) = if self.anchor < self.cursor {
@@ -501,5 +505,98 @@ mod tests {
             Some("1 plugin loaded")
         );
         assert_eq!(plugin_loaded_message(0, 0), None);
+    }
+
+    #[test]
+    fn gitdiff_command_sees_the_editor_selection() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("plugins")
+            .join("gitdiff")
+            .join("init.lua");
+        if !source.is_file() {
+            return;
+        }
+
+        let root =
+            std::env::temp_dir().join(format!("hexal-editor-gitdiff-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("note.txt");
+        std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
+        let git = |arguments: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["add", "note.txt"]);
+        git(&["commit", "-qm", "initial"]);
+        std::fs::write(&file, "one\nTWO\nthree\nFOUR\n").unwrap();
+
+        let document = Document::open(&file.to_string_lossy()).unwrap();
+        let mut editor = Editor::new(document, 100, 30);
+        editor.sidebar.root = root.clone();
+
+        let mut manager = PluginManager::new(root.clone(), None);
+        manager
+            .load_file_plugin(
+                &source.to_string_lossy(),
+                &mut editor.doc,
+                &mut editor.cursor,
+            )
+            .unwrap();
+        editor.plugins = Some(manager);
+
+        let character = |ch| crate::platform::terminal::Event {
+            key: crate::platform::terminal::Key::Char,
+            ch,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: crate::platform::terminal::MouseButton::None,
+        };
+        let enter = crate::platform::terminal::Event {
+            key: crate::platform::terminal::Key::Enter,
+            ch: '\0',
+            ctrl: false,
+            alt: false,
+            shift: false,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_button: crate::platform::terminal::MouseButton::None,
+        };
+
+        editor.cursor = editor.doc.line_start(1);
+        editor.anchor = editor.cursor;
+        editor.handle_event(character('x'));
+        editor.handle_event(character(':'));
+        editor.handle_event(character('g'));
+        editor.handle_event(character('d'));
+        editor.handle_event(enter);
+
+        assert!(editor.mode == crate::ui::editor::Mode::Select);
+        assert!(editor.anchor == editor.cursor);
+        assert!(editor.selection_linewise);
+
+        let manager = editor.plugins.as_ref().unwrap();
+        let panels = manager.panels();
+        assert_eq!(panels.len(), 1);
+        let shown: String = panels[0]
+            .lines
+            .iter()
+            .flat_map(|line| line.segments.iter().map(|segment| segment.text.as_str()))
+            .collect();
+        assert!(shown.contains("+TWO"), "{shown}");
+        assert!(!shown.contains("FOUR"), "{shown}");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }
