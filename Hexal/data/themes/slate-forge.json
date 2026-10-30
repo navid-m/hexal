@@ -1,0 +1,35 @@
+{
+  "id": "slate-forge",
+  "name": "Slate Forge",
+  "description": "Cool industrial slate with bright steel accents.",
+  "colors": {
+    "foreground": "#d0d8e0",
+    "background": "#14181c",
+    "muted": "#5a646e",
+    "dimmed": "#7a8490",
+    "accent": "#70a0c0",
+    "border": "#2a323a",
+    "error": "#d06070",
+    "warning": "#d0b060",
+    "success": "#70b080",
+    "gitModified": "#60a0b0",
+    "alert": { "fg": "#14181c", "bg": "#d06070" },
+    "selection": { "fg": "#d0d8e0", "bg": "#2a3848" },
+    "status": { "fg": "#d0d8e0", "bg": "#1c242c" },
+    "insert": { "fg": "#14181c", "bg": "#70b080" },
+    "select": { "fg": "#14181c", "bg": "#d0b060" },
+    "prompt": { "fg": "#14181c", "bg": "#70a0c0" },
+    "command": { "fg": "#14181c", "bg": "#70a0c0" },
+    "match": { "fg": "#14181c", "bg": "#d0b060" },
+    "currentMatch": { "fg": "#14181c", "bg": "#70b080" },
+    "syntax": {
+      "keyword": "#8090c0",
+      "control": "#70a0c0",
+      "type": "#90b0c0",
+      "constant": "#d0b060",
+      "string": "#70b080",
+      "comment": "#5a646e",
+      "number": "#d0b060"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 {
   "id": "coffee",
   "name": "Coffee",
-  "description": "Soothing pastel theme with soft, warm contrast.",
+  "description": "Soothing pastel theme with warm contrast.",
   "colors": {
     "foreground": "#cdd6f4",
     "background": "#1e1e2e",

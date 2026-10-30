@@ -1,0 +1,35 @@
+{
+  "id": "deep-current",
+  "name": "Deep Current",
+  "description": "Ocean depths with teal and cyan currents.",
+  "colors": {
+    "foreground": "#c8e0e8",
+    "background": "#0e1618",
+    "muted": "#4e6a70",
+    "dimmed": "#6e8a90",
+    "accent": "#50b0c0",
+    "border": "#243438",
+    "error": "#d06070",
+    "warning": "#d0b060",
+    "success": "#60b080",
+    "gitModified": "#40a0b0",
+    "alert": { "fg": "#0e1618", "bg": "#d06070" },
+    "selection": { "fg": "#c8e0e8", "bg": "#244048" },
+    "status": { "fg": "#c8e0e8", "bg": "#182428" },
+    "insert": { "fg": "#0e1618", "bg": "#60b080" },
+    "select": { "fg": "#0e1618", "bg": "#d0b060" },
+    "prompt": { "fg": "#0e1618", "bg": "#50b0c0" },
+    "command": { "fg": "#0e1618", "bg": "#50b0c0" },
+    "match": { "fg": "#0e1618", "bg": "#d0b060" },
+    "currentMatch": { "fg": "#0e1618", "bg": "#60b080" },
+    "syntax": {
+      "keyword": "#60b0d0",
+      "control": "#50b0c0",
+      "type": "#70c0d0",
+      "constant": "#d0b060",
+      "string": "#60b080",
+      "comment": "#4e6a70",
+      "number": "#d0b060"
+    }
+  }
+}

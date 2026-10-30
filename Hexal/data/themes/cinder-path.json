@@ -1,0 +1,35 @@
+{
+  "id": "cinder-path",
+  "name": "Cinder Path",
+  "description": "Ash grays with warm ember highlights.",
+  "colors": {
+    "foreground": "#e0d8d0",
+    "background": "#161412",
+    "muted": "#605850",
+    "dimmed": "#807870",
+    "accent": "#d09060",
+    "border": "#302c28",
+    "error": "#d06050",
+    "warning": "#d0a050",
+    "success": "#90a060",
+    "gitModified": "#c08050",
+    "alert": { "fg": "#161412", "bg": "#d06050" },
+    "selection": { "fg": "#e0d8d0", "bg": "#3a342c" },
+    "status": { "fg": "#e0d8d0", "bg": "#24201c" },
+    "insert": { "fg": "#161412", "bg": "#90a060" },
+    "select": { "fg": "#161412", "bg": "#d0a050" },
+    "prompt": { "fg": "#161412", "bg": "#d09060" },
+    "command": { "fg": "#161412", "bg": "#d09060" },
+    "match": { "fg": "#161412", "bg": "#d0a050" },
+    "currentMatch": { "fg": "#161412", "bg": "#90a060" },
+    "syntax": {
+      "keyword": "#d09060",
+      "control": "#c0a070",
+      "type": "#d0a050",
+      "constant": "#e0a060",
+      "string": "#90a060",
+      "comment": "#605850",
+      "number": "#e0a060"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "id": "glacier-peak",
+  "name": "Glacier Peak",
+  "description": "Icy whites and cool cyan over deep slate.",
+  "colors": {
+    "foreground": "#d8e8f0",
+    "background": "#101418",
+    "muted": "#5a6a78",
+    "dimmed": "#7a8a98",
+    "accent": "#70c0e0",
+    "border": "#283038",
+    "error": "#e07080",
+    "warning": "#e0c070",
+    "success": "#80c090",
+    "gitModified": "#60b0d0",
+    "alert": { "fg": "#101418", "bg": "#e07080" },
+    "selection": { "fg": "#d8e8f0", "bg": "#283848" },
+    "status": { "fg": "#d8e8f0", "bg": "#182028" },
+    "insert": { "fg": "#101418", "bg": "#80c090" },
+    "select": { "fg": "#101418", "bg": "#e0c070" },
+    "prompt": { "fg": "#101418", "bg": "#70c0e0" },
+    "command": { "fg": "#101418", "bg": "#70c0e0" },
+    "match": { "fg": "#101418", "bg": "#e0c070" },
+    "currentMatch": { "fg": "#101418", "bg": "#80c090" },
+    "syntax": {
+      "keyword": "#90b0e0",
+      "control": "#70c0e0",
+      "type": "#a0d0e0",
+      "constant": "#e0c070",
+      "string": "#80c090",
+      "comment": "#5a6a78",
+      "number": "#e0c070"
+    }
+  }
+}

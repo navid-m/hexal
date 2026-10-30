@@ -1,7 +1,7 @@
 {
   "id": "nord",
   "name": "Nord",
-  "description": "Arctic, north-bluish palette with soft contrast.",
+  "description": "Arctic, north-bluish palette with contrast.",
   "colors": {
     "foreground": "#d8dee9",
     "background": "#2e3440",

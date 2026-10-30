@@ -1,0 +1,35 @@
+{
+  "id": "ember-forge",
+  "name": "Ember Forge",
+  "description": "Deep charcoal with glowing embers and molten copper accents.",
+  "colors": {
+    "foreground": "#e8d5c4",
+    "background": "#1a1410",
+    "muted": "#6b5a4e",
+    "dimmed": "#8a7668",
+    "accent": "#e07a3d",
+    "border": "#3d2e24",
+    "error": "#d94f3d",
+    "warning": "#e6b84d",
+    "success": "#8fbc5a",
+    "gitModified": "#d4a017",
+    "alert": { "fg": "#1a1410", "bg": "#d94f3d" },
+    "selection": { "fg": "#e8d5c4", "bg": "#4a3428" },
+    "status": { "fg": "#e8d5c4", "bg": "#2a1f18" },
+    "insert": { "fg": "#1a1410", "bg": "#8fbc5a" },
+    "select": { "fg": "#1a1410", "bg": "#e6b84d" },
+    "prompt": { "fg": "#1a1410", "bg": "#e07a3d" },
+    "command": { "fg": "#1a1410", "bg": "#e07a3d" },
+    "match": { "fg": "#1a1410", "bg": "#e6b84d" },
+    "currentMatch": { "fg": "#1a1410", "bg": "#8fbc5a" },
+    "syntax": {
+      "keyword": "#e07a3d",
+      "control": "#c9a66b",
+      "type": "#d4a017",
+      "constant": "#e6b84d",
+      "string": "#8fbc5a",
+      "comment": "#6b5a4e",
+      "number": "#e6b84d"
+    }
+  }
+}
