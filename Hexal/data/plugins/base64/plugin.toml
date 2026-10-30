@@ -1,0 +1,6 @@
+name = "Base64 & Base32"
+version = "1.0"
+entry = "init.lua"
+description = "Encode and decode the selection or current line as Base64 or Base32"
+author = "Navid M."
+license = "GPL-3.0"
