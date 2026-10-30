@@ -1,0 +1,6 @@
+name = "Pick Color"
+version = "1.0"
+entry = "init.lua"
+description = "Choose a color from a palette and insert its hex code at the cursor"
+author = "Hexal"
+license = "MIT"

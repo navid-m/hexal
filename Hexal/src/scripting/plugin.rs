@@ -1244,6 +1244,164 @@ mod tests {
     }
 
     #[test]
+    fn installed_gitdiff_plugin_reverts_whole_file_and_selection() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("plugins")
+            .join("gitdiff")
+            .join("init.lua");
+        if !source.is_file() {
+            return;
+        }
+
+        let root = temp_directory("gitdiff");
+        let repository = root.join("repository");
+        fs::create_dir_all(&repository).unwrap();
+        let file = repository.join("note.txt");
+        fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
+
+        let git = |arguments: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(&repository)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["add", "note.txt"]);
+        git(&["commit", "-qm", "initial"]);
+
+        let mut manager = PluginManager::new(root.join("plugins"), None);
+        let path = file.to_string_lossy().into_owned();
+        let mut document = Document::open(&path).unwrap();
+        let mut cursor = 0usize;
+        manager.set_context(
+            path.clone(),
+            "text".into(),
+            Some(repository.to_string_lossy().into_owned()),
+            100,
+            30,
+            None,
+        );
+        manager
+            .load_file_plugin(&source.to_string_lossy(), &mut document, &mut cursor)
+            .unwrap();
+        assert!(manager.errors().is_empty(), "{:?}", manager.errors());
+        assert!(manager.has_command("gd"));
+
+        fs::write(&file, "one\nTWO\nthree\nFOUR\n").unwrap();
+        document = Document::open(&path).unwrap();
+        cursor = 0;
+        assert!(
+            manager
+                .execute_command("gd", &[], &mut document, &mut cursor)
+                .unwrap()
+        );
+        let panels = manager.panels();
+        assert_eq!(panels.len(), 1);
+        assert!(
+            panels[0].title.contains("note.txt"),
+            "{:?}",
+            panels[0].title
+        );
+        let panel_id = panels[0].id;
+
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "u", 0, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert!(manager.panels().is_empty());
+        assert_eq!(document.all_text(), b"one\ntwo\nthree\nfour\n");
+        assert!(document.undo());
+        assert_eq!(document.all_text(), b"one\nTWO\nthree\nFOUR\n");
+        assert!(document.redo());
+        assert_eq!(document.all_text(), b"one\ntwo\nthree\nfour\n");
+
+        // A selection restricts both the displayed diff and the revert.
+        fs::write(&file, "one\nTWO\nthree\nFOUR\n").unwrap();
+        document = Document::open(&path).unwrap();
+        cursor = 0;
+        manager.set_context(
+            path,
+            "text".into(),
+            Some(repository.to_string_lossy().into_owned()),
+            100,
+            30,
+            Some(crate::scripting::lua::PluginSelection {
+                start_line: 1,
+                start_column: 0,
+                end_line: 1,
+                end_column: 3,
+                text: "TWO".into(),
+                linewise: true,
+            }),
+        );
+        assert!(
+            manager
+                .execute_command("gd", &[], &mut document, &mut cursor)
+                .unwrap()
+        );
+        let panels = manager.panels();
+        assert_eq!(panels.len(), 1);
+        let shown: String = panels[0]
+            .lines
+            .iter()
+            .flat_map(|line| line.segments.iter().map(|segment| segment.text.as_str()))
+            .collect();
+        assert!(shown.contains("+TWO"), "{shown}");
+        assert!(!shown.contains("FOUR"), "{shown}");
+        let panel_id = panels[0].id;
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "u", 0, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert_eq!(document.all_text(), b"one\ntwo\nthree\nFOUR\n");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn installed_pickcolor_plugin_inserts_the_selected_hex_code() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("plugins")
+            .join("pickcolor")
+            .join("init.lua");
+        if !source.is_file() {
+            return;
+        }
+
+        let root = temp_directory("pickcolor");
+        let mut manager = PluginManager::new(root.join("plugins"), None);
+        let mut document = Document::new();
+        let mut cursor = 0usize;
+        manager.set_context("scratch".into(), "text".into(), None, 80, 24, None);
+        manager
+            .load_file_plugin(&source.to_string_lossy(), &mut document, &mut cursor)
+            .unwrap();
+        assert!(manager.errors().is_empty(), "{:?}", manager.errors());
+        assert!(manager.has_command("pc"));
+
+        assert!(
+            manager
+                .execute_command("pc", &[], &mut document, &mut cursor)
+                .unwrap()
+        );
+        let panel_id = manager.panels()[0].id;
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "enter", 2, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert!(manager.panels().is_empty());
+        assert_eq!(document.all_text(), b"#f59e0b");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn get_workspace_root_returns_the_configured_project_root() {
         let root = temp_directory("workspace-root");
         let plugin = root.join("plugins").join("root");

@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::scripting::lua::{PanelLine, PluginPanel};
-use crate::ui::theme::Style;
+use crate::ui::theme::{rgb, Style};
 use std::sync::Arc;
 
 const MOUSE_SCROLL_LINES: usize = 3;
@@ -57,6 +57,27 @@ impl PluginPanelState {
             }
         }
         start
+    }
+}
+
+fn parse_hex_color(value: &str) -> Option<u32> {
+    let value = value.strip_prefix('#')?;
+    match value.len() {
+        3 => {
+            let mut channels = [0u8; 3];
+            for (index, character) in value.chars().enumerate() {
+                let digit = character.to_digit(16)? as u8;
+                channels[index] = digit * 17;
+            }
+            Some(rgb(channels[0], channels[1], channels[2]))
+        }
+        6 => {
+            let red = u8::from_str_radix(value.get(0..2)?, 16).ok()?;
+            let green = u8::from_str_radix(value.get(2..4)?, 16).ok()?;
+            let blue = u8::from_str_radix(value.get(4..6)?, 16).ok()?;
+            Some(rgb(red, green, blue))
+        }
+        _ => None,
     }
 }
 
@@ -437,6 +458,48 @@ impl Editor {
     }
 
     fn plugin_panel_style(&self, name: &str) -> Style {
+        if name.contains(':')
+            || name.contains('#')
+            || name.contains(',')
+            || name.eq_ignore_ascii_case("bold")
+            || name.eq_ignore_ascii_case("dim")
+        {
+            let mut custom = self.theme.text();
+            let mut is_custom = false;
+            for part in name.split(',') {
+                let part = part.trim();
+                if let Some(value) = part
+                    .strip_prefix("fg:")
+                    .or_else(|| part.strip_prefix("foreground:"))
+                {
+                    if let Some(color) = parse_hex_color(value) {
+                        custom.fg = color;
+                        is_custom = true;
+                    }
+                } else if let Some(value) = part
+                    .strip_prefix("bg:")
+                    .or_else(|| part.strip_prefix("background:"))
+                {
+                    if let Some(color) = parse_hex_color(value) {
+                        custom.bg = color;
+                        is_custom = true;
+                    }
+                } else if part.eq_ignore_ascii_case("bold") {
+                    custom.bold = true;
+                    is_custom = true;
+                } else if part.eq_ignore_ascii_case("dim") {
+                    custom.dim = true;
+                    is_custom = true;
+                } else if let Some(color) = parse_hex_color(part) {
+                    custom.fg = color;
+                    is_custom = true;
+                }
+            }
+            if is_custom {
+                return custom;
+            }
+        }
+
         match name.to_ascii_lowercase().as_str() {
             "accent" => self.theme.accent_style(),
             "muted" => self.theme.muted_style(),
@@ -543,5 +606,24 @@ mod tests {
         assert!(screen.contains("Demo"), "{screen}");
         assert!(screen.contains("hello panel"), "{screen}");
         assert!(screen.contains("q close"), "{screen}");
+    }
+
+    #[test]
+    fn plugin_panel_styles_accept_generic_hex_colors() {
+        let editor = Editor::new(Document::new(), 80, 24);
+
+        let foreground = editor.plugin_panel_style("#ff0088");
+        assert_eq!(foreground.fg, rgb(255, 0, 136));
+
+        let shorthand = editor.plugin_panel_style("#0f0");
+        assert_eq!(shorthand.fg, rgb(0, 255, 0));
+
+        let combined = editor.plugin_panel_style("fg:#112233,bg:#445566,bold");
+        assert_eq!(combined.fg, rgb(0x11, 0x22, 0x33));
+        assert_eq!(combined.bg, rgb(0x44, 0x55, 0x66));
+        assert!(combined.bold);
+
+        let named = editor.plugin_panel_style("accent");
+        assert_eq!(named.fg, editor.theme.accent);
     }
 }
