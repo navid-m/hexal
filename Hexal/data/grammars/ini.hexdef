@@ -19,7 +19,8 @@
     ".wslconfig",
     ".buckconfig",
     ".directory",
-    ".properties"
+    ".properties",
+    ".ghostty"
   ],
   "keywords": [],
   "controlStatements": [],
