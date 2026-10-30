@@ -285,44 +285,101 @@ impl Editor {
         self.snap_cursor();
     }
 
+    fn current_jump_location(&self) -> JumpLocation {
+        let line = self.cursor_line();
+        let start = self.doc.line_start(line);
+        JumpLocation {
+            path: self.doc.path.clone(),
+            line,
+            column: self.cursor.saturating_sub(start),
+        }
+    }
+
     pub(super) fn record_jump(&mut self) {
-        if self.cursor == 0 {
+        let location = self.current_jump_location();
+        if self.jumps.last() == Some(&location) {
             return;
         }
-        if self.jumps.last() == Some(&self.cursor) {
-            return;
-        }
-        self.jumps.push(self.cursor);
+        self.jumps.push(location);
+        self.jump_forward.clear();
         if self.jumps.len() > 200 {
             self.jumps.remove(0);
         }
-        self.jump_index = self.jumps.len() as isize - 1;
     }
 
     pub(super) fn move_to_previous_location(&mut self) {
-        if self.jump_index > 0 {
-            self.jump_index -= 1;
-        }
-        if self.jump_index >= 0 {
-            if let Some(&offset) = self.jumps.get(self.jump_index as usize) {
-                self.cursor = offset;
-                self.preferred_column = None;
-                self.snap_cursor();
+        let Some(target) = self.jumps.pop() else {
+            if self.pane_count() > 1 {
+                self.switch_pane_by_offset(-1);
+            } else {
+                self.set_message("No previous location.");
             }
-        }
+            return;
+        };
+        let current = self.current_jump_location();
+        self.jump_forward.push(current);
+        self.navigate_to_jump(target);
     }
 
     pub(super) fn move_to_next_location(&mut self) {
-        if self.jump_index + 1 < self.jumps.len() as isize {
-            self.jump_index += 1;
-        }
-        if self.jump_index >= 0 {
-            if let Some(&offset) = self.jumps.get(self.jump_index as usize) {
-                self.cursor = offset;
-                self.preferred_column = None;
-                self.snap_cursor();
+        let Some(target) = self.jump_forward.pop() else {
+            if self.pane_count() > 1 {
+                self.switch_pane_by_offset(1);
+            } else {
+                self.set_message("No next location.");
             }
+            return;
+        };
+        let current = self.current_jump_location();
+        self.jumps.push(current);
+        self.navigate_to_jump(target);
+    }
+
+    fn navigate_to_jump(&mut self, location: JumpLocation) {
+        let same_file = match (self.doc.path.as_deref(), location.path.as_deref()) {
+            (None, None) => true,
+            (Some(current), Some(target)) => git::same_path(Path::new(current), Path::new(target)),
+            _ => false,
+        };
+        if same_file {
+            self.move_to_line_byte_column(location.line, location.column);
+            return;
         }
+        let Some(path) = location.path else {
+            self.set_error("The previous location is no longer open.");
+            return;
+        };
+        self.request_open_with_jump(&path, location.line, location.column, false, false);
+    }
+
+    fn move_to_line_byte_column(&mut self, line: usize, column: usize) {
+        if self.doc.line_count() == 0 {
+            return;
+        }
+        let line = line.min(self.doc.line_count() - 1);
+        let start = self.doc.line_start(line);
+        let text = self.doc.line_text(line);
+        let mut local = column.min(text.len());
+        while local < text.len() && (text[local] & 0xC0) == 0x80 {
+            local += 1;
+        }
+        self.cursor = (start + local).min(self.doc.line_end(line));
+        self.anchor = self.cursor;
+        self.selection_linewise = false;
+        self.mode = Mode::Normal;
+        self.preferred_column = None;
+        self.doc.break_undo_group();
+        self.snap_cursor();
+        self.ensure_cursor_visible();
+    }
+
+    fn switch_pane_by_offset(&mut self, offset: isize) {
+        let panes: Vec<PaneId> = self.pane_views().iter().map(|view| view.pane).collect();
+        let Some(index) = panes.iter().position(|pane| *pane == self.active_pane) else {
+            return;
+        };
+        let next = (index as isize + offset).rem_euclid(panes.len() as isize) as usize;
+        self.switch_to_pane(panes[next]);
     }
 
     pub(super) fn undo(&mut self) {
@@ -360,6 +417,53 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         Editor::new(Document::from_bytes(None, text.into_bytes()), 80, 24)
+    }
+
+    #[test]
+    fn location_keys_cycle_panes_without_navigation_history() {
+        let mut editor = editor_with_lines(3);
+        let first = editor.active_pane;
+        editor.split_pane(PaneSplitOrientation::Vertical);
+        let second = editor.active_pane;
+
+        editor.move_to_previous_location();
+        assert_eq!(editor.active_pane, first);
+
+        editor.move_to_next_location();
+        assert_eq!(editor.active_pane, second);
+    }
+
+    #[test]
+    fn previous_and_next_location_switch_files() {
+        let directory =
+            std::env::temp_dir().join(format!("hexal-jump-history-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let first = directory.join("first.txt");
+        let second = directory.join("second.txt");
+        std::fs::write(&first, b"first 0\nfirst 1\nfirst 2\n").unwrap();
+        std::fs::write(&second, b"second 0\nsecond 1\nsecond 2\n").unwrap();
+
+        let mut editor = Editor::new(Document::open(&first.to_string_lossy()).unwrap(), 80, 24);
+        editor.cursor = editor.doc.line_start(1);
+        editor.request_open(&second.to_string_lossy(), 2, 0, false);
+        assert_eq!(editor.cursor_line(), 2);
+
+        editor.move_to_previous_location();
+        assert!(git::same_path(
+            Path::new(editor.doc.path.as_deref().unwrap()),
+            &first
+        ));
+        assert_eq!(editor.cursor_line(), 1);
+
+        editor.move_to_next_location();
+        assert!(git::same_path(
+            Path::new(editor.doc.path.as_deref().unwrap()),
+            &second
+        ));
+        assert_eq!(editor.cursor_line(), 2);
+
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

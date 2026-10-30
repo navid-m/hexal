@@ -7,18 +7,36 @@ use super::*;
 
 impl Editor {
     pub(super) fn request_open(&mut self, raw_path: &str, line: usize, column: usize, force: bool) {
+        self.request_open_with_jump(raw_path, line, column, force, true);
+    }
+
+    pub(super) fn request_open_with_jump(
+        &mut self,
+        raw_path: &str,
+        line: usize,
+        column: usize,
+        force: bool,
+        record_jump: bool,
+    ) {
         let expanded = util::expand_home(raw_path);
         if self.doc.is_dirty() && !force {
             self.pending_path = Some(expanded);
             self.pending_line = line;
             self.pending_column = column;
+            self.pending_open_records_jump = record_jump;
             self.pending = Pending::Open;
             return;
         }
-        self.load_file(&expanded, line, column);
+        self.load_file_with_jump(&expanded, line, column, record_jump);
     }
 
-    pub(super) fn load_file(&mut self, path: &str, line: usize, column: usize) {
+    pub(super) fn load_file_with_jump(
+        &mut self,
+        path: &str,
+        line: usize,
+        column: usize,
+        record_jump: bool,
+    ) {
         let new_doc = match Document::open(path) {
             Ok(doc) => doc,
             Err(error) => {
@@ -26,6 +44,15 @@ impl Editor {
                 return;
             }
         };
+        if record_jump {
+            let switching = match self.doc.path.as_deref() {
+                Some(current) => !git::same_path(Path::new(current), Path::new(path)),
+                None => true,
+            };
+            if switching {
+                self.record_jump();
+            }
+        }
         self.fire_plugin_buffer_event("buffer_closed");
         self.assign_active_document(new_doc);
         self.mode = Mode::Normal;
@@ -39,8 +66,6 @@ impl Editor {
         self.find = FindState::new();
         self.extra_selections.clear();
         self.language_override = None;
-        self.jumps.clear();
-        self.jump_index = -1;
         self.refresh_language();
         self.auto_detect_indentation_on_open();
         self.refresh_git_diff();

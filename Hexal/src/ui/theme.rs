@@ -723,7 +723,7 @@ pub fn theme_directory() -> Option<PathBuf> {
 }
 
 pub fn home_directory() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    crate::util::home_directory()
 }
 
 pub fn active_theme_path() -> Option<PathBuf> {

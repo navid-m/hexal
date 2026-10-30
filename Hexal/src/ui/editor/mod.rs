@@ -373,6 +373,16 @@ enum PaneNode {
     },
 }
 
+/// A cursor position in the navigation history. The path is stored alongside
+/// the line and byte column so GP/GN can move between files instead of only
+/// within the active buffer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct JumpLocation {
+    path: Option<String>,
+    line: usize,
+    column: usize,
+}
+
 /// Everything that belongs to one split view rather than to the editor as a
 /// whole. Documents themselves live either in `Editor::doc` (the active one)
 /// or in `Editor::documents`, keyed by document id, so panes that show the
@@ -394,8 +404,8 @@ struct PaneState {
     mouse_dragging: bool,
     mouse_drag_anchor: usize,
     find: FindState,
-    jumps: Vec<usize>,
-    jump_index: isize,
+    jumps: Vec<JumpLocation>,
+    jump_forward: Vec<JumpLocation>,
     highlighter: Highlighter,
     git_diff: diff_lines::DiffLineState,
 }
@@ -727,6 +737,7 @@ pub struct Editor {
     pending_path: Option<String>,
     pending_line: usize,
     pending_column: usize,
+    pending_open_records_jump: bool,
     goto_prompt: Option<String>,
     goto_cursor: usize,
 
@@ -734,8 +745,8 @@ pub struct Editor {
     languages: Registry,
     highlighter: Highlighter,
     line_tokens: Vec<Token>,
-    jumps: Vec<usize>,
-    jump_index: isize,
+    jumps: Vec<JumpLocation>,
+    jump_forward: Vec<JumpLocation>,
 
     picker: Picker,
     picker_generation: u64,
@@ -901,6 +912,7 @@ impl Editor {
             pending_path: None,
             pending_line: 0,
             pending_column: 0,
+            pending_open_records_jump: true,
             goto_prompt: None,
             goto_cursor: 0,
             language_override: None,
@@ -908,7 +920,7 @@ impl Editor {
             highlighter: Highlighter::default(),
             line_tokens: Vec::new(),
             jumps: Vec::new(),
-            jump_index: -1,
+            jump_forward: Vec::new(),
             picker: Picker::new(),
             picker_generation: 0,
             picker_preview_path: String::new(),

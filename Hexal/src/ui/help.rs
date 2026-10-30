@@ -75,7 +75,7 @@ pub const HELP_LINES: &[HelpLine] = &[
     entry("gg / ge", "First / last line"),
     entry("PageUp / PageDown", "Move one screen up / down"),
     entry("Ctrl+Home / Ctrl+End", "Start / end of document"),
-    entry("g p", "Jump to the previous location"),
+    entry("g p / g n", "Go to the previous / next location or buffer"),
     entry("Space g", "Go to a line number"),
     blank(),
     section("Selection and editing"),

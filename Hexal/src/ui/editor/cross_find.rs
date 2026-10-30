@@ -759,7 +759,7 @@ mod tests {
             mouse_drag_anchor: 0,
             find: FindState::new(),
             jumps: Vec::new(),
-            jump_index: -1,
+            jump_forward: Vec::new(),
             highlighter: Highlighter::default(),
             git_diff: diff_lines::DiffLineState::new(),
         });

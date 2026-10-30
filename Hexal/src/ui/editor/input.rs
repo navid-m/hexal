@@ -843,7 +843,8 @@ impl Editor {
                     if let Some(path) = self.pending_path.take() {
                         let line = self.pending_line;
                         let column = self.pending_column;
-                        self.load_file(&path, line, column);
+                        let record_jump = self.pending_open_records_jump;
+                        self.load_file_with_jump(&path, line, column, record_jump);
                     }
                 }
                 Pending::SidebarDelete => self.delete_sidebar_paths(),
@@ -863,6 +864,7 @@ impl Editor {
     pub(super) fn cancel_pending(&mut self) {
         self.pending = Pending::None;
         self.pending_path = None;
+        self.pending_open_records_jump = true;
     }
 
     pub(super) fn open_goto_prompt(&mut self) {

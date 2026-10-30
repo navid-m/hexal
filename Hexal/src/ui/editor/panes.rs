@@ -36,7 +36,7 @@ impl Editor {
             mouse_drag_anchor: 0,
             find: FindState::new(),
             jumps: Vec::new(),
-            jump_index: -1,
+            jump_forward: Vec::new(),
             highlighter: Highlighter::default(),
             git_diff: diff_lines::DiffLineState::new(),
         }];
@@ -99,7 +99,7 @@ impl Editor {
         let mouse_drag_anchor = self.mouse_drag_anchor;
         let find = std::mem::replace(&mut self.find, FindState::new());
         let jumps = std::mem::take(&mut self.jumps);
-        let jump_index = self.jump_index;
+        let jump_forward = std::mem::take(&mut self.jump_forward);
         let highlighter = std::mem::take(&mut self.highlighter);
         let git_diff = std::mem::replace(&mut self.git_diff, diff_lines::DiffLineState::new());
 
@@ -119,7 +119,7 @@ impl Editor {
         pane.mouse_drag_anchor = mouse_drag_anchor;
         pane.find = find;
         pane.jumps = jumps;
-        pane.jump_index = jump_index;
+        pane.jump_forward = jump_forward;
         pane.highlighter = highlighter;
         pane.git_diff = git_diff;
     }
@@ -159,7 +159,7 @@ impl Editor {
         self.mouse_drag_anchor = pane.mouse_drag_anchor;
         self.find = std::mem::replace(&mut pane.find, FindState::new());
         self.jumps = std::mem::take(&mut pane.jumps);
-        self.jump_index = pane.jump_index;
+        self.jump_forward = std::mem::take(&mut pane.jump_forward);
         self.highlighter = std::mem::take(&mut pane.highlighter);
         self.git_diff = std::mem::replace(&mut pane.git_diff, diff_lines::DiffLineState::new());
         self.last_revision = self.doc.revision();
