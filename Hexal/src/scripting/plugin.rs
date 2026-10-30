@@ -1402,6 +1402,77 @@ mod tests {
     }
 
     #[test]
+    fn installed_pickcolor_plugin_edits_rgb_and_copies_values() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("plugins")
+            .join("pickcolor")
+            .join("init.lua");
+        if !source.is_file() {
+            return;
+        }
+
+        let root = temp_directory("pickcolor-rgb");
+        let mut manager = PluginManager::new(root.join("plugins"), None);
+        let mut document = Document::new();
+        let mut cursor = 0usize;
+        manager.set_context("scratch".into(), "text".into(), None, 80, 24, None);
+        manager
+            .load_file_plugin(&source.to_string_lossy(), &mut document, &mut cursor)
+            .unwrap();
+        assert!(manager.errors().is_empty(), "{:?}", manager.errors());
+        assert!(
+            manager
+                .execute_command("pc", &[], &mut document, &mut cursor)
+                .unwrap()
+        );
+
+        let panel_id = manager.panels()[0].id;
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "i", 0, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        for key in ["1", "2", "3", "tab", "4", "5", "tab", "6", "7"] {
+            assert_eq!(
+                manager.handle_panel_key(panel_id, key, 0, &mut document, &mut cursor),
+                Some(Ok(true)),
+                "key {key}"
+            );
+        }
+
+        let shown: String = manager.panels()[0]
+            .lines
+            .iter()
+            .flat_map(|line| line.segments.iter().map(|segment| segment.text.as_str()))
+            .collect();
+        assert!(shown.contains("#7b2d43"), "{shown}");
+        assert!(shown.contains("rgb(123, 45, 67)"), "{shown}");
+
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "h", 0, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert_eq!(manager.take_effects().clipboard.as_deref(), Some("#7b2d43"));
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "r", 0, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert_eq!(
+            manager.take_effects().clipboard.as_deref(),
+            Some("rgb(123, 45, 67)")
+        );
+
+        assert_eq!(
+            manager.handle_panel_key(panel_id, "enter", 0, &mut document, &mut cursor),
+            Some(Ok(true))
+        );
+        assert!(manager.panels().is_empty());
+        assert_eq!(document.all_text(), b"#7b2d43");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn get_workspace_root_returns_the_configured_project_root() {
         let root = temp_directory("workspace-root");
         let plugin = root.join("plugins").join("root");
