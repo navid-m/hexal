@@ -1,0 +1,35 @@
+{
+  "id": "hexal-light",
+  "name": "Hexal Light",
+  "description": "Balanced soft light theme with subtle contrast and clear accents.",
+  "colors": {
+    "foreground": "#2c3038",
+    "background": "#d8dee5",
+    "muted": "#8b919c",
+    "dimmed": "#6b7280",
+    "accent": "#0ea5e9",
+    "border": "#000000",
+    "error": "#e11d48",
+    "warning": "#d97706",
+    "success": "#16a34a",
+    "gitModified": "#0891b2",
+    "alert": { "fg": "#ffffff", "bg": "#e11d48" },
+    "selection": { "fg": "#2c3038", "bg": "#bae6fd" },
+    "status": { "fg": "#2c3038", "bg": "#e5e7eb" },
+    "insert": { "fg": "#ffffff", "bg": "#16a34a" },
+    "select": { "fg": "#ffffff", "bg": "#d97706" },
+    "prompt": { "fg": "#ffffff", "bg": "#0ea5e9" },
+    "command": { "fg": "#ffffff", "bg": "#0ea5e9" },
+    "match": { "fg": "#2c3038", "bg": "#fde68a" },
+    "currentMatch": { "fg": "#ffffff", "bg": "#16a34a" },
+    "syntax": {
+      "keyword": "#7c3aed",
+      "control": "#2563eb",
+      "type": "#0891b2",
+      "constant": "#ea580c",
+      "string": "#16a34a",
+      "comment": "#8b919c",
+      "number": "#ea580c"
+    }
+  }
+}
