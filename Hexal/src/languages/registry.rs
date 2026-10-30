@@ -349,7 +349,7 @@ fn home_directory() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{json, merge_grammar, Registry, Value};
+    use super::{Registry, Value, json, merge_grammar};
 
     #[test]
     fn lazy_metadata_matches_the_parsed_definitions() {

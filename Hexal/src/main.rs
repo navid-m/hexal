@@ -38,40 +38,35 @@ const HELP_TEXT: &str = concat!(
     "Usage: \n",
     "  hexal [opts] file\n",
     "  hexal [opts] directory\n",
-    "  hexal install-plugin <name>\n",
     "\n",
     "Options:\n",
-    "  -h, --help          Print this help and exit\n",
-    "  -v, --version       Print the version and exit\n",
-    "  -vv, --verbose      Write a verbose startup trace to ~/.hexal/hexal.log\n",
-    "  --health [lang]     Show language support health and exit\n",
-    "  --p-bench [opts]    Benchmark a plugin\n",
-    "  --                  Treat remaining arguments as file names\n",
+    "  -h, --help               Print this help and exit\n",
+    "  -v, --version            Print the version and exit\n",
+    "  -vv, --verbose           Write a verbose startup trace to ~/.hexal/hexal.log\n",
+    "  --health [lang]          Show language support health and exit\n",
+    "  --install-plugin <name>  Install a plugin and exit\n",
+    "  --bench-plugin [opts]    Benchmark a plugin\n",
+    "  --                       Treat remaining arguments as file names\n",
 );
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     util::trace::begin(&args);
-    if args.get(1).map(String::as_str) == Some("--p-bench") {
+    if args.get(1).map(String::as_str) == Some("--bench-plugin") {
         if let Err(error) = run_lua_bench(&args[2..]) {
-            eprintln!("hexal: plugin bench: {error}");
+            eprintln!("hexal: bench plugin: {error}");
             std::process::exit(1);
         }
         return;
     }
-    if args
-        .get(1)
-        .is_some_and(|argument| argument.eq_ignore_ascii_case("install-plugin"))
-    {
-        std::process::exit(run_install_plugin(&args[1..]));
-    }
-
     let parse_started = util::trace::timestamp();
     let mut file: Option<String> = None;
     let mut directory: Option<String> = None;
     let mut options_ended = false;
     let mut health = false;
     let mut health_language: Option<String> = None;
+    let mut install_plugin: Option<String> = None;
+    let mut install_plugin_pending = false;
 
     for arg in args.iter().skip(1) {
         if !options_ended && arg == "--" {
@@ -88,6 +83,23 @@ fn main() {
         }
         if !options_ended && (arg == "-vv" || arg == "--verbose") {
             continue;
+        }
+        if !options_ended && arg == "--install-plugin" {
+            if install_plugin.is_some() || install_plugin_pending {
+                eprintln!("hexal: --install-plugin accepts exactly one plugin name");
+                std::process::exit(2);
+            }
+            install_plugin_pending = true;
+            continue;
+        }
+        if install_plugin_pending {
+            install_plugin = Some(arg.clone());
+            install_plugin_pending = false;
+            continue;
+        }
+        if install_plugin.is_some() {
+            eprintln!("hexal: --install-plugin accepts exactly one plugin name");
+            std::process::exit(2);
         }
         if !options_ended && arg == "--health" {
             health = true;
@@ -139,6 +151,13 @@ fn main() {
         }
     }
 
+    if install_plugin_pending {
+        eprintln!("usage: hexal --install-plugin <name>");
+        std::process::exit(2);
+    }
+    if let Some(name) = install_plugin {
+        std::process::exit(run_install_plugin(&name));
+    }
     if health {
         match languages::health::print_report(health_language.as_deref()) {
             Ok(()) => return,
@@ -222,12 +241,7 @@ fn absolute_path(path: &str) -> String {
     }
 }
 
-fn run_install_plugin(arguments: &[String]) -> i32 {
-    if arguments.len() != 2 {
-        eprintln!("usage: hexal install-plugin <name>");
-        return 2;
-    }
-
+fn run_install_plugin(name: &str) -> i32 {
     let (config, config_error) = core::config::Config::load_default();
     if !config_error.is_empty() {
         eprintln!("hexal: config: {config_error}");
@@ -239,9 +253,9 @@ fn run_install_plugin(arguments: &[String]) -> i32 {
         config.central_repository_url.trim()
     };
     let directory = util::plugin_install::plugin_directory();
-    match util::plugin_install::install(&arguments[1], repository, &directory) {
+    match util::plugin_install::install(name, repository, &directory) {
         Ok(path) => {
-            println!("Installed plugin '{}' to {}", arguments[1], path.display());
+            println!("Installed plugin '{name}' to {}", path.display());
             0
         }
         Err(error) => {
@@ -253,7 +267,9 @@ fn run_install_plugin(arguments: &[String]) -> i32 {
 
 fn run_lua_bench(args: &[String]) -> Result<(), String> {
     if args.len() < 3 || args.len() > 4 {
-        return Err("usage: hexal --p-bench <plugin.lua> <command> <iterations> [file]".into());
+        return Err(
+            "usage: hexal --bench-plugin <plugin.lua> <command> <iterations> [file]".into(),
+        );
     }
     let plugin = &args[0];
     let command = &args[1];
@@ -275,7 +291,7 @@ fn run_lua_bench(args: &[String]) -> Result<(), String> {
     let _ = &cursor;
     let host = std::rc::Rc::new(std::cell::RefCell::new(scripting::lua::HostState::default()));
     let start = std::time::Instant::now();
-    let mut runtime = LuaRuntime::new("p-bench", ".", host)
+    let mut runtime = LuaRuntime::new("bench-plugin", ".", host)
         .map_err(|error| format!("cannot start Lua: {error}"))?;
     runtime
         .load_file(plugin)
