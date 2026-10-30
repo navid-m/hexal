@@ -97,6 +97,9 @@ pub struct Language {
     case_insensitive: bool,
 
     pub line_comment: Option<String>,
+    /// Additional single-line markers that may start a comment, such as `;`
+    /// in INI files. The primary marker remains `line_comment`.
+    pub alternative_line_comments: Vec<String>,
     pub block_comment_start: Option<String>,
     pub block_comment_end: Option<String>,
     pub quote_characters: Vec<Vec<u8>>,
@@ -117,6 +120,15 @@ pub struct Language {
 }
 
 impl Language {
+    /// The primary line-comment marker followed by any alternatives.
+    pub fn line_comments(&self) -> impl Iterator<Item = &str> {
+        self.line_comment
+            .as_deref()
+            .filter(|marker| !marker.is_empty())
+            .into_iter()
+            .chain(self.alternative_line_comments.iter().map(String::as_str))
+    }
+
     pub fn classify_identifier(&self, identifier: &[u8]) -> SyntaxKind {
         if identifier.is_empty() {
             return SyntaxKind::Default;
@@ -966,11 +978,15 @@ impl Language {
         read_set(&root, "constants", &mut builder, SyntaxKind::Constant);
 
         let mut line_comment = None;
+        let mut alternative_line_comments = Vec::new();
         let mut block_start = None;
         let mut block_end = None;
         if let Some(comments) = root.get("comments") {
             if matches!(comments, Value::Object(_)) {
                 line_comment = string_value(comments.get("line"));
+                alternative_line_comments = string_array(comments, "alternativeLineComments");
+                alternative_line_comments
+                    .extend(string_array(comments, "alternative_line_comments"));
                 block_start = string_value(comments.get("blockStart"))
                     .or_else(|| string_value(comments.get("start")));
                 block_end = string_value(comments.get("blockEnd"))
@@ -980,6 +996,8 @@ impl Language {
         if line_comment.is_none() {
             line_comment = string_value(root.get("lineComment"));
         }
+        alternative_line_comments.extend(string_array(&root, "alternativeLineComments"));
+        alternative_line_comments.extend(string_array(&root, "alternative_line_comments"));
         if let Some(block) = root.get("blockComment") {
             if matches!(block, Value::Object(_)) {
                 if block_start.is_none() {
@@ -1032,6 +1050,18 @@ impl Language {
         if line_comment.as_deref() == Some("") {
             line_comment = None;
         }
+        let mut unique_alternatives = Vec::with_capacity(alternative_line_comments.len());
+        for marker in alternative_line_comments {
+            if marker.is_empty()
+                || line_comment.as_deref() == Some(marker.as_str())
+                || unique_alternatives
+                    .iter()
+                    .any(|existing| existing == &marker)
+            {
+                continue;
+            }
+            unique_alternatives.push(marker);
+        }
         if block_start.as_deref() == Some("") {
             block_start = None;
             block_end = None;
@@ -1068,6 +1098,7 @@ impl Language {
             classifications: builder.classifications,
             case_insensitive,
             line_comment,
+            alternative_line_comments: unique_alternatives,
             block_comment_start: block_start,
             block_comment_end: block_end,
             quote_characters,

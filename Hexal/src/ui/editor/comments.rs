@@ -23,10 +23,10 @@ impl Editor {
             self.set_error("No comment syntax is available for this language.");
             return;
         };
-        let line_comment = language.line_comment.clone();
+        let line_comments: Vec<String> = language.line_comments().map(str::to_string).collect();
         let block_start = language.block_comment_start.clone();
         let block_end = language.block_comment_end.clone();
-        if line_comment.is_none()
+        if line_comments.is_empty()
             && (block_start.as_deref().unwrap_or("").is_empty()
                 || block_end.as_deref().unwrap_or("").is_empty())
         {
@@ -44,8 +44,8 @@ impl Editor {
         }
 
         self.doc.break_undo_group();
-        if let Some(marker) = line_comment {
-            self.toggle_line_comments(&touched, &marker);
+        if !line_comments.is_empty() {
+            self.toggle_line_comments(&touched, &line_comments);
         } else {
             self.toggle_block_comments(
                 &touched,
@@ -94,13 +94,16 @@ impl Editor {
         }
     }
 
-    fn toggle_line_comments(&mut self, lines: &BTreeSet<usize>, marker: &str) {
-        let marker = marker.as_bytes();
+    fn toggle_line_comments(&mut self, lines: &BTreeSet<usize>, markers: &[String]) {
+        let Some(primary) = markers.iter().find(|marker| !marker.is_empty()) else {
+            return;
+        };
+        let primary = primary.as_bytes();
         let mut all_commented = true;
         for line in lines {
             let text = self.doc.line_text(*line);
             let indent = indent_length(&text);
-            if !starts_with(&text[indent..], marker) {
+            if matching_line_marker(&text[indent..], markers).is_none() {
                 all_commented = false;
                 break;
             }
@@ -112,14 +115,17 @@ impl Editor {
             let text = self.doc.line_text(*line);
             let indent = indent_length(&text);
             if all_commented {
+                let Some(marker) = matching_line_marker(&text[indent..], markers) else {
+                    continue;
+                };
                 let mut remove = marker.len();
                 let after = indent + remove;
                 if after < text.len() && text[after] == b' ' {
                     remove += 1;
                 }
                 changes.push((line_start + indent, remove, Vec::new()));
-            } else {
-                let mut insert = marker.to_vec();
+            } else if matching_line_marker(&text[indent..], markers).is_none() {
+                let mut insert = primary.to_vec();
                 if indent < text.len() {
                     insert.push(b' ');
                 }
@@ -233,10 +239,10 @@ impl Editor {
             self.set_error("No language is active for this buffer.");
             return;
         };
-        let line_comment = language.line_comment.clone().unwrap_or_default();
+        let line_comments: Vec<String> = language.line_comments().map(str::to_string).collect();
         let block_start = language.block_comment_start.clone().unwrap_or_default();
         let block_end = language.block_comment_end.clone().unwrap_or_default();
-        if line_comment.is_empty() && (block_start.is_empty() || block_end.is_empty()) {
+        if line_comments.is_empty() && (block_start.is_empty() || block_end.is_empty()) {
             self.set_error(&format!(
                 "No comment syntax is configured for {}.",
                 language.name
@@ -255,7 +261,7 @@ impl Editor {
             &selection,
             start,
             line_start,
-            &line_comment,
+            &line_comments,
             &block_start,
             &block_end,
             &language.quote_characters,
@@ -298,6 +304,16 @@ fn starts_with(text: &[u8], prefix: &[u8]) -> bool {
     !prefix.is_empty() && text.len() >= prefix.len() && &text[..prefix.len()] == prefix
 }
 
+/// Returns the longest configured marker at the start of `text`, so that an
+/// overlapping marker such as `//` is preferred over `/` when both are valid.
+fn matching_line_marker<'a>(text: &[u8], markers: &'a [String]) -> Option<&'a str> {
+    markers
+        .iter()
+        .filter(|marker| starts_with(text, marker.as_bytes()))
+        .max_by_key(|marker| marker.len())
+        .map(String::as_str)
+}
+
 fn ends_with(text: &[u8], suffix: &[u8]) -> bool {
     !suffix.is_empty() && text.len() >= suffix.len() && &text[text.len() - suffix.len()..] == suffix
 }
@@ -307,13 +323,18 @@ fn strip_comments(
     text: &[u8],
     selection_start: usize,
     document_line_start: usize,
-    line_comment: &str,
+    line_comments: &[String],
     block_start: &str,
     block_end: &str,
     quote_characters: &[Vec<u8>],
     escape: &[u8],
 ) -> (Vec<u8>, bool) {
-    let line_marker = line_comment.as_bytes();
+    let mut line_markers: Vec<&[u8]> = line_comments
+        .iter()
+        .map(String::as_bytes)
+        .filter(|marker| !marker.is_empty())
+        .collect();
+    line_markers.sort_by(|left, right| right.len().cmp(&left.len()));
     let block_start_bytes = block_start.as_bytes();
     let block_end_bytes = block_end.as_bytes();
     let mut quote_tokens: Vec<&[u8]> = quote_characters
@@ -434,7 +455,10 @@ fn strip_comments(
             continue;
         }
 
-        if !line_marker.is_empty() && starts_with(&text[index..], line_marker) {
+        if line_markers
+            .iter()
+            .any(|marker| starts_with(&text[index..], marker))
+        {
             removed = true;
             let line_end = find_line_end(text, index);
             let content_end = if line_end > index && text[line_end - 1] == b'\r' {
@@ -555,5 +579,37 @@ mod tests {
         assert_eq!(editor.doc.all_text(), b"[[ note ]]\n");
         editor.toggle_comment();
         assert_eq!(editor.doc.all_text(), b"-- [[ note ]]\n");
+    }
+
+    #[test]
+    fn recognizes_alternative_line_comment_markers() {
+        let mut editor = editor("test.ini", b"; note\n");
+        editor.toggle_comment();
+        assert_eq!(editor.doc.all_text(), b"note\n");
+        editor.toggle_comment();
+        assert_eq!(editor.doc.all_text(), b"# note\n");
+    }
+
+    #[test]
+    fn mixed_alternative_markers_are_recognized() {
+        let mut editor = editor("test.ini", b"; one\n# two\nthree");
+        editor.mode = Mode::Select;
+        editor.selection_linewise = true;
+        editor.anchor = 0;
+        editor.cursor = editor.doc.size();
+        editor.toggle_comment();
+        assert_eq!(editor.doc.all_text(), b"; one\n# two\n# three");
+        editor.toggle_comment();
+        assert_eq!(editor.doc.all_text(), b"one\ntwo\nthree");
+    }
+
+    #[test]
+    fn removes_alternative_line_comments() {
+        let mut editor = editor("test.ini", b"; one\n# two\nlet x = 1");
+        editor.mode = Mode::Select;
+        editor.anchor = 0;
+        editor.cursor = editor.doc.size();
+        editor.remove_comments_from_selection();
+        assert_eq!(editor.doc.all_text(), b"let x = 1");
     }
 }

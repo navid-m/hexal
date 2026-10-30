@@ -239,7 +239,6 @@ pub fn tokenize_line(
 
     let block_start = language.block_comment_start.as_ref().map(String::as_bytes);
     let block_end = language.block_comment_end.as_ref().map(String::as_bytes);
-    let line_comment = language.line_comment.as_ref().map(String::as_bytes);
 
     while offset < text.len() {
         if in_block {
@@ -276,11 +275,12 @@ pub fn tokenize_line(
             }
         }
 
-        if let Some(marker) = line_comment {
-            if starts_with(text, offset, marker) {
-                add_token(tokens, offset, text.len(), SyntaxKind::Comment);
-                break;
-            }
+        if language
+            .line_comments()
+            .any(|marker| starts_with(text, offset, marker.as_bytes()))
+        {
+            add_token(tokens, offset, text.len(), SyntaxKind::Comment);
+            break;
         }
 
         let quote_length = match_quote(text, offset, &language.quote_characters);
@@ -440,5 +440,20 @@ mod tests {
         assert_eq!(tokens[0].kind, SyntaxKind::Added);
         tokenize_line(language, b"- removed", false, &mut tokens);
         assert_eq!(tokens[0].kind, SyntaxKind::Deleted);
+    }
+
+    #[test]
+    fn highlights_alternative_line_comments() {
+        let registry = Registry::load();
+        let language = registry.find("ini").unwrap();
+        for line in [&b"# comment"[..], &b"; comment"[..]] {
+            let mut tokens = Vec::new();
+            tokenize_line(language, line, false, &mut tokens);
+            assert!(
+                tokens.iter().any(|token| token.kind == SyntaxKind::Comment),
+                "line was not highlighted as a comment: {}",
+                String::from_utf8_lossy(line)
+            );
+        }
     }
 }

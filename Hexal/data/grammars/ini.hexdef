@@ -26,7 +26,8 @@
   "types": [],
   "constants": ["true", "false", "yes", "no", "on", "off"],
   "comments": {
-    "line": "#"
+    "line": "#",
+    "alternativeLineComments": [";"]
   },
   "strings": {
     "quoteCharacters": ["\"", "'"],

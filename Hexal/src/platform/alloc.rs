@@ -121,8 +121,6 @@ unsafe impl GlobalAlloc for LargeCacheAllocator {
             if !pointer.is_null() {
                 return pointer;
             }
-            // Do not fall back to `System` here: `dealloc` treats every large
-            // allocation as an mmap and must not receive a malloc pointer.
             return std::ptr::null_mut();
         }
         unsafe { System.alloc(layout) }
