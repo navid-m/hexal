@@ -77,9 +77,7 @@
   ],
   "constants": ["true", "false"],
   "comments": {
-    "line": "//",
-    "blockStart": "/*",
-    "blockEnd": "*/"
+    "line": "//"
   },
   "strings": {
     "quoteCharacters": ["\""],
@@ -87,5 +85,12 @@
   },
   "numbers": true,
   "indentAfter": ["=>"],
-  "unindentBefore": ["}", "else", "elif"]
+  "unindentBefore": ["}", "else", "elif"],
+  "formatter": {
+    "command": "spectre",
+    "arguments": ["fmt", "--stdio", "{tmp}"],
+    "input": "file",
+    "output": "stdout",
+    "timeout": 30000
+  }
 }
