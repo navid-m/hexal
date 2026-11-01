@@ -50,7 +50,8 @@
     "in",
     "match",
     "return",
-    "when"
+    "when",
+    "otherwise"
   ],
   "types": [
     "bool",
@@ -73,7 +74,8 @@
     "list",
     "array",
     "ref",
-    "mut"
+    "mut",
+    "untyped"
   ],
   "constants": ["true", "false"],
   "comments": {
