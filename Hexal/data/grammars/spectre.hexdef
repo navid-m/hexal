@@ -36,7 +36,8 @@
     "type",
     "union",
     "use",
-    "val"
+    "val",
+    "lib"
   ],
   "controlStatements": [
     "break",
