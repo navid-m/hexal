@@ -95,5 +95,15 @@
     "input": "file",
     "output": "stdout",
     "timeout": 30000
+  },
+  "debugger": {
+    "adapter": "phantom",
+    "arguments": ["dap", "-backend", "lldb"],
+    "configuration": {
+      "request": "launch",
+      "program": "${file}",
+      "args": [],
+      "cwd": "${workspace}"
+    }
   }
 }
