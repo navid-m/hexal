@@ -33,6 +33,7 @@
     "spec",
     "test",
     "trust",
+    "pure",
     "type",
     "union",
     "use",
