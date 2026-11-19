@@ -391,6 +391,24 @@ mod tests {
                 .map(|language| language.id.as_str()),
             Some("toml")
         );
+        assert_eq!(
+            registry
+                .detect("script.bx")
+                .map(|language| language.id.as_str()),
+            Some("blood")
+        );
+        assert_eq!(
+            registry
+                .detect("script.blood")
+                .map(|language| language.id.as_str()),
+            Some("blood")
+        );
+        assert_eq!(
+            registry
+                .detect(".bloodrc")
+                .map(|language| language.id.as_str()),
+            Some("blood")
+        );
         let rust = registry.find("rust").unwrap();
         let debugger = rust.debugger.as_ref().unwrap();
         assert_eq!(debugger.adapter, "lldb-dap");
