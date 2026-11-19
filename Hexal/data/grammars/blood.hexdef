@@ -79,7 +79,8 @@
     "say",
     "throw",
     "try",
-    "while"
+    "while",
+    "defer"
   ],
   "types": [
     "bool",
