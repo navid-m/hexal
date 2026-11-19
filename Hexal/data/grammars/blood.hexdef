@@ -13,6 +13,7 @@
   "keywords": [
     "abs",
     "alias",
+    "var",
     "and",
     "append_file",
     "capture",
