@@ -13,6 +13,8 @@
   "keywords": [
     "abs",
     "alias",
+    "const",
+    "pub",
     "var",
     "and",
     "append_file",
@@ -83,24 +85,8 @@
     "while",
     "defer"
   ],
-  "types": [
-    "bool",
-    "dict",
-    "float",
-    "function",
-    "int",
-    "list",
-    "string"
-  ],
-  "constants": [
-    "true",
-    "false",
-    "null",
-    "none",
-    "status",
-    "args",
-    "__file__"
-  ],
+  "types": ["bool", "dict", "float", "function", "int", "list", "string"],
+  "constants": ["true", "false", "null", "none", "status", "args", "__file__"],
   "comments": {
     "line": "#"
   },
