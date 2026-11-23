@@ -15,6 +15,7 @@
     "alias",
     "const",
     "pub",
+    "reduce",
     "var",
     "and",
     "append_file",
