@@ -98,4 +98,10 @@
   "numbers": true,
   "indentAfter": ["{", ":"],
   "unindentBefore": ["}", "]", ")", "elif", "else", "catch", "except"]
+  "fallbackLsp": {
+    "name": "blood-lsp",
+    "command": "blood",
+    "arguments": ["-lsp"],
+    "languageId": "blood"
+  }
 }
